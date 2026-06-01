@@ -59,16 +59,16 @@ func TestAgentCapabilityResponse_JSON(t *testing.T) {
 	}{
 		{
 			name:    "basic response",
-			jsonStr: `{"ansName":"ans://v1.0.0.myagent.example.com"}`,
+			jsonStr: `{"ansName":"ati://v1.0.0.myagent.example.com"}`,
 			want: AgentCapabilityResponse{
-				AnsName: "ans://v1.0.0.myagent.example.com",
+				ATIName: "ati://v1.0.0.myagent.example.com",
 			},
 		},
 		{
 			name:    "response with links",
-			jsonStr: `{"ansName":"ans://v2.0.0.agent.test.com","links":[{"href":"https://api.example.com/v1/agents/123","rel":"self"}]}`,
+			jsonStr: `{"ansName":"ati://v2.0.0.agent.test.com","links":[{"href":"https://api.example.com/v1/agents/123","rel":"self"}]}`,
 			want: AgentCapabilityResponse{
-				AnsName: "ans://v2.0.0.agent.test.com",
+				ATIName: "ati://v2.0.0.agent.test.com",
 				Links: []Link{
 					{Href: "https://api.example.com/v1/agents/123", Rel: "self"},
 				},
@@ -83,8 +83,8 @@ func TestAgentCapabilityResponse_JSON(t *testing.T) {
 				t.Fatalf("failed to unmarshal: %v", err)
 			}
 
-			if got.AnsName != tt.want.AnsName {
-				t.Errorf("AnsName mismatch: got %q, want %q", got.AnsName, tt.want.AnsName)
+			if got.ATIName != tt.want.ATIName {
+				t.Errorf("ATIName mismatch: got %q, want %q", got.ATIName, tt.want.ATIName)
 			}
 
 			if len(got.Links) != len(tt.want.Links) {

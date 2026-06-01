@@ -99,7 +99,7 @@ func TestFqdn(t *testing.T) {
 	}
 }
 
-func TestFqdn_AnsBadgeName(t *testing.T) {
+func TestFqdn_ATIBadgeName(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -108,12 +108,12 @@ func TestFqdn_AnsBadgeName(t *testing.T) {
 		{
 			name:  "simple fqdn",
 			input: "agent.example.com",
-			want:  "_ans-badge.agent.example.com",
+			want:  "_ati-badge.agent.example.com",
 		},
 		{
 			name:  "subdomain fqdn",
 			input: "ote.agent.cs3p.com",
-			want:  "_ans-badge.ote.agent.cs3p.com",
+			want:  "_ati-badge.ote.agent.cs3p.com",
 		},
 	}
 
@@ -123,9 +123,9 @@ func TestFqdn_AnsBadgeName(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFqdn(%q) unexpected error: %v", tt.input, err)
 			}
-			got := fqdn.AnsBadgeName()
+			got := fqdn.ATIBadgeName()
 			if got != tt.want {
-				t.Errorf("AnsBadgeName() = %q, want %q", got, tt.want)
+				t.Errorf("ATIBadgeName() = %q, want %q", got, tt.want)
 			}
 		})
 	}

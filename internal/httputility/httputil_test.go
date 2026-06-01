@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 func TestDoRequest(t *testing.T) {

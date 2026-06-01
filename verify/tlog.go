@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 // Default HTTP client configuration values.

@@ -1,4 +1,4 @@
-// Package verify provides ANS trust verification functionality.
+// Package verify provides ATI trust verification functionality.
 package verify
 
 import (
@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 // CertFingerprint represents a SHA-256 certificate fingerprint.
@@ -89,55 +89,55 @@ func (f CertFingerprint) IsZero() bool {
 	return f.bytes == [32]byte{}
 }
 
-// AnsName represents an ANS name URI (e.g., ans://v1.0.0.agent.example.com).
-type AnsName struct {
+// ATIName represents an ANS name URI (e.g., ati://v1.0.0.agent.example.com).
+type ATIName struct {
 	Version models.Version
 	Host    string
 	raw     string
 }
 
-// ParseAnsName parses an ANS name from a URI string.
-// Format: ans://v<major>.<minor>.<patch>.<fqdn>
-func ParseAnsName(uri string) (*AnsName, error) {
-	const prefix = "ans://"
+// ParseATIName parses an ANS name from a URI string.
+// Format: ati://v<major>.<minor>.<patch>.<fqdn>
+func ParseATIName(uri string) (*ATIName, error) {
+	const prefix = "ati://"
 
 	if uri == "" {
-		return nil, errors.New("empty ANS name")
+		return nil, errors.New("empty ATI name")
 	}
 
 	if !strings.HasPrefix(uri, prefix) {
-		return nil, fmt.Errorf("ANS name must start with '%s': %s", prefix, uri)
+		return nil, fmt.Errorf("ATI name must start with '%s': %s", prefix, uri)
 	}
 
 	rest := uri[len(prefix):]
 
 	// The format is: v<major>.<minor>.<patch>.<fqdn>
 	if !strings.HasPrefix(rest, "v") {
-		return nil, fmt.Errorf("ANS name version must start with 'v': %s", uri)
+		return nil, fmt.Errorf("ATI name version must start with 'v': %s", uri)
 	}
 
-	const minAnsNameParts = 4 // v<major>.<minor>.<patch>.<fqdn>
-	parts := strings.SplitN(rest, ".", minAnsNameParts)
-	if len(parts) < minAnsNameParts {
-		return nil, fmt.Errorf("ANS name must have version and FQDN: %s", uri)
+	const minATINameParts = 4 // v<major>.<minor>.<patch>.<fqdn>
+	parts := strings.SplitN(rest, ".", minATINameParts)
+	if len(parts) < minATINameParts {
+		return nil, fmt.Errorf("ATI name must have version and FQDN: %s", uri)
 	}
 
 	// Parse version from first 3 parts (including the 'v' prefix)
 	versionStr := fmt.Sprintf("%s.%s.%s", parts[0], parts[1], parts[2])
 	version, err := models.ParseVersion(versionStr)
 	if err != nil {
-		return nil, fmt.Errorf("invalid version in ANS name: %w", err)
+		return nil, fmt.Errorf("invalid version in ATI name: %w", err)
 	}
 
-	return &AnsName{
+	return &ATIName{
 		Version: version,
 		Host:    strings.ToLower(parts[3]),
 		raw:     uri,
 	}, nil
 }
 
-// String returns the raw ANS name URI.
-func (a *AnsName) String() string {
+// String returns the raw ATI name URI.
+func (a *ATIName) String() string {
 	return a.raw
 }
 
@@ -214,23 +214,23 @@ func (c *CertIdentity) FQDN() *string {
 	return c.CommonName
 }
 
-// AnsName extracts the ANS name from URI SANs.
-func (c *CertIdentity) AnsName() *AnsName {
+// ATIName extracts the ANS name from URI SANs.
+func (c *CertIdentity) ATIName() *ATIName {
 	for _, uri := range c.URISANs {
-		if strings.HasPrefix(uri, "ans://") {
-			if ans, err := ParseAnsName(uri); err == nil {
-				return ans
+		if strings.HasPrefix(uri, "ati://") {
+			if name, err := ParseATIName(uri); err == nil {
+				return name
 			}
 		}
 	}
 	return nil
 }
 
-// Version extracts the version from ANS name in URI SAN.
+// Version extracts the version from ATI name in URI SAN.
 func (c *CertIdentity) Version() *models.Version {
-	ans := c.AnsName()
-	if ans != nil {
-		return &ans.Version
+	name := c.ATIName()
+	if name != nil {
+		return &name.Version
 	}
 	return nil
 }

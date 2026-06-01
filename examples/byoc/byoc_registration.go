@@ -26,9 +26,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/godaddy/ans-sdk-go/ans"
-	"github.com/godaddy/ans-sdk-go/keygen"
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/internal/registry"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/keygen"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 func main() {
@@ -43,10 +43,10 @@ func main() {
 	)
 
 	// Get API credentials from environment
-	apiKey := os.Getenv("ANS_API_KEY")
-	apiSecret := os.Getenv("ANS_API_SECRET")
+	apiKey := os.Getenv("ATI_API_KEY")
+	apiSecret := os.Getenv("ATI_API_SECRET")
 	if apiKey == "" || apiSecret == "" {
-		log.Fatal("ANS_API_KEY and ANS_API_SECRET environment variables are required")
+		log.Fatal("ATI_API_KEY and ATI_API_SECRET environment variables are required")
 	}
 
 	// Step 1: Generate identity key pair and CSR
@@ -93,9 +93,9 @@ func main() {
 
 	// Step 3: Create ANS client
 	fmt.Println("Creating ANS client...")
-	client, err := ans.NewClient(
-		ans.WithBaseURL("https://api.ote-godaddy.com"), // Use ote for testing
-		ans.WithAPIKey(apiKey, apiSecret),
+	client, err := registry.NewClient(
+		registry.WithBaseURL("https://ra.ansagent.cn:8180/ans/api/v1"), // Use ote for testing
+		registry.WithAPIKey(apiKey, apiSecret),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
@@ -139,7 +139,7 @@ func main() {
 	// Step 6: Handle registration response
 	fmt.Println("\n=== Registration Submitted ===")
 	fmt.Printf("Status:   %s\n", result.Status)
-	fmt.Printf("ANS Name: %s\n", result.ANSName)
+	fmt.Printf("ANS Name: %s\n", result.ATIName)
 	if result.AgentID != "" {
 		fmt.Printf("Agent ID: %s\n", result.AgentID)
 	}

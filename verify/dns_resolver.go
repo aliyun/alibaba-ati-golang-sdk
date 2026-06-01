@@ -7,14 +7,14 @@ import (
 	"sort"
 	"time"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 // Default DNS configuration values.
 const defaultDNSTimeoutSeconds = 10
 
 // ErrRecordNotFound is returned when no matching badge record is found.
-// This is not an error condition - it means the FQDN is not an ANS agent.
+// This is not an error condition - it means the FQDN is not an ATI agent.
 var ErrRecordNotFound = errors.New("no matching badge record found")
 
 // StandardDNSResolver implements DNSResolver using Go's net.Resolver.
@@ -43,12 +43,12 @@ func (r *StandardDNSResolver) WithTimeout(timeout time.Duration) *StandardDNSRes
 	return r
 }
 
-// LookupAnsBadge queries _ans-badge TXT records for an FQDN.
-// If _ans-badge returns NXDOMAIN/NotFound, falls back to _ra-badge.
+// LookupATIBadge queries _ati-badge TXT records for an FQDN.
+// If _ati-badge returns NXDOMAIN/NotFound, falls back to _ra-badge.
 // On hard errors (SERVFAIL/timeout), does NOT fallback.
-func (r *StandardDNSResolver) LookupAnsBadge(ctx context.Context, fqdn models.Fqdn) (DNSLookupResult, error) {
-	// Try _ans-badge first
-	result, err := r.lookupBadgeRecords(ctx, fqdn.AnsBadgeName(), BadgeRecordSourceAnsBadge)
+func (r *StandardDNSResolver) LookupATIBadge(ctx context.Context, fqdn models.Fqdn) (DNSLookupResult, error) {
+	// Try _ati-badge first
+	result, err := r.lookupBadgeRecords(ctx, fqdn.ATIBadgeName(), BadgeRecordSourceATIBadge)
 	if err != nil {
 		// Hard error — do NOT fallback
 		return result, err
@@ -76,9 +76,9 @@ func (r *StandardDNSResolver) lookupBadgeRecords(ctx context.Context, queryName 
 		return r.handleLookupError(err, queryName)
 	}
 
-	var records []AnsBadgeRecord
+	var records []ATIBadgeRecord
 	for _, txt := range txts {
-		if record, parseErr := ParseAnsBadgeRecord(txt); parseErr == nil {
+		if record, parseErr := ParseATIBadgeRecord(txt); parseErr == nil {
 			record.Source = source
 			records = append(records, *record)
 		}
@@ -119,8 +119,8 @@ func (r *StandardDNSResolver) handleLookupError(err error, queryName string) (DN
 
 // FindBadgeForVersion finds the badge record matching a specific version.
 // Prefers an exact version match; falls back to a versionless record if no exact match exists.
-func (r *StandardDNSResolver) FindBadgeForVersion(ctx context.Context, fqdn models.Fqdn, version models.Version) (*AnsBadgeRecord, error) {
-	records, err := GetAnsBadgeRecords(ctx, r, fqdn)
+func (r *StandardDNSResolver) FindBadgeForVersion(ctx context.Context, fqdn models.Fqdn, version models.Version) (*ATIBadgeRecord, error) {
+	records, err := GetATIBadgeRecords(ctx, r, fqdn)
 	if err != nil {
 		if isNotFoundError(err) {
 			return nil, ErrRecordNotFound
@@ -146,8 +146,8 @@ func (r *StandardDNSResolver) FindBadgeForVersion(ctx context.Context, fqdn mode
 }
 
 // FindPreferredBadge finds the preferred badge (newest version).
-func (r *StandardDNSResolver) FindPreferredBadge(ctx context.Context, fqdn models.Fqdn) (*AnsBadgeRecord, error) {
-	records, err := GetAnsBadgeRecords(ctx, r, fqdn)
+func (r *StandardDNSResolver) FindPreferredBadge(ctx context.Context, fqdn models.Fqdn) (*ATIBadgeRecord, error) {
+	records, err := GetATIBadgeRecords(ctx, r, fqdn)
 	if err != nil {
 		if isNotFoundError(err) {
 			return nil, ErrRecordNotFound
@@ -177,6 +177,39 @@ func (r *StandardDNSResolver) FindPreferredBadge(ctx context.Context, fqdn model
 	})
 
 	return &records[0], nil
+}
+
+// LookupATIDiscovery queries _ati TXT records for DNS discovery.
+func (r *StandardDNSResolver) LookupATIDiscovery(ctx context.Context, fqdn models.Fqdn) (ATIDiscoveryResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	queryName := fqdn.ATIDiscoveryName()
+	txts, err := r.resolver.LookupTXT(ctx, queryName)
+	if err != nil {
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+			return ATIDiscoveryResult{Found: false}, nil
+		}
+		return ATIDiscoveryResult{}, &DNSError{
+			Type:   DNSErrorLookupFailed,
+			Fqdn:   queryName,
+			Reason: err.Error(),
+		}
+	}
+
+	var records []*ATIRecord
+	for _, txt := range txts {
+		if record, parseErr := ParseATIRecord(txt); parseErr == nil {
+			records = append(records, record)
+		}
+	}
+
+	if len(records) == 0 {
+		return ATIDiscoveryResult{Found: false}, nil
+	}
+
+	return ATIDiscoveryResult{Found: true, Records: records}, nil
 }
 
 // isNotFoundError checks if the error indicates record not found.

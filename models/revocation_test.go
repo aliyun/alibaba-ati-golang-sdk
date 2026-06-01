@@ -125,10 +125,10 @@ func TestAgentRevocationResponse_JSON(t *testing.T) {
 	}{
 		{
 			name:    "full response",
-			jsonStr: `{"agentId":"agent-123","ansName":"ans://v1.0.0.myagent.example.com","status":"REVOKED","revokedAt":"2024-01-15T10:30:00Z","reason":"KEY_COMPROMISE"}`,
+			jsonStr: `{"agentId":"agent-123","ansName":"ati://v1.0.0.myagent.example.com","status":"REVOKED","revokedAt":"2024-01-15T10:30:00Z","reason":"KEY_COMPROMISE"}`,
 			want: AgentRevocationResponse{
 				AgentID:   "agent-123",
-				AnsName:   "ans://v1.0.0.myagent.example.com",
+				ATIName:   "ati://v1.0.0.myagent.example.com",
 				Status:    "REVOKED",
 				RevokedAt: fixedTime,
 				Reason:    RevocationReasonKeyCompromise,
@@ -146,8 +146,8 @@ func TestAgentRevocationResponse_JSON(t *testing.T) {
 			if got.AgentID != tt.want.AgentID {
 				t.Errorf("AgentID mismatch: got %q, want %q", got.AgentID, tt.want.AgentID)
 			}
-			if got.AnsName != tt.want.AnsName {
-				t.Errorf("AnsName mismatch: got %q, want %q", got.AnsName, tt.want.AnsName)
+			if got.ATIName != tt.want.ATIName {
+				t.Errorf("ATIName mismatch: got %q, want %q", got.ATIName, tt.want.ATIName)
 			}
 			if got.Status != tt.want.Status {
 				t.Errorf("Status mismatch: got %q, want %q", got.Status, tt.want.Status)

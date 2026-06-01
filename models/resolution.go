@@ -10,8 +10,8 @@ type AgentCapabilityRequest struct {
 
 // AgentCapabilityResponse represents the response from agent resolution
 type AgentCapabilityResponse struct {
-	// AnsName is the resolved ANS name (e.g., ans://v1.0.0.myagent.example.com)
-	AnsName string `json:"ansName"`
+	// ATIName is the resolved ATI name (e.g., ati://v1.0.0.myagent.example.com)
+	ATIName string `json:"ansName"`
 	// Links contains HATEOAS links for the resolved agent
 	Links []Link `json:"links,omitempty"`
 }

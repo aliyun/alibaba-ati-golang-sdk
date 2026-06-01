@@ -120,8 +120,8 @@ const (
 	VerificationErrorFingerprintMismatch
 	// VerificationErrorHostnameMismatch indicates hostname mismatch.
 	VerificationErrorHostnameMismatch
-	// VerificationErrorAnsNameMismatch indicates ANS name mismatch.
-	VerificationErrorAnsNameMismatch
+	// VerificationErrorATINameMismatch indicates ATI name mismatch.
+	VerificationErrorATINameMismatch
 	// VerificationErrorNoCN indicates no CN in certificate.
 	VerificationErrorNoCN
 	// VerificationErrorNoURISAN indicates no URI SAN in certificate.
@@ -145,12 +145,12 @@ func (e *VerificationError) Error() string {
 		return fmt.Sprintf("certificate fingerprint mismatch: expected %s, got %s", e.Expected, e.Actual)
 	case VerificationErrorHostnameMismatch:
 		return fmt.Sprintf("hostname mismatch: expected %s, got %s", e.Expected, e.Actual)
-	case VerificationErrorAnsNameMismatch:
-		return fmt.Sprintf("ANS name mismatch: expected %s, got %s", e.Expected, e.Actual)
+	case VerificationErrorATINameMismatch:
+		return fmt.Sprintf("ATI name mismatch: expected %s, got %s", e.Expected, e.Actual)
 	case VerificationErrorNoCN:
 		return "no CN or DNS SAN found in certificate"
 	case VerificationErrorNoURISAN:
-		return "no ANS name (ans://) found in URI SANs"
+		return "no ATI name (ati://) found in URI SANs"
 	default:
 		if e.Message != "" {
 			return e.Message

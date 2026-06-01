@@ -7,29 +7,29 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 // BadgeRecordSource indicates where a badge record was resolved from.
 type BadgeRecordSource int
 
 const (
-	// BadgeRecordSourceAnsBadge indicates the record came from _ans-badge.
-	BadgeRecordSourceAnsBadge BadgeRecordSource = iota
+	// BadgeRecordSourceATIBadge indicates the record came from _ati-badge.
+	BadgeRecordSourceATIBadge BadgeRecordSource = iota
 	// BadgeRecordSourceRaBadge indicates the record came from _ra-badge (legacy fallback).
 	BadgeRecordSourceRaBadge
 )
 
 // getValidFormatVersions returns the accepted format version prefixes.
 func getValidFormatVersions() []string {
-	return []string{"ans-badge1", "ra-badge1"}
+	return []string{"ati-badge1", "ra-badge1"}
 }
 
-// AnsBadgeRecord represents a parsed _ans-badge or _ra-badge TXT record.
-type AnsBadgeRecord struct {
-	// FormatVersion is the format version (e.g., "ans-badge1" or "ra-badge1").
+// ATIBadgeRecord represents a parsed _ati-badge or _ra-badge TXT record.
+type ATIBadgeRecord struct {
+	// FormatVersion is the format version (e.g., "ati-badge1" or "ra-badge1").
 	FormatVersion string
-	// Version is the agent version this badge represents (optional).
+	// Version is the agent version this badge represents (required per PRD 6.5.1).
 	Version *models.Version
 	// URL is the URL to fetch the badge from the transparency log.
 	URL string
@@ -37,10 +37,10 @@ type AnsBadgeRecord struct {
 	Source BadgeRecordSource
 }
 
-// ParseAnsBadgeRecord parses an _ans-badge TXT record.
-// Format: "v=ans-badge1; version=v1.0.0; url=https://..."
-// or:     "v=ans-badge1; url=https://..." (version optional)
-func ParseAnsBadgeRecord(txt string) (*AnsBadgeRecord, error) {
+// ParseATIBadgeRecord parses an _ati-badge TXT record.
+// Format: "v=ati-badge1; version=v1.0.0; url=https://..."
+// or:     "v=ati-badge1; url=https://..." (version optional)
+func ParseATIBadgeRecord(txt string) (*ATIBadgeRecord, error) {
 	if txt == "" {
 		return nil, errors.New("empty TXT record")
 	}
@@ -74,6 +74,11 @@ func ParseAnsBadgeRecord(txt string) (*AnsBadgeRecord, error) {
 		return nil, fmt.Errorf("unsupported format version: %s", formatVersion)
 	}
 
+	// Version is required for ati-badge1 format (PRD 6.5.1)
+	if formatVersion == "ati-badge1" && version == nil {
+		return nil, errors.New("missing required field: version (required for ati-badge1)")
+	}
+
 	if badgeURL == "" {
 		return nil, errors.New("missing URL (url=)")
 	}
@@ -104,7 +109,7 @@ func ParseAnsBadgeRecord(txt string) (*AnsBadgeRecord, error) {
 		return nil, errors.New("invalid URL: fragment not allowed")
 	}
 
-	return &AnsBadgeRecord{
+	return &ATIBadgeRecord{
 		FormatVersion: formatVersion,
 		Version:       version,
 		URL:           badgeURL,

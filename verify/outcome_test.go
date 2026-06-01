@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 func TestOutcomeConstructors(t *testing.T) {
@@ -27,8 +27,8 @@ func TestOutcomeConstructors(t *testing.T) {
 		},
 		{
 			name:      "not ANS agent",
-			outcome:   NewNotAnsAgentOutcome("test.example.com"),
-			wantType:  OutcomeNotAnsAgent,
+			outcome:   NewNotATIAgentOutcome("test.example.com"),
+			wantType:  OutcomeNotATIAgent,
 			isSuccess: false,
 		},
 		{
@@ -50,9 +50,9 @@ func TestOutcomeConstructors(t *testing.T) {
 			isSuccess: false,
 		},
 		{
-			name:      "ANS name mismatch",
-			outcome:   NewAnsNameMismatchOutcome(badge, "ans://v1.0.0.foo.com", "ans://v2.0.0.foo.com"),
-			wantType:  OutcomeAnsNameMismatch,
+			name:      "ATI name mismatch",
+			outcome:   NewATINameMismatchOutcome(badge, "ati://v1.0.0.foo.com", "ati://v2.0.0.foo.com"),
+			wantType:  OutcomeATINameMismatch,
 			isSuccess: false,
 		},
 		{
@@ -120,15 +120,15 @@ func TestOutcome_IsFailOpen(t *testing.T) {
 	}
 }
 
-func TestOutcome_IsNotAnsAgent(t *testing.T) {
-	notAgent := NewNotAnsAgentOutcome("test.com")
-	if !notAgent.IsNotAnsAgent() {
-		t.Error("expected IsNotAnsAgent() = true")
+func TestOutcome_IsNotATIAgent(t *testing.T) {
+	notAgent := NewNotATIAgentOutcome("test.com")
+	if !notAgent.IsNotATIAgent() {
+		t.Error("expected IsNotATIAgent() = true")
 	}
 
 	verified := NewVerifiedOutcome(nil, CertFingerprint{})
-	if verified.IsNotAnsAgent() {
-		t.Error("expected IsNotAnsAgent() = false for Verified outcome")
+	if verified.IsNotATIAgent() {
+		t.Error("expected IsNotATIAgent() = false for Verified outcome")
 	}
 }
 
@@ -152,7 +152,7 @@ func TestOutcome_ToError(t *testing.T) {
 		{
 			name: "not ANS agent with error",
 			outcome: &VerificationOutcome{
-				Type:  OutcomeNotAnsAgent,
+				Type:  OutcomeNotATIAgent,
 				Host:  "test.com",
 				Error: errors.New("custom error"),
 			},
@@ -161,7 +161,7 @@ func TestOutcome_ToError(t *testing.T) {
 		{
 			name: "not ANS agent without error, with host",
 			outcome: &VerificationOutcome{
-				Type: OutcomeNotAnsAgent,
+				Type: OutcomeNotATIAgent,
 				Host: "test.com",
 			},
 			errContains: "DNS record not found",
@@ -169,7 +169,7 @@ func TestOutcome_ToError(t *testing.T) {
 		{
 			name: "not ANS agent without error, without host",
 			outcome: &VerificationOutcome{
-				Type: OutcomeNotAnsAgent,
+				Type: OutcomeNotATIAgent,
 			},
 			errContains: "unknown",
 		},
@@ -189,9 +189,9 @@ func TestOutcome_ToError(t *testing.T) {
 			errContains: "hostname mismatch",
 		},
 		{
-			name:        "ANS name mismatch",
-			outcome:     NewAnsNameMismatchOutcome(nil, "expected", "actual"),
-			errContains: "ANS name mismatch",
+			name:        "ATI name mismatch",
+			outcome:     NewATINameMismatchOutcome(nil, "expected", "actual"),
+			errContains: "ATI name mismatch",
 		},
 		{
 			name: "DANE rejection",

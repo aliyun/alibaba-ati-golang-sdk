@@ -26,7 +26,7 @@ const (
 	payloadKeyStatus         = 2
 	payloadKeyIat            = 3
 	payloadKeyExp            = 4
-	payloadKeyAnsName        = 5
+	payloadKeyATIName        = 5
 	payloadKeyIdentityCerts  = 6
 	payloadKeyServerCerts    = 7
 	payloadKeyMetadataHashes = 8
@@ -213,8 +213,8 @@ func decodePayloadFields(dm cbor.DecMode, rawMap map[interface{}]cbor.RawMessage
 		payload.Exp = decodeInt64Field(dm, raw)
 	}
 
-	if raw, ok := get(payloadKeyAnsName, "ans_name"); ok {
-		payload.AnsName = decodeStringField(dm, raw)
+	if raw, ok := get(payloadKeyATIName, "ans_name"); ok {
+		payload.ATIName = decodeStringField(dm, raw)
 	}
 
 	if raw, ok := get(payloadKeyIdentityCerts, "valid_identity_certs"); ok {
@@ -291,7 +291,7 @@ func decodeStatusPayload(data []byte) (*StatusTokenPayload, error) {
 			Message: "exp",
 		}
 	}
-	if payload.AnsName == "" {
+	if payload.ATIName == "" {
 		return nil, &TokenError{
 			Type:    TokenErrMissingField,
 			Message: "ans_name",

@@ -29,8 +29,8 @@ type AgentRevocationRequest struct {
 type AgentRevocationResponse struct {
 	// AgentID is the unique identifier of the revoked agent
 	AgentID string `json:"agentId"`
-	// AnsName is the ANS name of the revoked agent
-	AnsName string `json:"ansName"`
+	// ATIName is the ATI name of the revoked agent
+	ATIName string `json:"ansName"`
 	// Status is the new status of the agent (typically "REVOKED")
 	Status string `json:"status"`
 	// RevokedAt is the timestamp when the agent was revoked

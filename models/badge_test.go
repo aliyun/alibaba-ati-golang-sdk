@@ -81,8 +81,8 @@ func TestBadge_Helpers(t *testing.T) {
 				KeyID:     "test-key",
 				Signature: "test-sig",
 				Event: AgentEvent{
-					ANSID:   "test-ans-id",
-					ANSName: "ans://v1.0.0.agent.example.com",
+					ATIID:   "test-ans-id",
+					ATIName: "ati://v1.0.0.agent.example.com",
 					Agent: AgentInfo{
 						Host:    "agent.example.com",
 						Name:    "Test Agent",
@@ -105,7 +105,7 @@ func TestBadge_Helpers(t *testing.T) {
 	}
 
 	t.Run("AgentName", func(t *testing.T) {
-		want := "ans://v1.0.0.agent.example.com"
+		want := "ati://v1.0.0.agent.example.com"
 		if got := badge.AgentName(); got != want {
 			t.Errorf("AgentName() = %q, want %q", got, want)
 		}
@@ -195,7 +195,7 @@ func TestBadge_AgentID(t *testing.T) {
 				Payload: BadgePayload{
 					Producer: Producer{
 						Event: AgentEvent{
-							ANSID: tt.id,
+							ATIID: tt.id,
 						},
 					},
 				},

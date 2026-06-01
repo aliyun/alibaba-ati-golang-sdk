@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 	"github.com/miekg/dns"
 )
 
@@ -79,11 +79,11 @@ func resolverDialingTo(addr string) *net.Resolver {
 	}
 }
 
-func TestStandardDNSResolver_LookupAnsBadge_FoundViaDNS(t *testing.T) {
-	// Set up a fake DNS server with _ans-badge TXT records
+func TestStandardDNSResolver_LookupATIBadge_FoundViaDNS(t *testing.T) {
+	// Set up a fake DNS server with _ati-badge TXT records
 	addr := startFakeDNS(t, map[string][]string{
-		"_ans-badge.test.example.com.": {
-			"v=ans-badge1; version=v1.0.0; url=https://tlog.example.com/badge/123",
+		"_ati-badge.test.example.com.": {
+			"v=ati-badge1; version=v1.0.0; url=https://tlog.example.com/badge/123",
 		},
 	})
 
@@ -92,26 +92,26 @@ func TestStandardDNSResolver_LookupAnsBadge_FoundViaDNS(t *testing.T) {
 		WithTimeout(2 * time.Second)
 
 	fqdn, _ := models.NewFqdn("test.example.com")
-	result, err := r.LookupAnsBadge(context.Background(), fqdn)
+	result, err := r.LookupATIBadge(context.Background(), fqdn)
 	if err != nil {
-		t.Fatalf("LookupAnsBadge() error = %v", err)
+		t.Fatalf("LookupATIBadge() error = %v", err)
 	}
 	if !result.Found {
-		t.Fatal("LookupAnsBadge() Found = false, want true")
+		t.Fatal("LookupATIBadge() Found = false, want true")
 	}
 	if len(result.Records) != 1 {
-		t.Fatalf("LookupAnsBadge() Records length = %d, want 1", len(result.Records))
+		t.Fatalf("LookupATIBadge() Records length = %d, want 1", len(result.Records))
 	}
 	if result.Records[0].URL != "https://tlog.example.com/badge/123" {
 		t.Errorf("URL = %q, want https://tlog.example.com/badge/123", result.Records[0].URL)
 	}
-	if result.Records[0].Source != BadgeRecordSourceAnsBadge {
-		t.Errorf("Source = %v, want BadgeRecordSourceAnsBadge", result.Records[0].Source)
+	if result.Records[0].Source != BadgeRecordSourceATIBadge {
+		t.Errorf("Source = %v, want BadgeRecordSourceATIBadge", result.Records[0].Source)
 	}
 }
 
-func TestStandardDNSResolver_LookupAnsBadge_FallbackToRaBadge(t *testing.T) {
-	// No _ans-badge record, but has _ra-badge
+func TestStandardDNSResolver_LookupATIBadge_FallbackToRaBadge(t *testing.T) {
+	// No _ati-badge record, but has _ra-badge
 	addr := startFakeDNS(t, map[string][]string{
 		"_ra-badge.test.example.com.": {
 			"v=ra-badge1; url=https://tlog.example.com/badge/legacy",
@@ -123,20 +123,20 @@ func TestStandardDNSResolver_LookupAnsBadge_FallbackToRaBadge(t *testing.T) {
 		WithTimeout(2 * time.Second)
 
 	fqdn, _ := models.NewFqdn("test.example.com")
-	result, err := r.LookupAnsBadge(context.Background(), fqdn)
+	result, err := r.LookupATIBadge(context.Background(), fqdn)
 	if err != nil {
-		t.Fatalf("LookupAnsBadge() error = %v", err)
+		t.Fatalf("LookupATIBadge() error = %v", err)
 	}
 	if !result.Found {
-		t.Fatal("LookupAnsBadge() Found = false, want true")
+		t.Fatal("LookupATIBadge() Found = false, want true")
 	}
 	if result.Records[0].Source != BadgeRecordSourceRaBadge {
 		t.Errorf("Source = %v, want BadgeRecordSourceRaBadge", result.Records[0].Source)
 	}
 }
 
-func TestStandardDNSResolver_LookupAnsBadge_NotFoundViaDNS(t *testing.T) {
-	// No records at all - both _ans-badge and _ra-badge return NXDOMAIN
+func TestStandardDNSResolver_LookupATIBadge_NotFoundViaDNS(t *testing.T) {
+	// No records at all - both _ati-badge and _ra-badge return NXDOMAIN
 	addr := startFakeDNS(t, map[string][]string{})
 
 	r := NewStandardDNSResolver().
@@ -144,19 +144,19 @@ func TestStandardDNSResolver_LookupAnsBadge_NotFoundViaDNS(t *testing.T) {
 		WithTimeout(2 * time.Second)
 
 	fqdn, _ := models.NewFqdn("unknown.example.com")
-	result, err := r.LookupAnsBadge(context.Background(), fqdn)
+	result, err := r.LookupATIBadge(context.Background(), fqdn)
 	if err != nil {
-		t.Fatalf("LookupAnsBadge() error = %v", err)
+		t.Fatalf("LookupATIBadge() error = %v", err)
 	}
 	if result.Found {
-		t.Error("LookupAnsBadge() Found = true, want false")
+		t.Error("LookupATIBadge() Found = true, want false")
 	}
 }
 
-func TestStandardDNSResolver_LookupAnsBadge_InvalidTXTRecords(t *testing.T) {
+func TestStandardDNSResolver_LookupATIBadge_InvalidTXTRecords(t *testing.T) {
 	// TXT records that don't parse as badge records
 	addr := startFakeDNS(t, map[string][]string{
-		"_ans-badge.test.example.com.": {
+		"_ati-badge.test.example.com.": {
 			"this is not a badge record",
 			"also not valid",
 		},
@@ -167,21 +167,21 @@ func TestStandardDNSResolver_LookupAnsBadge_InvalidTXTRecords(t *testing.T) {
 		WithTimeout(2 * time.Second)
 
 	fqdn, _ := models.NewFqdn("test.example.com")
-	result, err := r.LookupAnsBadge(context.Background(), fqdn)
+	result, err := r.LookupATIBadge(context.Background(), fqdn)
 	if err != nil {
-		t.Fatalf("LookupAnsBadge() error = %v", err)
+		t.Fatalf("LookupATIBadge() error = %v", err)
 	}
 	// TXT records exist but none parse as badge records
 	if result.Found {
-		t.Error("LookupAnsBadge() Found = true, want false (unparseable records)")
+		t.Error("LookupATIBadge() Found = true, want false (unparseable records)")
 	}
 }
 
 func TestStandardDNSResolver_FindBadgeForVersion_ExactMatch(t *testing.T) {
 	addr := startFakeDNS(t, map[string][]string{
-		"_ans-badge.test.example.com.": {
-			"v=ans-badge1; version=v1.0.0; url=https://tlog.example.com/badge/v1",
-			"v=ans-badge1; version=v2.0.0; url=https://tlog.example.com/badge/v2",
+		"_ati-badge.test.example.com.": {
+			"v=ati-badge1; version=v1.0.0; url=https://tlog.example.com/badge/v1",
+			"v=ati-badge1; version=v2.0.0; url=https://tlog.example.com/badge/v2",
 		},
 	})
 
@@ -202,9 +202,10 @@ func TestStandardDNSResolver_FindBadgeForVersion_ExactMatch(t *testing.T) {
 }
 
 func TestStandardDNSResolver_FindBadgeForVersion_VersionlessFallback(t *testing.T) {
+	// With ati-badge1 version required (PRD 6.5.1), use ra-badge1 for versionless fallback
 	addr := startFakeDNS(t, map[string][]string{
-		"_ans-badge.test.example.com.": {
-			"v=ans-badge1; url=https://tlog.example.com/badge/latest",
+		"_ra-badge.test.example.com.": {
+			"v=ra-badge1; url=https://tlog.example.com/badge/latest",
 		},
 	})
 
@@ -226,8 +227,8 @@ func TestStandardDNSResolver_FindBadgeForVersion_VersionlessFallback(t *testing.
 
 func TestStandardDNSResolver_FindBadgeForVersion_NoMatch(t *testing.T) {
 	addr := startFakeDNS(t, map[string][]string{
-		"_ans-badge.test.example.com.": {
-			"v=ans-badge1; version=v2.0.0; url=https://tlog.example.com/badge/v2",
+		"_ati-badge.test.example.com.": {
+			"v=ati-badge1; version=v2.0.0; url=https://tlog.example.com/badge/v2",
 		},
 	})
 
@@ -262,10 +263,10 @@ func TestStandardDNSResolver_FindBadgeForVersion_NotFound(t *testing.T) {
 
 func TestStandardDNSResolver_FindPreferredBadge_HighestVersion(t *testing.T) {
 	addr := startFakeDNS(t, map[string][]string{
-		"_ans-badge.test.example.com.": {
-			"v=ans-badge1; version=v1.0.0; url=https://tlog.example.com/badge/v1",
-			"v=ans-badge1; version=v3.0.0; url=https://tlog.example.com/badge/v3",
-			"v=ans-badge1; version=v2.0.0; url=https://tlog.example.com/badge/v2",
+		"_ati-badge.test.example.com.": {
+			"v=ati-badge1; version=v1.0.0; url=https://tlog.example.com/badge/v1",
+			"v=ati-badge1; version=v3.0.0; url=https://tlog.example.com/badge/v3",
+			"v=ati-badge1; version=v2.0.0; url=https://tlog.example.com/badge/v2",
 		},
 	})
 
@@ -301,9 +302,9 @@ func TestStandardDNSResolver_FindPreferredBadge_NotFound(t *testing.T) {
 
 func TestStandardDNSResolver_FindPreferredBadge_VersionedOverNil(t *testing.T) {
 	addr := startFakeDNS(t, map[string][]string{
-		"_ans-badge.test.example.com.": {
-			"v=ans-badge1; url=https://tlog.example.com/badge/nil",
-			"v=ans-badge1; version=v1.0.0; url=https://tlog.example.com/badge/v1",
+		"_ati-badge.test.example.com.": {
+			"v=ati-badge1; url=https://tlog.example.com/badge/nil",
+			"v=ati-badge1; version=v1.0.0; url=https://tlog.example.com/badge/v1",
 		},
 	})
 

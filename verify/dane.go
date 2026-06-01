@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 	"github.com/miekg/dns"
 )
 

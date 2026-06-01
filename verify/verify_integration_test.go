@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 // Test the full AnsVerifier facade
@@ -103,7 +103,7 @@ func TestServerVerifier_FailOpenWithCache_DNSError_NoCache(t *testing.T) {
 	}
 }
 
-func TestServerVerifier_NotAnsAgent_NoRecords(t *testing.T) {
+func TestServerVerifier_NotATIAgent_NoRecords(t *testing.T) {
 	mockDNS := NewMockDNSResolver() // No records for any FQDN
 
 	v := NewServerVerifier(
@@ -113,14 +113,14 @@ func TestServerVerifier_NotAnsAgent_NoRecords(t *testing.T) {
 
 	fqdn, _ := models.NewFqdn("noans.example.com")
 	outcome := v.Verify(context.Background(), fqdn, &CertIdentity{})
-	if outcome.Type != OutcomeNotAnsAgent {
-		t.Errorf("expected NotAnsAgent, got %v", outcome.Type)
+	if outcome.Type != OutcomeNotATIAgent {
+		t.Errorf("expected NotATIAgent, got %v", outcome.Type)
 	}
 }
 
 func TestServerVerifier_TlogError(t *testing.T) {
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
@@ -157,7 +157,7 @@ func TestServerVerifier_InvalidBadgeStatus(t *testing.T) {
 	}
 
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
@@ -196,7 +196,7 @@ func TestServerVerifier_SuccessfulVerification(t *testing.T) {
 	}
 
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
@@ -235,7 +235,7 @@ func TestServerVerifier_CachedBadge(t *testing.T) {
 	}
 
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
@@ -270,7 +270,7 @@ func TestServerVerifier_Prefetch_WithCache(t *testing.T) {
 	badge := &models.Badge{Status: models.BadgeStatusActive}
 
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
@@ -324,7 +324,7 @@ func TestServerVerifier_HostnameMismatch_BadgeHost(t *testing.T) {
 	}
 
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
@@ -363,7 +363,7 @@ func TestServerVerifier_FingerprintMismatch_BadgeCert(t *testing.T) {
 	}
 
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
@@ -402,7 +402,7 @@ func TestServerVerifier_DeprecatedBadge(t *testing.T) {
 	}
 
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
@@ -428,13 +428,13 @@ func TestServerVerifier_DeprecatedBadge(t *testing.T) {
 
 func TestServerVerifier_URLValidation(t *testing.T) {
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://evil.example.com/badge/123"},
 		})
 
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
-		WithTrustedRADomains([]string{"trusted.godaddy.com"}),
+		WithTrustedRADomains([]string{"trusted.alibaba-inc.com"}),
 	)
 
 	fqdn, _ := models.NewFqdn("test.example.com")
@@ -451,7 +451,7 @@ func TestClientVerifier_SuccessfulVerification(t *testing.T) {
 		Payload: models.BadgePayload{
 			Producer: models.Producer{
 				Event: models.AgentEvent{
-					ANSName: "ans://v1.0.0.test.example.com",
+					ATIName: "ati://v1.0.0.test.example.com",
 					Agent:   models.AgentInfo{Host: "test.example.com"},
 					Attestations: models.Attestations{
 						IdentityCert: &models.CertAttestationV1{
@@ -464,7 +464,7 @@ func TestClientVerifier_SuccessfulVerification(t *testing.T) {
 	}
 
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123", Version: &version},
 		})
 	mockTlog := NewMockTransparencyLogClient().
@@ -481,7 +481,7 @@ func TestClientVerifier_SuccessfulVerification(t *testing.T) {
 	cert := &CertIdentity{
 		CommonName:  &cn,
 		DNSSANs:     []string{cn},
-		URISANs:     []string{"ans://v1.0.0.test.example.com"},
+		URISANs:     []string{"ati://v1.0.0.test.example.com"},
 		Fingerprint: fp,
 	}
 
@@ -498,7 +498,7 @@ func TestClientVerifier_IdentityFingerprintMismatch(t *testing.T) {
 		Payload: models.BadgePayload{
 			Producer: models.Producer{
 				Event: models.AgentEvent{
-					ANSName: "ans://v1.0.0.test.example.com",
+					ATIName: "ati://v1.0.0.test.example.com",
 					Agent:   models.AgentInfo{Host: "test.example.com"},
 					Attestations: models.Attestations{
 						IdentityCert: &models.CertAttestationV1{
@@ -511,7 +511,7 @@ func TestClientVerifier_IdentityFingerprintMismatch(t *testing.T) {
 	}
 
 	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []AnsBadgeRecord{
+		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123", Version: &version},
 		})
 	mockTlog := NewMockTransparencyLogClient().
@@ -528,7 +528,7 @@ func TestClientVerifier_IdentityFingerprintMismatch(t *testing.T) {
 	cert := &CertIdentity{
 		CommonName:  &cn,
 		DNSSANs:     []string{cn},
-		URISANs:     []string{"ans://v1.0.0.test.example.com"},
+		URISANs:     []string{"ati://v1.0.0.test.example.com"},
 		Fingerprint: fp,
 	}
 
@@ -545,7 +545,7 @@ func TestClientVerifier_InvalidFqdn(t *testing.T) {
 	cert := &CertIdentity{
 		CommonName: &cn,
 		DNSSANs:    []string{cn},
-		URISANs:    []string{"ans://v1.0.0." + cn},
+		URISANs:    []string{"ati://v1.0.0." + cn},
 	}
 
 	outcome := v.Verify(context.Background(), cert)
@@ -568,7 +568,7 @@ func TestClientVerifier_DNSError(t *testing.T) {
 	cert := &CertIdentity{
 		CommonName:  &cn,
 		DNSSANs:     []string{cn},
-		URISANs:     []string{"ans://v1.0.0.test.example.com"},
+		URISANs:     []string{"ati://v1.0.0.test.example.com"},
 		Fingerprint: fp,
 	}
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 func TestDANEVerifier(t *testing.T) {
@@ -427,15 +427,15 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
-	dnsRecord := AnsBadgeRecord{
-		FormatVersion: "ans-badge1",
+	dnsRecord := ATIBadgeRecord{
+		FormatVersion: "ati-badge1",
 		Version:       ptr(models.NewVersion(1, 0, 0)),
 		URL:           badgeURL,
 	}
 
 	t.Run("DANE verified enriches outcome", func(t *testing.T) {
 		dnsResolver := NewMockDNSResolver().
-			WithRecords(host, []AnsBadgeRecord{dnsRecord})
+			WithRecords(host, []ATIBadgeRecord{dnsRecord})
 		tlogClient := NewMockTransparencyLogClient().
 			WithBadge(badgeURL, badge)
 		daneResolver := NewMockDANEResolver().WithTLSA(host, 443, TLSALookupResult{
@@ -465,7 +465,7 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 
 	t.Run("DANE mismatch rejects even if badge passes", func(t *testing.T) {
 		dnsResolver := NewMockDNSResolver().
-			WithRecords(host, []AnsBadgeRecord{dnsRecord})
+			WithRecords(host, []ATIBadgeRecord{dnsRecord})
 		tlogClient := NewMockTransparencyLogClient().
 			WithBadge(badgeURL, badge)
 		daneResolver := NewMockDANEResolver().WithTLSA(host, 443, TLSALookupResult{
@@ -495,7 +495,7 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 
 	t.Run("DANE skipped (no DNSSEC) does not reject", func(t *testing.T) {
 		dnsResolver := NewMockDNSResolver().
-			WithRecords(host, []AnsBadgeRecord{dnsRecord})
+			WithRecords(host, []ATIBadgeRecord{dnsRecord})
 		tlogClient := NewMockTransparencyLogClient().
 			WithBadge(badgeURL, badge)
 		daneResolver := NewMockDANEResolver().WithTLSA(host, 443, TLSALookupResult{
@@ -522,7 +522,7 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 
 	t.Run("no DANE resolver configured — no impact", func(t *testing.T) {
 		dnsResolver := NewMockDNSResolver().
-			WithRecords(host, []AnsBadgeRecord{dnsRecord})
+			WithRecords(host, []ATIBadgeRecord{dnsRecord})
 		tlogClient := NewMockTransparencyLogClient().
 			WithBadge(badgeURL, badge)
 

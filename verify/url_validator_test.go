@@ -7,8 +7,7 @@ import (
 
 func TestURLValidator_Validate(t *testing.T) {
 	validator := NewURLValidator([]string{
-		"transparency.ans.godaddy.com",
-		"transparency.ans.ote-godaddy.com",
+		"tl.ansagent.cn",
 	})
 
 	tests := []struct {
@@ -18,20 +17,24 @@ func TestURLValidator_Validate(t *testing.T) {
 		wantErrType URLErrorType
 	}{
 		{
-			name: "valid trusted domain",
-			url:  "https://transparency.ans.godaddy.com/v1/agents/test-id",
-		},
-		{
-			name: "valid trusted domain OTE",
-			url:  "https://transparency.ans.ote-godaddy.com/v1/agents/test-id",
+			name: "valid trusted domain with port 8180",
+			url:  "https://tl.ansagent.cn:8180/ans/api/v1/tl/agents/test-id/logs/latest",
 		},
 		{
 			name: "valid trusted domain case insensitive",
-			url:  "https://TRANSPARENCY.ANS.GODADDY.COM/v1/agents/test-id",
+			url:  "https://TL.ANSAGENT.CN:8180/ans/api/v1/tl/agents/test-id/logs/latest",
+		},
+		{
+			name: "valid trusted domain port 443",
+			url:  "https://tl.ansagent.cn:443/v1/agents/test-id",
+		},
+		{
+			name: "valid trusted domain no port",
+			url:  "https://tl.ansagent.cn/v1/agents/test-id",
 		},
 		{
 			name:        "HTTP rejected",
-			url:         "http://transparency.ans.godaddy.com/v1/agents/test-id",
+			url:         "http://tl.ansagent.cn:8180/ans/api/v1/tl/agents/test-id",
 			wantErr:     true,
 			wantErrType: URLErrorHTTPScheme,
 		},
@@ -43,29 +46,19 @@ func TestURLValidator_Validate(t *testing.T) {
 		},
 		{
 			name:        "trusted domain but non-standard port",
-			url:         "https://transparency.ans.godaddy.com:8443/v1/agents/test-id",
+			url:         "https://tl.ansagent.cn:9999/v1/agents/test-id",
 			wantErr:     true,
 			wantErrType: URLErrorNonStandardPort,
 		},
 		{
-			name: "trusted domain with port 443 is ok",
-			url:  "https://transparency.ans.godaddy.com:443/v1/agents/test-id",
-		},
-		{
 			name:        "path traversal rejected",
-			url:         "https://transparency.ans.godaddy.com/v1/agents/../../admin",
+			url:         "https://tl.ansagent.cn:8180/v1/agents/../../admin",
 			wantErr:     true,
 			wantErrType: URLErrorPathTraversal,
 		},
 		{
 			name:        "query params rejected",
-			url:         "https://transparency.ans.godaddy.com/v1/agents/test-id?admin=true",
-			wantErr:     true,
-			wantErrType: URLErrorPathTraversal,
-		},
-		{
-			name:        "query injection rejected",
-			url:         "https://transparency.ans.godaddy.com/v1/agents/test-id?callback=evil.com",
+			url:         "https://tl.ansagent.cn:8180/v1/agents/test-id?admin=true",
 			wantErr:     true,
 			wantErrType: URLErrorPathTraversal,
 		},
@@ -99,12 +92,9 @@ func TestURLValidator_Validate(t *testing.T) {
 func TestDefaultURLValidator(t *testing.T) {
 	validator := NewDefaultURLValidator()
 
-	// All default trusted domains should pass
-	for _, domain := range DefaultTrustedRADomains() {
-		url := "https://" + domain + "/v1/agents/test-id"
-		if err := validator.Validate(url); err != nil {
-			t.Errorf("Default validator rejected trusted domain %s: %v", domain, err)
-		}
+	// Trusted domain with port 8180 should pass
+	if err := validator.Validate("https://tl.ansagent.cn:8180/ans/api/v1/tl/agents/test-id/logs/latest"); err != nil {
+		t.Errorf("Default validator rejected trusted domain: %v", err)
 	}
 
 	// Untrusted domain should fail
@@ -133,7 +123,7 @@ func TestURLValidationError_Error(t *testing.T) {
 		{
 			name:    "non-standard port",
 			errType: URLErrorNonStandardPort,
-			wantMsg: "badge URL uses non-standard port: https://example.com:8443",
+			wantMsg: "badge URL uses non-standard port: https://example.com:9999",
 		},
 		{
 			name:    "path traversal",
@@ -145,7 +135,7 @@ func TestURLValidationError_Error(t *testing.T) {
 	urls := map[URLErrorType]string{
 		URLErrorHTTPScheme:      "http://example.com",
 		URLErrorUntrustedDomain: "https://evil.com",
-		URLErrorNonStandardPort: "https://example.com:8443",
+		URLErrorNonStandardPort: "https://example.com:9999",
 		URLErrorPathTraversal:   "https://example.com/../admin",
 	}
 

@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/godaddy/ans-sdk-go/models"
-	"github.com/godaddy/ans-sdk-go/verify/scitt"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify/scitt"
 )
 
 // certRole distinguishes how a certificate should be matched against a SCITT status token.
@@ -219,7 +219,7 @@ func (v *ServerVerifier) fetchBadge(ctx context.Context, fqdn models.Fqdn) (*mod
 	if err != nil {
 		// ErrRecordNotFound means not an ANS agent — never apply failure policy
 		if errors.Is(err, ErrRecordNotFound) {
-			return nil, NewNotAnsAgentOutcome(fqdn.String())
+			return nil, NewNotATIAgentOutcome(fqdn.String())
 		}
 		log.WarnContext(ctx, "fetchBadge: DNS error",
 			slog.String("fqdn", fqdn.String()), slog.String("error", err.Error()))
@@ -227,7 +227,7 @@ func (v *ServerVerifier) fetchBadge(ctx context.Context, fqdn models.Fqdn) (*mod
 		return nil, applyFailurePolicy(v.config, fqdn, nil, outcome)
 	}
 	if record == nil {
-		return nil, NewNotAnsAgentOutcome(fqdn.String())
+		return nil, NewNotATIAgentOutcome(fqdn.String())
 	}
 
 	// Validate badge URL before fetching
@@ -309,18 +309,18 @@ func (v *ClientVerifier) Verify(ctx context.Context, cert *CertIdentity) *Verifi
 	}
 
 	// 2. Extract ANS name from URI SANs
-	ansName := cert.AnsName()
-	if ansName == nil {
+	atiName := cert.ATIName()
+	if atiName == nil {
 		return NewCertErrorOutcome(&VerificationError{Type: VerificationErrorNoURISAN})
 	}
 
 	// 3. Extract version
-	version := ansName.Version
+	version := atiName.Version
 
 	// 4. Check cache first (by FQDN + version)
 	if v.config.cache != nil {
 		if cached, ok := v.config.cache.GetByFqdnVersion(fqdn, version); ok {
-			return v.verifyWithBadge(cached.Badge, cert, fqdn, ansName)
+			return v.verifyWithBadge(cached.Badge, cert, fqdn, atiName)
 		}
 	}
 
@@ -336,7 +336,7 @@ func (v *ClientVerifier) Verify(ctx context.Context, cert *CertIdentity) *Verifi
 	}
 
 	// 7. Verify against badge
-	outcome = v.verifyWithBadge(badge, cert, fqdn, ansName)
+	outcome = v.verifyWithBadge(badge, cert, fqdn, atiName)
 	if !outcome.IsSuccess() {
 		return outcome
 	}
@@ -378,8 +378,8 @@ func (v *ClientVerifier) VerifyWithScitt(ctx context.Context, cert *CertIdentity
 		return NewCertErrorOutcome(err)
 	}
 
-	// Parity with badge path: client cert must carry an ans:// URI SAN.
-	if cert.AnsName() == nil {
+	// Parity with badge path: client cert must carry an ati:// URI SAN.
+	if cert.ATIName() == nil {
 		return NewCertErrorOutcome(&VerificationError{Type: VerificationErrorNoURISAN})
 	}
 
@@ -397,7 +397,7 @@ func (v *ClientVerifier) fetchBadge(ctx context.Context, fqdn models.Fqdn, versi
 	if err != nil {
 		// ErrRecordNotFound means not an ANS agent — never apply failure policy
 		if errors.Is(err, ErrRecordNotFound) {
-			return nil, NewNotAnsAgentOutcome(fqdn.String())
+			return nil, NewNotATIAgentOutcome(fqdn.String())
 		}
 		log.WarnContext(ctx, "fetchBadge: DNS error",
 			slog.String("fqdn", fqdn.String()), slog.String("error", err.Error()))
@@ -405,7 +405,7 @@ func (v *ClientVerifier) fetchBadge(ctx context.Context, fqdn models.Fqdn, versi
 		return nil, applyFailurePolicy(v.config, fqdn, &version, outcome)
 	}
 	if record == nil {
-		return nil, NewNotAnsAgentOutcome(fqdn.String())
+		return nil, NewNotATIAgentOutcome(fqdn.String())
 	}
 
 	// Validate badge URL before fetching
@@ -427,7 +427,7 @@ func (v *ClientVerifier) fetchBadge(ctx context.Context, fqdn models.Fqdn, versi
 }
 
 // verifyWithBadge verifies a client certificate against a badge.
-func (v *ClientVerifier) verifyWithBadge(badge *models.Badge, cert *CertIdentity, fqdn models.Fqdn, ansName *AnsName) *VerificationOutcome {
+func (v *ClientVerifier) verifyWithBadge(badge *models.Badge, cert *CertIdentity, fqdn models.Fqdn, atiName *ATIName) *VerificationOutcome {
 	// Check badge status
 	if !badge.Status.IsValidForConnection() {
 		return NewInvalidStatusOutcome(badge, badge.Status)
@@ -446,9 +446,9 @@ func (v *ClientVerifier) verifyWithBadge(badge *models.Badge, cert *CertIdentity
 	}
 
 	// Compare ANS name
-	badgeAnsName := badge.AgentName()
-	if !strings.EqualFold(badgeAnsName, ansName.String()) {
-		return NewAnsNameMismatchOutcome(badge, badgeAnsName, ansName.String())
+	badgeATIName := badge.AgentName()
+	if !strings.EqualFold(badgeATIName, atiName.String()) {
+		return NewATINameMismatchOutcome(badge, badgeATIName, atiName.String())
 	}
 
 	outcome := NewVerifiedOutcome(badge, cert.Fingerprint)
@@ -595,14 +595,14 @@ func verifyWithHeaders(
 		return NewScittErrorOutcome(errors.New("certificate fingerprint does not match any cert in status token"))
 	}
 
-	// Bind token's AnsName host to the requested FQDN.
-	// AnsName is guaranteed non-empty by decodeStatusPayload validation.
-	ansName, err := ParseAnsName(token.Payload.AnsName)
+	// Bind token's ATIName host to the requested FQDN.
+	// ATIName is guaranteed non-empty by decodeStatusPayload validation.
+	atiName, err := ParseATIName(token.Payload.ATIName)
 	if err != nil {
-		return NewScittErrorOutcome(fmt.Errorf("invalid AnsName in status token: %w", err))
+		return NewScittErrorOutcome(fmt.Errorf("invalid ATIName in status token: %w", err))
 	}
-	if !strings.EqualFold(ansName.Host, fqdn.String()) {
-		return NewScittErrorOutcome(fmt.Errorf("status token AnsName host %q does not match requested fqdn %q", ansName.Host, fqdn.String()))
+	if !strings.EqualFold(atiName.Host, fqdn.String()) {
+		return NewScittErrorOutcome(fmt.Errorf("status token ATIName host %q does not match requested fqdn %q", atiName.Host, fqdn.String()))
 	}
 
 	log.InfoContext(ctx, "VerifyWithScitt: verification succeeded",

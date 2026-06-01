@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/godaddy/ans-sdk-go/ans"
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/internal/registry"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 const defaultAuditLimit = 5
@@ -15,9 +15,9 @@ const defaultAuditLimit = 5
 // ExampleTransparencySchemas demonstrates how to work with schema-aware transparency logs.
 func ExampleTransparencySchemas() {
 	// Create transparency client
-	client, err := ans.NewTransparencyClient(
-		ans.WithBaseURL("https://transparency.ans.godaddy.com"),
-		ans.WithJWT("your-jwt-token"),
+	client, err := registry.NewTransparencyClient(
+		registry.WithBaseURL("https://tl.ansagent.cn:8180/ans/api/v1"),
+		registry.WithJWT("your-jwt-token"),
 	)
 	if err != nil {
 		slog.Error("failed to create client", "error", err)
@@ -79,8 +79,8 @@ func printV1Details(v1Payload *models.TransparencyLogV1) {
 	slog.Info("V1 schema detected",
 		"logID", v1Payload.LogID,
 		"eventType", v1Payload.Producer.Event.EventType,
-		"ansID", v1Payload.Producer.Event.ANSID,
-		"ansName", v1Payload.Producer.Event.ANSName,
+		"ansID", v1Payload.Producer.Event.ATIID,
+		"ansName", v1Payload.Producer.Event.ATIName,
 		"raID", v1Payload.Producer.Event.RAID)
 
 	// Access agent information
@@ -125,7 +125,7 @@ func printV0Details(v0Payload *models.TransparencyLogV0) {
 		"eventType", v0Payload.Producer.Event.EventType,
 		"agentFQDN", v0Payload.Producer.Event.AgentFQDN,
 		"agentID", v0Payload.Producer.Event.AgentID,
-		"ansName", v0Payload.Producer.Event.ANSName,
+		"ansName", v0Payload.Producer.Event.ATIName,
 		"protocol", v0Payload.Producer.Event.Protocol)
 
 	// Access RA Badge
@@ -202,8 +202,8 @@ func createV1Event() *models.TransparencyLogV1 {
 		LogID: "01936db8-b65e-7e2f-b5e4-d0b5c1234567",
 		Producer: models.ProducerV1{
 			Event: models.EventV1{
-				ANSID:     "6bf2b7a9-1383-4e33-a945-845f34af7526",
-				ANSName:   "ans://v1.0.0.agent-0.ai.domain.com",
+				ATIID:     "6bf2b7a9-1383-4e33-a945-845f34af7526",
+				ATIName:   "ati://v1.0.0.agent-0.ai.domain.com",
 				EventType: models.EventTypeV1AgentRegistered,
 				Agent: models.AgentV1{
 					Host:    "agent-0.ai.domain.com",
@@ -216,7 +216,7 @@ func createV1Event() *models.TransparencyLogV1 {
 						Type:        models.CertTypeX509OVClient,
 					},
 				},
-				RAID: "api.godaddy.com",
+				RAID: "ra.ansagent.cn",
 			},
 			KeyID:     "arn:aws:kms:us-east-1:123456789012:key/stub-key",
 			Signature: "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -231,12 +231,12 @@ func createV0Event() *models.TransparencyLogV0 {
 			Event: models.EventV0{
 				AgentFQDN: "agent-0.capability.provider.domain.com",
 				AgentID:   "6bf2b7a9-1383-4e33-a945-845f34af7527",
-				ANSName:   "mcp://agent-0.capability.provider.v1.0.0.domain.com",
+				ATIName:   "mcp://agent-0.capability.provider.v1.0.0.domain.com",
 				EventType: models.EventTypeV0AgentActive,
 				Protocol:  "mcp",
 				RABadge: models.RABadge{
 					BadgeURLStatus: "verified_link",
-					RAID:           "api.godaddy.com",
+					RAID:           "ra.ansagent.cn",
 					Attestations: models.AttestationsV0{
 						DomainValidation:      stringPtr("acme-dns-01"),
 						ClientCertFingerprint: stringPtr("SHA256:fedcba9876543210"),

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 func TestCertFingerprint(t *testing.T) {
@@ -136,22 +136,22 @@ func TestAnsName(t *testing.T) {
 		wantFqdn    string
 	}{
 		{
-			name:        "valid ans name",
-			uri:         "ans://v1.0.0.agent.example.com",
+			name:        "valid ati name",
+			uri:         "ati://v1.0.0.agent.example.com",
 			wantErr:     false,
 			wantVersion: models.NewVersion(1, 0, 0),
 			wantFqdn:    "agent.example.com",
 		},
 		{
 			name:        "valid multi-digit version",
-			uri:         "ans://v12.3.45.agent.example.com",
+			uri:         "ati://v12.3.45.agent.example.com",
 			wantErr:     false,
 			wantVersion: models.NewVersion(12, 3, 45),
 			wantFqdn:    "agent.example.com",
 		},
 		{
 			name:        "valid complex fqdn",
-			uri:         "ans://v2.1.3.ote.agent.cs3p.com",
+			uri:         "ati://v2.1.3.ote.agent.cs3p.com",
 			wantErr:     false,
 			wantVersion: models.NewVersion(2, 1, 3),
 			wantFqdn:    "ote.agent.cs3p.com",
@@ -163,12 +163,12 @@ func TestAnsName(t *testing.T) {
 		},
 		{
 			name:    "missing version",
-			uri:     "ans://agent.example.com",
+			uri:     "ati://agent.example.com",
 			wantErr: true,
 		},
 		{
 			name:    "invalid version",
-			uri:     "ans://va.b.c.agent.example.com",
+			uri:     "ati://va.b.c.agent.example.com",
 			wantErr: true,
 		},
 		{
@@ -180,33 +180,33 @@ func TestAnsName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ans, err := ParseAnsName(tt.uri)
+			name, err := ParseATIName(tt.uri)
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("ParseAnsName(%q) expected error, got nil", tt.uri)
+					t.Errorf("ParseATIName(%q) expected error, got nil", tt.uri)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("ParseAnsName(%q) unexpected error: %v", tt.uri, err)
+				t.Fatalf("ParseATIName(%q) unexpected error: %v", tt.uri, err)
 			}
-			if !ans.Version.Equal(tt.wantVersion) {
-				t.Errorf("Version = %v, want %v", ans.Version, tt.wantVersion)
+			if !name.Version.Equal(tt.wantVersion) {
+				t.Errorf("Version = %v, want %v", name.Version, tt.wantVersion)
 			}
-			if ans.Host != tt.wantFqdn {
-				t.Errorf("Host = %q, want %q", ans.Host, tt.wantFqdn)
+			if name.Host != tt.wantFqdn {
+				t.Errorf("Host = %q, want %q", name.Host, tt.wantFqdn)
 			}
 		})
 	}
 }
 
 func TestAnsName_String(t *testing.T) {
-	ans, err := ParseAnsName("ans://v1.0.0.agent.example.com")
+	name, err := ParseATIName("ati://v1.0.0.agent.example.com")
 	if err != nil {
-		t.Fatalf("ParseAnsName() unexpected error: %v", err)
+		t.Fatalf("ParseATIName() unexpected error: %v", err)
 	}
-	want := "ans://v1.0.0.agent.example.com"
-	if got := ans.String(); got != want {
+	want := "ati://v1.0.0.agent.example.com"
+	if got := name.String(); got != want {
 		t.Errorf("String() = %q, want %q", got, want)
 	}
 }
@@ -219,7 +219,7 @@ func TestCertIdentity(t *testing.T) {
 		identity := NewCertIdentity(
 			&cn,
 			[]string{"test.example.com"},
-			[]string{"ans://v1.0.0.test.example.com"},
+			[]string{"ati://v1.0.0.test.example.com"},
 			fp,
 		)
 
@@ -230,12 +230,12 @@ func TestCertIdentity(t *testing.T) {
 		}
 
 		// Test AnsName
-		ans := identity.AnsName()
-		if ans == nil {
+		name := identity.ATIName()
+		if name == nil {
 			t.Fatal("AnsName() returned nil, want non-nil")
 		}
-		if ans.Host != "test.example.com" {
-			t.Errorf("AnsName().Host = %q, want test.example.com", ans.Host)
+		if name.Host != "test.example.com" {
+			t.Errorf("ATIName().Host = %q, want test.example.com", name.Host)
 		}
 
 		// Test Version
@@ -293,22 +293,22 @@ func TestCertIdentity(t *testing.T) {
 		}
 	})
 
-	t.Run("AnsName filters non-ans URIs", func(t *testing.T) {
+	t.Run("ATIName filters non-ati URIs", func(t *testing.T) {
 		fp, _ := ParseCertFingerprint("SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
 
 		identity := NewCertIdentity(
 			nil,
 			nil,
-			[]string{"https://example.com", "ans://v1.0.0.test.example.com"},
+			[]string{"https://example.com", "ati://v1.0.0.test.example.com"},
 			fp,
 		)
 
-		ans := identity.AnsName()
-		if ans == nil {
+		name := identity.ATIName()
+		if name == nil {
 			t.Fatal("AnsName() returned nil, want non-nil")
 		}
-		if ans.Host != "test.example.com" {
-			t.Errorf("AnsName().Host = %q, want test.example.com", ans.Host)
+		if name.Host != "test.example.com" {
+			t.Errorf("ATIName().Host = %q, want test.example.com", name.Host)
 		}
 	})
 
@@ -490,11 +490,11 @@ func TestCertIdentity_AnsName(t *testing.T) {
 		wantURI string
 	}{
 		{
-			name: "valid ANS URI SAN",
+			name: "valid ATI URI SAN",
 			cert: &CertIdentity{
-				URISANs: []string{"ans://v1.0.0.example.com"},
+				URISANs: []string{"ati://v1.0.0.example.com"},
 			},
-			wantURI: "ans://v1.0.0.example.com",
+			wantURI: "ati://v1.0.0.example.com",
 		},
 		{
 			name:    "no URI SANs",
@@ -511,22 +511,22 @@ func TestCertIdentity_AnsName(t *testing.T) {
 		{
 			name: "invalid ANS URI SAN",
 			cert: &CertIdentity{
-				URISANs: []string{"ans://invalid"},
+				URISANs: []string{"ati://invalid"},
 			},
 			wantNil: true,
 		},
 		{
 			name: "first valid ANS among multiple",
 			cert: &CertIdentity{
-				URISANs: []string{"https://other.com", "ans://v2.0.0.test.com"},
+				URISANs: []string{"https://other.com", "ati://v2.0.0.test.com"},
 			},
-			wantURI: "ans://v2.0.0.test.com",
+			wantURI: "ati://v2.0.0.test.com",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.cert.AnsName()
+			got := tt.cert.ATIName()
 			if tt.wantNil {
 				if got != nil {
 					t.Errorf("AnsName() = %v, want nil", got)
@@ -553,7 +553,7 @@ func TestCertIdentity_Version(t *testing.T) {
 		{
 			name: "with ANS URI SAN",
 			cert: &CertIdentity{
-				URISANs: []string{"ans://v1.2.3.example.com"},
+				URISANs: []string{"ati://v1.2.3.example.com"},
 			},
 			want: "v1.2.3",
 		},
@@ -602,7 +602,7 @@ func TestCertIdentityFromX509(t *testing.T) {
 				NotAfter:     time.Now().Add(time.Hour),
 			},
 			uris: func() []*url.URL {
-				u, _ := url.Parse("ans://v1.0.0.test.example.com")
+				u, _ := url.Parse("ati://v1.0.0.test.example.com")
 				return []*url.URL{u}
 			}(),
 			wantCN:     strPtr("test.example.com"),
@@ -738,7 +738,7 @@ func TestNewCertIdentity(t *testing.T) {
 			name:       "full identity",
 			cn:         strPtr("test.example.com"),
 			dnsSANs:    []string{"test.example.com"},
-			uriSANs:    []string{"ans://v1.0.0.test.example.com"},
+			uriSANs:    []string{"ati://v1.0.0.test.example.com"},
 			fp:         CertFingerprintFromBytes([32]byte{1, 2, 3}),
 			wantCN:     "test.example.com",
 			wantDNSLen: 1,
@@ -776,8 +776,8 @@ func TestAnsName_String_Additional(t *testing.T) {
 	}{
 		{
 			name:        "standard ANS name",
-			uri:         "ans://v1.2.3.test.example.com",
-			wantString:  "ans://v1.2.3.test.example.com",
+			uri:         "ati://v1.2.3.test.example.com",
+			wantString:  "ati://v1.2.3.test.example.com",
 			wantHost:    "test.example.com",
 			wantVersion: "v1.2.3",
 		},
@@ -785,19 +785,19 @@ func TestAnsName_String_Additional(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ansName, err := ParseAnsName(tt.uri)
+			atiName, err := ParseATIName(tt.uri)
 			if err != nil {
-				t.Fatalf("ParseAnsName() error = %v", err)
+				t.Fatalf("ParseATIName() error = %v", err)
 			}
-			if got := ansName.String(); got != tt.wantString {
+			if got := atiName.String(); got != tt.wantString {
 				t.Errorf("String() = %q, want %q", got, tt.wantString)
 			}
-			if ansName.Host != tt.wantHost {
-				t.Errorf("Host = %q, want %q", ansName.Host, tt.wantHost)
+			if atiName.Host != tt.wantHost {
+				t.Errorf("Host = %q, want %q", atiName.Host, tt.wantHost)
 			}
 			expected, _ := models.ParseVersion(tt.wantVersion)
-			if !ansName.Version.Equal(expected) {
-				t.Errorf("Version = %v, want %v", ansName.Version, expected)
+			if !atiName.Version.Equal(expected) {
+				t.Errorf("Version = %v, want %v", atiName.Version, expected)
 			}
 		})
 	}

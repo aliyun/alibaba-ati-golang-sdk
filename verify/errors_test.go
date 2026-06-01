@@ -156,9 +156,9 @@ func TestVerificationError_Error(t *testing.T) {
 			contains: "hostname mismatch",
 		},
 		{
-			name:     "ANS name mismatch",
-			err:      &VerificationError{Type: VerificationErrorAnsNameMismatch, Expected: "ans://v1.0.0.foo.com", Actual: "ans://v2.0.0.foo.com"},
-			contains: "ANS name mismatch",
+			name:     "ATI name mismatch",
+			err:      &VerificationError{Type: VerificationErrorATINameMismatch, Expected: "ati://v1.0.0.foo.com", Actual: "ati://v2.0.0.foo.com"},
+			contains: "ATI name mismatch",
 		},
 		{
 			name:     "no CN",
@@ -168,7 +168,7 @@ func TestVerificationError_Error(t *testing.T) {
 		{
 			name:     "no URI SAN",
 			err:      &VerificationError{Type: VerificationErrorNoURISAN},
-			contains: "no ANS name",
+			contains: "no ATI name",
 		},
 		{
 			name:     "unknown type with message",

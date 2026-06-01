@@ -10,8 +10,7 @@ import (
 // DefaultTrustedRADomains returns the default trusted Registration Authority domains.
 func DefaultTrustedRADomains() []string {
 	return []string{
-		"transparency.ans.godaddy.com",
-		"transparency.ans.ote-godaddy.com",
+		"tl.ansagent.cn",
 	}
 }
 
@@ -103,9 +102,9 @@ func (v *URLValidator) Validate(rawURL string) error {
 		}
 	}
 
-	// 3. No non-standard port
+	// 3. No non-standard port (allow 443 and 8180 for CNNIC TL)
 	port := parsed.Port()
-	if port != "" && port != "443" {
+	if port != "" && port != "443" && port != "8180" {
 		return &URLValidationError{
 			Type: URLErrorNonStandardPort,
 			URL:  rawURL,

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 // MockDANEResolver is a mock DANE resolver for testing.

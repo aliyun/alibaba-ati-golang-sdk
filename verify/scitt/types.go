@@ -55,7 +55,7 @@ type CertEntry struct {
 // StatusTokenPayload is the decoded payload of a verified status token.
 type StatusTokenPayload struct {
 	AgentID            string
-	AnsName            string
+	ATIName            string
 	Status             AgentStatus
 	Iat                int64
 	Exp                int64

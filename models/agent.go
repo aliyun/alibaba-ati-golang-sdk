@@ -38,7 +38,7 @@ type AgentRegistrationRequest struct {
 // RegistrationPending represents a pending registration response
 type RegistrationPending struct {
 	Status     string          `json:"status"`
-	ANSName    string          `json:"ansName"`
+	ATIName    string          `json:"ansName"`
 	AgentID    string          `json:"agentId,omitempty"`
 	Challenges []ChallengeInfo `json:"challenges,omitempty"`
 	DNSRecords []DNSRecord     `json:"dnsRecords,omitempty"`
@@ -125,7 +125,7 @@ type AgentDetails struct {
 	AgentDisplayName      string               `json:"agentDisplayName"`
 	AgentHost             string               `json:"agentHost"`
 	AgentDescription      string               `json:"agentDescription,omitempty"`
-	ANSName               string               `json:"ansName"`
+	ATIName               string               `json:"ansName"`
 	Version               string               `json:"version"`
 	AgentStatus           *AgentStatus         `json:"agentStatus,omitempty"`
 	Endpoints             []AgentEndpoint      `json:"endpoints"`
@@ -160,7 +160,7 @@ type AgentSearchResult struct {
 	AgentDisplayName      string          `json:"agentDisplayName"`
 	AgentHost             string          `json:"agentHost"`
 	AgentDescription      string          `json:"agentDescription,omitempty"`
-	ANSName               string          `json:"ansName"`
+	ATIName               string          `json:"ansName"`
 	Version               string          `json:"version"`
 	Endpoints             []AgentEndpoint `json:"endpoints"`
 	RegistrationTimestamp time.Time       `json:"registrationTimestamp,omitempty"`

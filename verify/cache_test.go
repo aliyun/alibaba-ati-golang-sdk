@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 func TestBadgeCache(t *testing.T) {
@@ -19,8 +19,8 @@ func TestBadgeCache(t *testing.T) {
 				KeyID:     "test-key",
 				Signature: "test-sig",
 				Event: models.AgentEvent{
-					ANSID:   "test-ans-id",
-					ANSName: "ans://v1.0.0.agent.example.com",
+					ATIID:   "test-ati-id",
+					ATIName: "ati://v1.0.0.agent.example.com",
 					Agent: models.AgentInfo{
 						Host:    "agent.example.com",
 						Name:    "Test Agent",
@@ -166,8 +166,8 @@ func TestBadgeCache_GetStaleByFqdn(t *testing.T) {
 				KeyID:     "test-key",
 				Signature: "test-sig",
 				Event: models.AgentEvent{
-					ANSID:   "test-ans-id",
-					ANSName: "ans://v1.0.0.agent.example.com",
+					ATIID:   "test-ati-id",
+					ATIName: "ati://v1.0.0.agent.example.com",
 					Agent: models.AgentInfo{
 						Host:    "agent.example.com",
 						Name:    "Test Agent",
@@ -270,8 +270,8 @@ func TestBadgeCache_BackgroundRefresh(t *testing.T) {
 					KeyID:     "test-key",
 					Signature: "test-sig",
 					Event: models.AgentEvent{
-						ANSID:   "test-ans-id",
-						ANSName: "ans://v1.0.0.agent.example.com",
+						ATIID:   "test-ati-id",
+						ATIName: "ati://v1.0.0.agent.example.com",
 						Agent: models.AgentInfo{
 							Host:    "agent.example.com",
 							Name:    "Old Agent",
@@ -295,8 +295,8 @@ func TestBadgeCache_BackgroundRefresh(t *testing.T) {
 					KeyID:     "test-key",
 					Signature: "test-sig",
 					Event: models.AgentEvent{
-						ANSID:   "test-ans-id",
-						ANSName: "ans://v1.0.0.agent.example.com",
+						ATIID:   "test-ati-id",
+						ATIName: "ati://v1.0.0.agent.example.com",
 						Agent: models.AgentInfo{
 							Host:    "agent.example.com",
 							Name:    "New Agent",
@@ -388,8 +388,8 @@ func TestBadgeCache_BackgroundRefresh(t *testing.T) {
 					KeyID:     "test-key",
 					Signature: "test-sig",
 					Event: models.AgentEvent{
-						ANSID:   "test-ans-id",
-						ANSName: "ans://v1.0.0.agent.example.com",
+						ATIID:   "test-ati-id",
+						ATIName: "ati://v1.0.0.agent.example.com",
 						Agent: models.AgentInfo{
 							Host:    "agent.example.com",
 							Name:    "Test Agent",
@@ -769,8 +769,8 @@ func TestBadgeCache_CleanupLocked_StaleRetention(t *testing.T) {
 				KeyID:     "k",
 				Signature: "s",
 				Event: models.AgentEvent{
-					ANSID:   "id",
-					ANSName: "ans://v1.0.0.cleanup.example.com",
+					ATIID:   "id",
+					ATIName: "ati://v1.0.0.cleanup.example.com",
 					Agent: models.AgentInfo{
 						Host:    "cleanup.example.com",
 						Name:    "Test",
@@ -834,8 +834,8 @@ func TestBadgeCache_CleanupLocked_MaxEntriesEviction(t *testing.T) {
 				KeyID:     "k",
 				Signature: "s",
 				Event: models.AgentEvent{
-					ANSID:   "id",
-					ANSName: "ans://v1.0.0.test.example.com",
+					ATIID:   "id",
+					ATIName: "ati://v1.0.0.test.example.com",
 					Agent: models.AgentInfo{
 						Host:    "test.example.com",
 						Name:    "Test",
@@ -881,8 +881,8 @@ func TestBadgeCache_CleanupLocked_VersionedEntries(t *testing.T) {
 				KeyID:     "k",
 				Signature: "s",
 				Event: models.AgentEvent{
-					ANSID:   "id",
-					ANSName: "ans://v1.0.0.ver.example.com",
+					ATIID:   "id",
+					ATIName: "ati://v1.0.0.ver.example.com",
 					Agent: models.AgentInfo{
 						Host:    "ver.example.com",
 						Name:    "Test",
@@ -931,8 +931,8 @@ func TestBadgeCache_CleanupLocked_MaxEntriesEviction_VersionedOverflow(t *testin
 				KeyID:     "k",
 				Signature: "s",
 				Event: models.AgentEvent{
-					ANSID:   "id",
-					ANSName: "ans://v1.0.0.test.example.com",
+					ATIID:   "id",
+					ATIName: "ati://v1.0.0.test.example.com",
 					Agent: models.AgentInfo{
 						Host:    "test.example.com",
 						Name:    "Test",

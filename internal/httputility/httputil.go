@@ -9,7 +9,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 const (

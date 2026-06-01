@@ -55,9 +55,9 @@ func (f Fqdn) String() string {
 	return f.value
 }
 
-// AnsBadgeName returns the _ans-badge subdomain for this FQDN.
-func (f Fqdn) AnsBadgeName() string {
-	return "_ans-badge." + f.value
+// ATIBadgeName returns the _ati-badge subdomain for this FQDN.
+func (f Fqdn) ATIBadgeName() string {
+	return "_ati-badge." + f.value
 }
 
 // RaBadgeName returns the _ra-badge subdomain for this FQDN (legacy fallback).
@@ -68,6 +68,16 @@ func (f Fqdn) RaBadgeName() string {
 // TlsaName returns the TLSA record name for this FQDN and port.
 func (f Fqdn) TlsaName(port uint16) string {
 	return fmt.Sprintf("_%d._tcp.%s", port, f.value)
+}
+
+// ATIDiscoveryName returns the _ati subdomain for DNS discovery.
+func (f Fqdn) ATIDiscoveryName() string {
+	return "_ati." + f.value
+}
+
+// IdentityTLSAName returns the TLSA record name for identity certificate verification.
+func (f Fqdn) IdentityTLSAName() string {
+	return "_ati-identity._tls." + f.value
 }
 
 // IsZero returns true if the Fqdn has not been set.

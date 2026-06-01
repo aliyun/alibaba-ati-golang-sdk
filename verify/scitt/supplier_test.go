@@ -639,7 +639,7 @@ func buildSupplierTestFixture(t *testing.T) ([]byte, []byte, *RefreshableKeyStor
 	receipt := buildValidReceipt(t, bundle, []byte("test-payload"), &vds, nil, nil, 1, 0, nil)
 
 	now := time.Now()
-	payload := buildStatusPayloadCBOR(t, "agent-1", "ans://v1.0.0.test.example.com",
+	payload := buildStatusPayloadCBOR(t, "agent-1", "ati://v1.0.0.test.example.com",
 		StatusActive, now.Unix(), now.Add(1*time.Hour).Unix(), nil, nil, nil)
 	token := signStatusToken(t, bundle.priv, bundle.kid, payload, nil)
 

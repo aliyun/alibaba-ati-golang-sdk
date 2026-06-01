@@ -17,8 +17,8 @@ type ProducerV1 struct {
 
 // EventV1 represents the event structure in V1 schema
 type EventV1 struct {
-	ANSID                string            `json:"ansId"`
-	ANSName              string            `json:"ansName"`
+	ATIID                string            `json:"ansId"`
+	ATIName              string            `json:"ansName"`
 	EventType            EventTypeV1       `json:"eventType"`
 	Agent                AgentV1           `json:"agent"`
 	Attestations         AttestationsV1    `json:"attestations"`
@@ -118,7 +118,7 @@ type ProducerV0 struct {
 type EventV0 struct {
 	AgentFQDN string         `json:"agentFqdn"`
 	AgentID   string         `json:"agentId"`
-	ANSName   string         `json:"ansName"`
+	ATIName   string         `json:"ansName"`
 	EventType EventTypeV0    `json:"eventType"`
 	Protocol  string         `json:"protocol"`
 	RABadge   RABadge        `json:"raBadge"`
@@ -145,7 +145,7 @@ const (
 // EventMetadata represents optional metadata in V0 schema
 type EventMetadata struct {
 	AgentCardURL    *string  `json:"agentCardUrl,omitempty"`
-	ANSCapabilities []string `json:"ansCapabilities,omitempty"`
+	ATICapabilities []string `json:"ansCapabilities,omitempty"`
 	Description     *string  `json:"description,omitempty"`
 	Endpoint        *string  `json:"endpoint,omitempty"`
 	RABadgeURL      *string  `json:"raBadgeUrl,omitempty"`
@@ -153,7 +153,7 @@ type EventMetadata struct {
 
 // RABadge represents the RA badge in V0 schema
 type RABadge struct {
-	ANSCapabilitiesHash  *string           `json:"ansCapabilitiesHash,omitempty"`
+	ATICapabilitiesHash  *string           `json:"ansCapabilitiesHash,omitempty"`
 	Attestations         AttestationsV0    `json:"attestations"`
 	BadgeURLStatus       string            `json:"badgeUrlStatus"`
 	ExpiresAt            *time.Time        `json:"expiresAt,omitempty"`

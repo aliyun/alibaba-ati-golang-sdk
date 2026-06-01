@@ -9,7 +9,7 @@ type EventItem struct {
 	CreatedAt        time.Time       `json:"createdAt"`
 	ExpiresAt        *time.Time      `json:"expiresAt,omitempty"`
 	AgentID          string          `json:"agentId"`
-	AnsName          string          `json:"ansName"`
+	ATIName          string          `json:"ansName"`
 	AgentHost        string          `json:"agentHost"`
 	AgentDisplayName *string         `json:"agentDisplayName,omitempty"`
 	AgentDescription *string         `json:"agentDescription,omitempty"`

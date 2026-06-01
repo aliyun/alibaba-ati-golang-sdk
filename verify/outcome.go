@@ -3,7 +3,7 @@ package verify
 import (
 	"fmt"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 // OutcomeType represents the type of verification outcome.
@@ -12,16 +12,16 @@ type OutcomeType int
 const (
 	// OutcomeVerified indicates verification passed.
 	OutcomeVerified OutcomeType = iota
-	// OutcomeNotAnsAgent indicates no _ans-badge record found.
-	OutcomeNotAnsAgent
+	// OutcomeNotATIAgent indicates no _ati-badge record found.
+	OutcomeNotATIAgent
 	// OutcomeInvalidStatus indicates badge status is invalid for connections.
 	OutcomeInvalidStatus
 	// OutcomeFingerprintMismatch indicates certificate fingerprint mismatch.
 	OutcomeFingerprintMismatch
 	// OutcomeHostnameMismatch indicates hostname mismatch.
 	OutcomeHostnameMismatch
-	// OutcomeAnsNameMismatch indicates ANS name mismatch.
-	OutcomeAnsNameMismatch
+	// OutcomeATINameMismatch indicates ANS name mismatch.
+	OutcomeATINameMismatch
 	// OutcomeDNSError indicates DNS resolution failed.
 	OutcomeDNSError
 	// OutcomeTlogError indicates transparency log error.
@@ -95,10 +95,10 @@ func NewVerifiedOutcome(badge *models.Badge, fingerprint CertFingerprint) *Verif
 	}
 }
 
-// NewNotAnsAgentOutcome creates a not-ANS-agent outcome.
-func NewNotAnsAgentOutcome(host string) *VerificationOutcome {
+// NewNotATIAgentOutcome creates a not-ATI-agent outcome.
+func NewNotATIAgentOutcome(host string) *VerificationOutcome {
 	return &VerificationOutcome{
-		Type: OutcomeNotAnsAgent,
+		Type: OutcomeNotATIAgent,
 		Host: host,
 	}
 }
@@ -132,10 +132,10 @@ func NewHostnameMismatchOutcome(badge *models.Badge, expected, actual string) *V
 	}
 }
 
-// NewAnsNameMismatchOutcome creates an ANS name mismatch outcome.
-func NewAnsNameMismatchOutcome(badge *models.Badge, expected, actual string) *VerificationOutcome {
+// NewATINameMismatchOutcome creates an ANS name mismatch outcome.
+func NewATINameMismatchOutcome(badge *models.Badge, expected, actual string) *VerificationOutcome {
 	return &VerificationOutcome{
-		Type:     OutcomeAnsNameMismatch,
+		Type:     OutcomeATINameMismatch,
 		Badge:    badge,
 		Expected: expected,
 		Actual:   actual,
@@ -210,9 +210,9 @@ func (o *VerificationOutcome) IsFailOpen() bool {
 	return o.Type == OutcomeFailOpen
 }
 
-// IsNotAnsAgent returns true if the agent is not registered with ANS.
-func (o *VerificationOutcome) IsNotAnsAgent() bool {
-	return o.Type == OutcomeNotAnsAgent
+// IsNotATIAgent returns true if the agent is not registered with ATI.
+func (o *VerificationOutcome) IsNotATIAgent() bool {
+	return o.Type == OutcomeNotATIAgent
 }
 
 // ToError converts the outcome to an error if verification failed.
@@ -220,7 +220,7 @@ func (o *VerificationOutcome) ToError() error {
 	switch o.Type {
 	case OutcomeVerified, OutcomeFailOpen:
 		return nil
-	case OutcomeNotAnsAgent:
+	case OutcomeNotATIAgent:
 		// If an underlying error exists, return it directly for better context
 		if o.Error != nil {
 			return o.Error
@@ -247,9 +247,9 @@ func (o *VerificationOutcome) ToError() error {
 			Expected: o.Expected,
 			Actual:   o.Actual,
 		}
-	case OutcomeAnsNameMismatch:
+	case OutcomeATINameMismatch:
 		return &VerificationError{
-			Type:     VerificationErrorAnsNameMismatch,
+			Type:     VerificationErrorATINameMismatch,
 			Expected: o.Expected,
 			Actual:   o.Actual,
 		}

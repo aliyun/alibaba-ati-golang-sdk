@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 func TestMockTransparencyLogClient(t *testing.T) {
@@ -22,8 +22,8 @@ func TestMockTransparencyLogClient(t *testing.T) {
 				KeyID:     "test-key",
 				Signature: "test-sig",
 				Event: models.AgentEvent{
-					ANSID:   "test-ans-id",
-					ANSName: "ans://v1.0.0.agent.example.com",
+					ATIID:   "test-ati-id",
+					ATIName: "ati://v1.0.0.agent.example.com",
 					Agent: models.AgentInfo{
 						Host:    "agent.example.com",
 						Name:    "Test Agent",

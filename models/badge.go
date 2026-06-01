@@ -63,9 +63,9 @@ type Badge struct {
 	MerkleProof   *MerkleProof `json:"merkleProof,omitempty"`
 }
 
-// AgentName returns the agent's ANS name from the badge.
+// AgentName returns the agent's ATI name from the badge.
 func (b *Badge) AgentName() string {
-	return b.Payload.Producer.Event.ANSName
+	return b.Payload.Producer.Event.ATIName
 }
 
 // AgentHost returns the agent's host FQDN from the badge.
@@ -96,7 +96,7 @@ func (b *Badge) IdentityCertFingerprint() string {
 
 // AgentID returns the agent's unique ID from the badge.
 func (b *Badge) AgentID() string {
-	return b.Payload.Producer.Event.ANSID
+	return b.Payload.Producer.Event.ATIID
 }
 
 // EventType returns the event type from the badge.
@@ -124,8 +124,8 @@ type Producer struct {
 
 // AgentEvent contains all registration/verification details.
 type AgentEvent struct {
-	ANSID        string       `json:"ansId"`
-	ANSName      string       `json:"ansName"`
+	ATIID        string       `json:"ansId"`
+	ATIName      string       `json:"ansName"`
 	EventType    EventType    `json:"eventType"`
 	Agent        AgentInfo    `json:"agent"`
 	Attestations Attestations `json:"attestations"`

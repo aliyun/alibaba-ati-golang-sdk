@@ -21,7 +21,7 @@ func TestAttestationsV1_JSONRoundTrip(t *testing.T) {
 		{
 			name: "full struct with all fields",
 			input: AttestationsV1{
-				DNSRecordsProvisioned: map[string]string{"_ans.example.com": "verified"},
+				DNSRecordsProvisioned: map[string]string{"_ati.example.com": "verified"},
 				DomainValidation:      &domainVal,
 				IdentityCert: &CertificateV1{
 					Fingerprint: "abc123",

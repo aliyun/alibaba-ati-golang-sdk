@@ -20,7 +20,7 @@ func containsString(s, substr string) bool {
 }
 
 // buildStatusPayloadCBOR builds a CBOR-encoded status token payload with integer keys.
-func buildStatusPayloadCBOR(t *testing.T, agentID, ansName string, status AgentStatus, iat, exp int64, identityCerts, serverCerts []CertEntry, metadataHashes map[string]string) []byte {
+func buildStatusPayloadCBOR(t *testing.T, agentID, atiName string, status AgentStatus, iat, exp int64, identityCerts, serverCerts []CertEntry, metadataHashes map[string]string) []byte {
 	t.Helper()
 	m := make(map[interface{}]interface{})
 	if agentID != "" {
@@ -35,8 +35,8 @@ func buildStatusPayloadCBOR(t *testing.T, agentID, ansName string, status AgentS
 	if exp != 0 {
 		m[int64(4)] = exp
 	}
-	if ansName != "" {
-		m[int64(5)] = ansName
+	if atiName != "" {
+		m[int64(5)] = atiName
 	}
 	if identityCerts != nil {
 		certs := make([]map[interface{}]interface{}, 0, len(identityCerts))
@@ -221,11 +221,11 @@ func TestVerifyStatusTokenAt(t *testing.T) {
 	)
 	missingAgentIDToken := signStatusToken(t, ki.priv, ki.kid, missingAgentIDPayload, nil)
 
-	missingAnsNamePayload := buildStatusPayloadCBOR(t,
+	missingATINamePayload := buildStatusPayloadCBOR(t,
 		"agent-123", "", StatusActive, now-60, now+3600,
 		nil, nil, nil,
 	)
-	missingAnsNameToken := signStatusToken(t, ki.priv, ki.kid, missingAnsNamePayload, nil)
+	missingATINameToken := signStatusToken(t, ki.priv, ki.kid, missingATINamePayload, nil)
 
 	missingStatusPayload := buildStatusPayloadCBOR(t,
 		"agent-123", "example.ans", "", now-60, now+3600,
@@ -449,7 +449,7 @@ func TestVerifyStatusTokenAt(t *testing.T) {
 		},
 		{
 			name:      "missing ans_name",
-			token:     missingAnsNameToken,
+			token:     missingATINameToken,
 			keys:      store,
 			clockSkew: 0,
 			now:       now,

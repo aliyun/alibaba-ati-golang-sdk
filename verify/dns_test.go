@@ -5,77 +5,77 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/godaddy/ans-sdk-go/models"
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 func TestMockDNSResolver(t *testing.T) {
-	t.Run("LookupAnsBadge found", func(t *testing.T) {
-		record := AnsBadgeRecord{
-			FormatVersion: "ans-badge1",
+	t.Run("LookupATIBadge found", func(t *testing.T) {
+		record := ATIBadgeRecord{
+			FormatVersion: "ati-badge1",
 			Version:       ptr(models.NewVersion(1, 0, 0)),
 			URL:           "https://example.com/badge",
 		}
 
 		resolver := NewMockDNSResolver().
-			WithRecords("agent.example.com", []AnsBadgeRecord{record})
+			WithRecords("agent.example.com", []ATIBadgeRecord{record})
 
 		fqdn, _ := models.NewFqdn("agent.example.com")
-		result, err := resolver.LookupAnsBadge(context.Background(), fqdn)
+		result, err := resolver.LookupATIBadge(context.Background(), fqdn)
 
 		if err != nil {
-			t.Fatalf("LookupAnsBadge() error = %v", err)
+			t.Fatalf("LookupATIBadge() error = %v", err)
 		}
 		if !result.Found {
-			t.Fatal("LookupAnsBadge() Found = false, want true")
+			t.Fatal("LookupATIBadge() Found = false, want true")
 		}
 		if len(result.Records) != 1 {
-			t.Fatalf("LookupAnsBadge() len(Records) = %d, want 1", len(result.Records))
+			t.Fatalf("LookupATIBadge() len(Records) = %d, want 1", len(result.Records))
 		}
 		if result.Records[0].URL != "https://example.com/badge" {
 			t.Errorf("Records[0].URL = %q, want https://example.com/badge", result.Records[0].URL)
 		}
 	})
 
-	t.Run("LookupAnsBadge not found", func(t *testing.T) {
+	t.Run("LookupATIBadge not found", func(t *testing.T) {
 		resolver := NewMockDNSResolver()
 
 		fqdn, _ := models.NewFqdn("unknown.example.com")
-		result, err := resolver.LookupAnsBadge(context.Background(), fqdn)
+		result, err := resolver.LookupATIBadge(context.Background(), fqdn)
 
 		if err != nil {
-			t.Fatalf("LookupAnsBadge() error = %v", err)
+			t.Fatalf("LookupATIBadge() error = %v", err)
 		}
 		if result.Found {
-			t.Fatal("LookupAnsBadge() Found = true, want false")
+			t.Fatal("LookupATIBadge() Found = true, want false")
 		}
 	})
 
-	t.Run("LookupAnsBadge error", func(t *testing.T) {
+	t.Run("LookupATIBadge error", func(t *testing.T) {
 		resolver := NewMockDNSResolver().
 			WithError("error.example.com", &DNSError{Type: DNSErrorTimeout, Fqdn: "error.example.com"})
 
 		fqdn, _ := models.NewFqdn("error.example.com")
-		_, err := resolver.LookupAnsBadge(context.Background(), fqdn)
+		_, err := resolver.LookupATIBadge(context.Background(), fqdn)
 
 		if err == nil {
-			t.Fatal("LookupAnsBadge() expected error, got nil")
+			t.Fatal("LookupATIBadge() expected error, got nil")
 		}
 	})
 
 	t.Run("FindBadgeForVersion", func(t *testing.T) {
-		v1 := AnsBadgeRecord{
-			FormatVersion: "ans-badge1",
+		v1 := ATIBadgeRecord{
+			FormatVersion: "ati-badge1",
 			Version:       ptr(models.NewVersion(1, 0, 0)),
 			URL:           "https://example.com/v1",
 		}
-		v2 := AnsBadgeRecord{
-			FormatVersion: "ans-badge1",
+		v2 := ATIBadgeRecord{
+			FormatVersion: "ati-badge1",
 			Version:       ptr(models.NewVersion(1, 0, 1)),
 			URL:           "https://example.com/v2",
 		}
 
 		resolver := NewMockDNSResolver().
-			WithRecords("agent.example.com", []AnsBadgeRecord{v1, v2})
+			WithRecords("agent.example.com", []ATIBadgeRecord{v1, v2})
 
 		fqdn, _ := models.NewFqdn("agent.example.com")
 
@@ -114,19 +114,19 @@ func TestMockDNSResolver(t *testing.T) {
 	})
 
 	t.Run("FindPreferredBadge returns newest version", func(t *testing.T) {
-		v1 := AnsBadgeRecord{
-			FormatVersion: "ans-badge1",
+		v1 := ATIBadgeRecord{
+			FormatVersion: "ati-badge1",
 			Version:       ptr(models.NewVersion(1, 0, 0)),
 			URL:           "https://example.com/v1",
 		}
-		v2 := AnsBadgeRecord{
-			FormatVersion: "ans-badge1",
+		v2 := ATIBadgeRecord{
+			FormatVersion: "ati-badge1",
 			Version:       ptr(models.NewVersion(2, 0, 0)),
 			URL:           "https://example.com/v2",
 		}
 
 		resolver := NewMockDNSResolver().
-			WithRecords("agent.example.com", []AnsBadgeRecord{v1, v2})
+			WithRecords("agent.example.com", []ATIBadgeRecord{v1, v2})
 
 		fqdn, _ := models.NewFqdn("agent.example.com")
 		record, err := resolver.FindPreferredBadge(context.Background(), fqdn)
@@ -147,30 +147,30 @@ func TestMockDNSResolver(t *testing.T) {
 func TestMockDNSResolver_FindBadgeForVersion_PrefersExactMatch(t *testing.T) {
 	// A nil-version record should NOT shadow an exact version match
 	// regardless of slice ordering (DNS TXT record order is not stable)
-	versionless := AnsBadgeRecord{
-		FormatVersion: "ans-badge1",
+	versionless := ATIBadgeRecord{
+		FormatVersion: "ati-badge1",
 		Version:       nil, // matches any version
 		URL:           "https://example.com/versionless",
 	}
-	v1 := AnsBadgeRecord{
-		FormatVersion: "ans-badge1",
+	v1 := ATIBadgeRecord{
+		FormatVersion: "ati-badge1",
 		Version:       ptr(models.NewVersion(1, 0, 0)),
 		URL:           "https://example.com/v1",
 	}
 
 	tests := []struct {
 		name    string
-		records []AnsBadgeRecord
+		records []ATIBadgeRecord
 		wantURL string
 	}{
 		{
 			name:    "versionless first, exact match second",
-			records: []AnsBadgeRecord{versionless, v1},
+			records: []ATIBadgeRecord{versionless, v1},
 			wantURL: "https://example.com/v1",
 		},
 		{
 			name:    "exact match first, versionless second",
-			records: []AnsBadgeRecord{v1, versionless},
+			records: []ATIBadgeRecord{v1, versionless},
 			wantURL: "https://example.com/v1",
 		},
 	}
@@ -193,7 +193,7 @@ func TestMockDNSResolver_FindBadgeForVersion_PrefersExactMatch(t *testing.T) {
 
 	t.Run("falls back to versionless when no exact match", func(t *testing.T) {
 		resolver := NewMockDNSResolver().
-			WithRecords("agent.example.com", []AnsBadgeRecord{versionless})
+			WithRecords("agent.example.com", []ATIBadgeRecord{versionless})
 
 		fqdn, _ := models.NewFqdn("agent.example.com")
 		record, err := resolver.FindBadgeForVersion(context.Background(), fqdn, models.NewVersion(2, 0, 0))
@@ -207,12 +207,12 @@ func TestMockDNSResolver_FindBadgeForVersion_PrefersExactMatch(t *testing.T) {
 }
 
 func TestMockDNSResolver_RaBadgeFallback(t *testing.T) {
-	ansRecord := AnsBadgeRecord{
-		FormatVersion: "ans-badge1",
+	ansRecord := ATIBadgeRecord{
+		FormatVersion: "ati-badge1",
 		Version:       ptr(models.NewVersion(1, 0, 0)),
-		URL:           "https://example.com/ans-badge",
+		URL:           "https://example.com/ati-badge",
 	}
-	raRecord := AnsBadgeRecord{
+	raRecord := ATIBadgeRecord{
 		FormatVersion: "ra-badge1",
 		Version:       ptr(models.NewVersion(1, 0, 0)),
 		URL:           "https://example.com/ra-badge",
@@ -228,32 +228,32 @@ func TestMockDNSResolver_RaBadgeFallback(t *testing.T) {
 		wantSource BadgeRecordSource
 	}{
 		{
-			name: "ans-badge only",
+			name: "ati-badge only",
 			resolver: NewMockDNSResolver().
-				WithRecords("agent.example.com", []AnsBadgeRecord{ansRecord}),
+				WithRecords("agent.example.com", []ATIBadgeRecord{ansRecord}),
 			fqdn:       "agent.example.com",
 			wantFound:  true,
-			wantURL:    "https://example.com/ans-badge",
-			wantSource: BadgeRecordSourceAnsBadge,
+			wantURL:    "https://example.com/ati-badge",
+			wantSource: BadgeRecordSourceATIBadge,
 		},
 		{
-			name: "ra-badge fallback when ans-badge absent",
+			name: "ra-badge fallback when ati-badge absent",
 			resolver: NewMockDNSResolver().
-				WithRaBadgeRecords("agent.example.com", []AnsBadgeRecord{raRecord}),
+				WithRaBadgeRecords("agent.example.com", []ATIBadgeRecord{raRecord}),
 			fqdn:       "agent.example.com",
 			wantFound:  true,
 			wantURL:    "https://example.com/ra-badge",
 			wantSource: BadgeRecordSourceRaBadge,
 		},
 		{
-			name: "ans-badge takes priority over ra-badge",
+			name: "ati-badge takes priority over ra-badge",
 			resolver: NewMockDNSResolver().
-				WithRecords("agent.example.com", []AnsBadgeRecord{ansRecord}).
-				WithRaBadgeRecords("agent.example.com", []AnsBadgeRecord{raRecord}),
+				WithRecords("agent.example.com", []ATIBadgeRecord{ansRecord}).
+				WithRaBadgeRecords("agent.example.com", []ATIBadgeRecord{raRecord}),
 			fqdn:       "agent.example.com",
 			wantFound:  true,
-			wantURL:    "https://example.com/ans-badge",
-			wantSource: BadgeRecordSourceAnsBadge,
+			wantURL:    "https://example.com/ati-badge",
+			wantSource: BadgeRecordSourceATIBadge,
 		},
 		{
 			name:      "neither record exists",
@@ -265,7 +265,7 @@ func TestMockDNSResolver_RaBadgeFallback(t *testing.T) {
 			name: "hard error does not fallback to ra-badge",
 			resolver: NewMockDNSResolver().
 				WithError("agent.example.com", &DNSError{Type: DNSErrorTimeout, Fqdn: "agent.example.com"}).
-				WithRaBadgeRecords("agent.example.com", []AnsBadgeRecord{raRecord}),
+				WithRaBadgeRecords("agent.example.com", []ATIBadgeRecord{raRecord}),
 			fqdn:    "agent.example.com",
 			wantErr: true,
 		},
@@ -274,16 +274,16 @@ func TestMockDNSResolver_RaBadgeFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fqdn, _ := models.NewFqdn(tt.fqdn)
-			result, err := tt.resolver.LookupAnsBadge(context.Background(), fqdn)
+			result, err := tt.resolver.LookupATIBadge(context.Background(), fqdn)
 
 			if tt.wantErr {
 				if err == nil {
-					t.Fatal("LookupAnsBadge() expected error, got nil")
+					t.Fatal("LookupATIBadge() expected error, got nil")
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("LookupAnsBadge() unexpected error: %v", err)
+				t.Fatalf("LookupATIBadge() unexpected error: %v", err)
 			}
 
 			if result.Found != tt.wantFound {
@@ -305,7 +305,7 @@ func TestMockDNSResolver_RaBadgeFallback(t *testing.T) {
 	}
 }
 
-func TestGetAnsBadgeRecords(t *testing.T) {
+func TestGetATIBadgeRecords(t *testing.T) {
 	tests := []struct {
 		name      string
 		fqdn      string
@@ -318,7 +318,7 @@ func TestGetAnsBadgeRecords(t *testing.T) {
 			name: "found",
 			fqdn: "test.example.com",
 			resolver: NewMockDNSResolver().
-				WithRecords("test.example.com", []AnsBadgeRecord{
+				WithRecords("test.example.com", []ATIBadgeRecord{
 					{URL: "https://tlog.example.com/badge/123"},
 				}),
 			wantLen: 1,
@@ -350,7 +350,7 @@ func TestGetAnsBadgeRecords(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fqdn, _ := models.NewFqdn(tt.fqdn)
-			records, err := GetAnsBadgeRecords(context.Background(), tt.resolver, fqdn)
+			records, err := GetATIBadgeRecords(context.Background(), tt.resolver, fqdn)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
@@ -361,7 +361,7 @@ func TestGetAnsBadgeRecords(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("GetAnsBadgeRecords() error = %v", err)
+				t.Fatalf("GetATIBadgeRecords() error = %v", err)
 			}
 			if len(records) != tt.wantLen {
 				t.Errorf("expected %d record(s), got %d", tt.wantLen, len(records))
