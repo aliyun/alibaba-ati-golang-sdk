@@ -36,6 +36,8 @@ const (
 	OutcomeDANERejection
 	// OutcomeScittError indicates a SCITT verification error.
 	OutcomeScittError
+	// OutcomeGoldError indicates a Gold (CNNIC TL) verification error.
+	OutcomeGoldError
 )
 
 // VerificationTier represents the level of SCITT verification achieved.
@@ -46,6 +48,8 @@ const (
 	TierBadgeOnly VerificationTier = iota
 	// TierFullScitt indicates both receipt and status token were cryptographically verified.
 	TierFullScitt
+	// TierGold indicates CNNIC TL seal + Merkle proof were cryptographically verified.
+	TierGold
 )
 
 // String returns a human-readable representation of the verification tier.
@@ -55,6 +59,8 @@ func (t VerificationTier) String() string {
 		return "BadgeOnly"
 	case TierFullScitt:
 		return "FullScitt"
+	case TierGold:
+		return "Gold"
 	default:
 		return fmt.Sprintf("VerificationTier(%d)", int(t))
 	}
@@ -200,6 +206,23 @@ func NewScittErrorOutcome(err error) *VerificationOutcome {
 	}
 }
 
+// NewGoldErrorOutcome creates a Gold verification error outcome.
+func NewGoldErrorOutcome(err error) *VerificationOutcome {
+	return &VerificationOutcome{
+		Type:  OutcomeGoldError,
+		Error: err,
+	}
+}
+
+// NewGoldVerifiedOutcome creates a successful Gold verification outcome.
+func NewGoldVerifiedOutcome(fingerprint CertFingerprint) *VerificationOutcome {
+	return &VerificationOutcome{
+		Type:               OutcomeVerified,
+		Tier:               TierGold,
+		MatchedFingerprint: &fingerprint,
+	}
+}
+
 // IsSuccess returns true if verification was successful or fail-open was applied.
 func (o *VerificationOutcome) IsSuccess() bool {
 	return o.Type == OutcomeVerified || o.Type == OutcomeFailOpen
@@ -255,7 +278,7 @@ func (o *VerificationOutcome) ToError() error {
 		}
 	case OutcomeDANERejection:
 		return o.Error
-	case OutcomeDNSError, OutcomeTlogError, OutcomeCertError, OutcomeURLValidationError, OutcomeScittError:
+	case OutcomeDNSError, OutcomeTlogError, OutcomeCertError, OutcomeURLValidationError, OutcomeScittError, OutcomeGoldError:
 		return o.Error
 	default:
 		return o.Error

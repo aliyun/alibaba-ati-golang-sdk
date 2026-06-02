@@ -1,27 +1,109 @@
-# ANS Registry Go SDK
+# ATI Go SDK
 
-A comprehensive Go SDK for interacting with the Agent Name Service (ANS) Registry Authority and Transparency Log.
+Agent Trust Infrastructure (ATI) 的 Go SDK，为 AI Agent 提供安全身份注册、mTLS 通信、多级信任验证和透明度日志集成。
 
+ATI 是阿里云与 CNNIC 联合建设的 Agent 信任基础设施，基于 DNS + PKI + 透明日志三重机制，为 Agent 间通信提供可验证的身份保障。
 
-## API Specification Reference
-
-The ANS Registry SDK is based off of the REST API. The spec is documented using the OpenAPI (Swagger) specification:
-- [View OpenAPI Spec - Human Readable](https://developer.godaddy.com/doc/endpoint/ans)
-- [OpenAPI Spec - AI/Machine Readable](https://developer.godaddy.com/swagger/swagger_ans.json)
-
-## CLI Tool
-
-A full-featured CLI for interacting with ANS is included in this repository. See [cmd/ans-cli](cmd/ans-cli) for installation and usage instructions.
-
-## Installation
+## 安装
 
 ```bash
-go get github.com/godaddy/ans-sdk-go
+go get gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk
 ```
 
-## Quick Start
+## 快速开始
 
-### Registry Authority Client
+### Agent 间 mTLS 通信（客户端）
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "io"
+    "log"
+
+    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
+)
+
+func main() {
+    client, err := ati.NewAgentClient(
+        ati.WithMTLSCerts(
+            "certs/identity-cert.pem",
+            "certs/private-key.pem",
+            "certs/server-cert.pem",
+            "certs/ca-bundle.pem",
+        ),
+        ati.WithTrustLevel(ati.Bronze), // 默认 Bronze，可选 Silver / Gold
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 检查证书到期状态
+    status := client.CertStatus()
+    fmt.Printf("证书剩余有效天数: %d\n", status.DaysRemaining)
+
+    // 发起 mTLS 请求（自动执行 Bronze 验证）
+    resp, err := client.Get(context.Background(), "https://target-agent.example.com/api/data")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer resp.Body.Close()
+
+    // 查看验证结果
+    outcome := resp.VerificationOutcome
+    fmt.Printf("DNS 发现: %v, CA 链有效: %v, SAN 匹配: %v\n",
+        outcome.DNSDiscovered, outcome.CAChainValid, outcome.SANMatches)
+    fmt.Printf("信任等级: %s\n", outcome.TrustLevel)
+
+    body, _ := io.ReadAll(resp.Body)
+    fmt.Printf("响应: %s\n", body)
+}
+```
+
+### Agent 服务端（mTLS 配置）
+
+```go
+package main
+
+import (
+    "crypto/tls"
+    "log"
+    "net/http"
+
+    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
+)
+
+func main() {
+    tlsConfig, err := ati.NewServerTLSConfig(
+        ati.WithServerCert("certs/server-cert.pem", "certs/private-key.pem"),
+        ati.WithClientCA("certs/ca-bundle.pem"),
+        ati.WithClientVerifier(ati.Bronze), // 自动验证客户端 ati:// URI SAN
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    server := &http.Server{
+        Addr:      ":8443",
+        TLSConfig: tlsConfig,
+        Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            // 提取对方 Agent 身份
+            peer, err := ati.PeerATIName(r.TLS)
+            if err != nil {
+                http.Error(w, "unknown peer", 403)
+                return
+            }
+            w.Write([]byte("Hello, " + peer.Host))
+        }),
+    }
+
+    log.Fatal(server.ListenAndServeTLS("", ""))
+}
+```
+
+### Trust Card 查询
 
 ```go
 package main
@@ -31,65 +113,19 @@ import (
     "fmt"
     "log"
 
-    "github.com/godaddy/ans-sdk-go/ans"
-    "github.com/godaddy/ans-sdk-go/models"
+    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
 )
 
 func main() {
-    // Create a new Registry Authority client
-    client, err := ans.NewClient(
-        ans.WithBaseURL("https://api.godaddy.com"),
-        ans.WithAPIKey("your-api-key", "your-api-secret"),
-        ans.WithVerbose(true),
-    )
+    card, err := ati.GetTrustCard(context.Background(), "agent.example.com", "1.0.0")
     if err != nil {
         log.Fatal(err)
     }
-
-    // Register a new agent
-    req := &models.AgentRegistrationRequest{
-        AgentDisplayName: "My AI Agent",
-        AgentHost:        "my-agent.example.com",
-        AgentDescription: "An example AI agent",
-        Version:          "1.0.0",
-        IdentityCSRPEM:   string(identityCSR),
-        Endpoints: []models.AgentEndpoint{
-            {
-                AgentURL:   "https://my-agent.example.com/mcp",
-                Protocol:   "MCP",
-                Transports: []string{"STREAMABLE-HTTP"},
-                Functions: []models.AgentFunction{
-                    {
-                        ID:   "search",
-                        Name: "Web Search",
-                        Tags: []string{"search", "web", "retrieval"},
-                    },
-                    {
-                        ID:   "summarize",
-                        Name: "Text Summarizer",
-                        Tags: []string{"nlp", "summarization", "text"},
-                    },
-                    {
-                        ID:   "translate",
-                        Name: "Language Translator",
-                        Tags: []string{"nlp", "translation", "i18n"},
-                    },
-                },
-            },
-        },
-    }
-
-    ctx := context.Background()
-    result, err := client.RegisterAgent(ctx, req)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Printf("Agent registered: %s (ID: %s)\n", result.ANSName, result.AgentID)
+    fmt.Printf("Agent: %s (ID: %s, 版本: %s)\n", card.AgentName, card.AgentID, card.Version)
 }
 ```
 
-### Transparency Log Client
+### 诊断工具
 
 ```go
 package main
@@ -99,310 +135,179 @@ import (
     "fmt"
     "log"
 
-    "github.com/godaddy/ans-sdk-go/ans"
+    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
 )
 
 func main() {
-    // Create a new Transparency Log client
-    tlClient, err := ans.NewTransparencyClient(
-        ans.WithBaseURL("https://transparency.ans.godaddy.com"),
-        ans.WithVerbose(true),
-    )
+    result, err := ati.Diagnose(context.Background(), "agent.example.com")
     if err != nil {
         log.Fatal(err)
     }
-
-    ctx := context.Background()
-
-    // Get transparency log entry
-    logEntry, err := tlClient.GetAgentTransparencyLog(ctx, "agent-uuid-here")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Printf("Status: %s\n", logEntry.Status)
-    if logEntry.MerkleProof != nil {
-        fmt.Printf("Tree Size: %d\n", logEntry.MerkleProof.TreeSize)
-    }
+    fmt.Println(result.String()) // 人类可读报告
+    // 或 result.JSON() 获取 JSON 格式
 }
 ```
 
-## Features
+## 功能概览
 
-### ✅ Implemented
+### `ati` 包 — Agent 通信与信任验证
 
-#### Registry Authority Client (`ans.Client`)
-- ✅ Agent Registration
-- ✅ Agent Details Retrieval
-- ✅ Agent Search
-- ✅ Agent Resolution (by host + version pattern)
-- ✅ Agent Revocation
-- ✅ Certificate Management
-  - ✅ Identity Certificate Retrieval
-  - ✅ Server Certificate Retrieval
-  - ✅ CSR Submission (Identity & Server)
-  - ✅ CSR Status Checking
-- ✅ ACME Challenge Verification
-- ✅ DNS Record Verification
-- ✅ Event Stream (Pagination + Follow mode)
+| 功能 | 说明 |
+|------|------|
+| `NewAgentClient` | 创建 mTLS 客户端，支持 Bronze/Silver/Gold 三级信任验证 |
+| `NewServerTLSConfig` | 创建服务端 TLS 配置，自动验证客户端 ATI 身份证书 |
+| `GetTrustCard` | 从 CNNIC 透明日志查询 Agent 元数据 |
+| `Diagnose` | 运行 7 步诊断链（DNS 发现 → TL 查询 → 密封验证 → Merkle 证明） |
+| `PeerATIName` | 从 TLS 连接中提取对端 Agent 的 ATI 身份 |
 
-#### Transparency Log Client (`ans.TransparencyClient`)
-- ✅ Agent Transparency Log Retrieval
-- ✅ Audit Trail Queries (Paginated)
-- ✅ Log Checkpoint Retrieval
-- ✅ Checkpoint History (Paginated)
-- ✅ Log Schema Retrieval
+### 三级信任验证
 
-#### Agent-to-Agent Client (`ans.AgentClient`)
-- ✅ Badge-verified HTTP client
-- ✅ GET/POST/PUT/DELETE with automatic verification
-- ✅ JSON request/response helpers
-- ✅ Configurable failure policies (fail-open/fail-closed)
+| 等级 | 验证内容 | 说明 |
+|------|---------|------|
+| **Bronze** | DNS 发现 + CA 链 + SAN 匹配 | 默认等级。验证 `_ati` TXT 记录、CA 签名链、证书 URI SAN 与目标主机匹配 |
+| **Silver** | Bronze + DANE/TLSA | 额外验证 DNS TLSA 记录，提供双通道信任锚定 |
+| **Gold** | Silver + TL 密封 + Merkle 证明 | 最高等级。验证 CNNIC 透明日志的 ECDSA 密封签名和 Merkle 包含证明 |
 
-#### Key Generation (`keygen` package)
-- ✅ RSA key pair generation (2048+ bits)
-- ✅ EC key pair generation (P-256, P-384, P-521)
-- ✅ PEM encoding/decoding with optional encryption
-- ✅ File I/O utilities
+### `verify` 包 — 底层验证引擎
 
-### Authentication Methods
-- ✅ JWT Bearer Token
-- ✅ API Key (Public gateway endpoints)
-- ✅ Custom HTTP Client support
+| 模块 | 说明 |
+|------|------|
+| `dns.go` / `dns_resolver.go` | DNS 接口和标准解析器（`_ati` / `_ati-badge` TXT 查询） |
+| `badge_record.go` | `_ati-badge` TXT 记录解析 |
+| `dane.go` | DANE/TLSA 验证（RFC 6698） |
+| `cert.go` | 证书抽象（`CertIdentity`、`CertFingerprint`、ATI Name 解析） |
+| `seal.go` | CNNIC TL 密封验证（RFC 8785 JCS + SHA-256 + ECDSA） |
+| `jcs.go` | RFC 8785 JSON Canonicalization Scheme 实现 |
+| `merkle.go` | Merkle 包含证明验证（RFC 9162 风格） |
+| `gold.go` | Gold 级别验证编排（6 步流程） |
+| `tlog.go` | 透明日志客户端接口 |
+| `cache.go` | Badge 缓存（TTL + stale fallback） |
+| `verify.go` | Badge 级别验证器（`ServerVerifier` / `ClientVerifier`） |
+| `scitt/` | SCITT 密码学子系统（COSE_Sign1、Receipt、Merkle Tree、Root Keys） |
 
-## Configuration
+### `internal/registry` 包 — RA API 客户端
 
-### Functional Options Pattern
+| 方法 | 说明 |
+|------|------|
+| `RegisterAgent` | 注册新 Agent |
+| `GetAgentDetails` | 获取 Agent 详情 |
+| `SearchAgents` | 搜索 Agent |
+| `ResolveAgent` | 按 host + version 解析 Agent |
+| `RevokeAgent` | 撤销 Agent 注册 |
+| `SubmitIdentityCSR` / `SubmitServerCSR` | 提交证书签名请求 |
+| `GetCSRStatus` | 查询 CSR 状态 |
+| `VerifyACME` / `VerifyDNS` | 触发 ACME / DNS 验证 |
+| `GetAgentEvents` | 分页获取 Agent 事件 |
 
-The SDK uses the functional options pattern for flexible client configuration:
-
-```go
-client, err := ans.NewClient(
-    ans.WithBaseURL("https://api.godaddy.com"),
-    ans.WithJWT("your-jwt-token"),
-    ans.WithTimeout(120 * time.Second),
-    ans.WithVerbose(true),
-    ans.WithHTTPClient(customHTTPClient),
-)
-```
-
-### Available Options
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `WithBaseURL(url string)` | Set the API base URL | `ans.WithBaseURL("https://api.godaddy.com")` |
-| `WithJWT(token string)` | Set JWT authentication | `ans.WithJWT("eyJhbGciOi...")` |
-| `WithAPIKey(key, secret string)` | Set API key authentication (public gateway) | `ans.WithAPIKey("key", "secret")` |
-| `WithTimeout(duration time.Duration)` | Set HTTP client timeout | `ans.WithTimeout(60 * time.Second)` |
-| `WithVerbose(verbose bool)` | Enable verbose logging | `ans.WithVerbose(true)` |
-| `WithHTTPClient(client *http.Client)` | Use custom HTTP client | `ans.WithHTTPClient(myClient)` |
-
-### Environment URLs
-
-| Environment | Registry Authority | Transparency Log |
-|-------------|-------------------|------------------|
-| **Production** | `https://api.godaddy.com` | `https://transparency.ans.godaddy.com` |
-| **OTE** | `https://api.ote-godaddy.com` | `https://transparency.ans.ote-godaddy.com` |
-
-## API Reference
-
-### Registry Authority Client Methods
-
-All methods accept `context.Context` as the first parameter for cancellation and timeouts.
-
-#### Agent Registration
+### `keygen` 包 — 密钥生成
 
 ```go
-RegisterAgent(ctx context.Context, req *models.AgentRegistrationRequest) (*models.RegistrationPending, error)
-```
-Registers a new agent with the ANS Registry. Returns pending registration with challenges.
+import "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/keygen"
 
-#### Agent Management
-
-```go
-GetAgentDetails(ctx context.Context, agentID string) (*models.AgentDetails, error)
-```
-Retrieves detailed information about a specific agent.
-
-```go
-SearchAgents(ctx context.Context, name, host, version string, limit, offset int) (*models.AgentSearchResponse, error)
-```
-Searches for agents using flexible criteria with pagination support.
-
-#### Agent Resolution
-
-```go
-ResolveAgent(ctx context.Context, host, version string) (*models.AgentCapabilityResponse, error)
-```
-Resolves an agent by host and version pattern. Supports semver patterns: `*`, `^1.0.0`, `~1.2.3`.
-
-#### Agent Revocation
-
-```go
-RevokeAgent(ctx context.Context, agentID string, reason models.RevocationReason, comments string) (*models.AgentRevocationResponse, error)
-```
-Revokes an agent registration with a specified reason.
-
-#### Verification
-
-```go
-VerifyACME(ctx context.Context, agentID string) (*models.AgentStatus, error)
-```
-Triggers ACME challenge validation for an agent.
-
-```go
-VerifyDNS(ctx context.Context, agentID string) (*models.AgentStatus, error)
-```
-Verifies DNS records are configured correctly for an agent.
-
-```go
-GetChallengeDetails(ctx context.Context, agentID string) (*models.ChallengeDetails, error)
-```
-Retrieves ACME challenge details for an agent.
-
-#### Certificate Management
-
-```go
-GetIdentityCertificates(ctx context.Context, agentID string) ([]models.CertificateResponse, error)
-```
-Retrieves all identity certificates for an agent.
-
-```go
-GetServerCertificates(ctx context.Context, agentID string) ([]models.CertificateResponse, error)
-```
-Retrieves all server certificates for an agent.
-
-```go
-SubmitIdentityCSR(ctx context.Context, agentID, csrPEM string) (*models.CsrSubmissionResponse, error)
-```
-Submits an identity certificate signing request.
-
-```go
-SubmitServerCSR(ctx context.Context, agentID, csrPEM string) (*models.CsrSubmissionResponse, error)
-```
-Submits a server certificate signing request.
-
-```go
-GetCSRStatus(ctx context.Context, agentID, csrID string) (*models.CsrStatusResponse, error)
-```
-Checks the status of a submitted CSR.
-
-#### Events
-
-```go
-GetAgentEvents(ctx context.Context, limit int, providerID, lastLogID string) (*models.EventPageResponse, error)
-```
-Retrieves paginated agent events for monitoring and synchronization.
-
-### Transparency Log Client Methods
-
-#### Agent Transparency Log
-
-```go
-GetAgentTransparencyLog(ctx context.Context, agentID string) (*models.TransparencyLog, error)
-```
-Retrieves the current transparency log entry for an agent, including Merkle proof, payload, and status.
-
-#### Audit Trail
-
-```go
-GetAgentTransparencyLogAudit(ctx context.Context, agentID string, params *models.AgentAuditParams) (*models.TransparencyLogAudit, error)
-```
-Retrieves a paginated list of transparency log records for an agent.
-
-#### Log State
-
-```go
-GetCheckpoint(ctx context.Context) (*models.CheckpointResponse, error)
-```
-Retrieves the current checkpoint (state) of the Transparency Log.
-
-```go
-GetCheckpointHistory(ctx context.Context, params *models.CheckpointHistoryParams) (*models.CheckpointHistoryResponse, error)
-```
-Retrieves a paginated list of historical checkpoints with optional filtering.
-
-#### Log Schema
-
-```go
-GetLogSchema(ctx context.Context, version string) (*models.JSONSchema, error)
-```
-Retrieves the JSON schema for a specific Transparency Log event schema version.
-
-### Agent-to-Agent Client
-
-The SDK provides a verified HTTP client for secure agent-to-agent communication:
-
-```go
-import (
-    "context"
-    "time"
-
-    "github.com/godaddy/ans-sdk-go/ans"
-)
-
-// Create agent client with badge verification
-agentClient := ans.NewAgentClient(
-    ans.WithAgentClientTimeout(30 * time.Second),
-    ans.WithAgentClientVerifyServer(true),
-)
-
-// Make verified requests
-resp, err := agentClient.Get(ctx, "https://other-agent.example.com/api/data")
-if err != nil {
-    log.Fatal(err)
-}
-defer resp.Body.Close()
-
-// JSON helpers
-var result MyResponse
-resp, err = agentClient.GetJSON(ctx, "https://other-agent.example.com/api/data", &result)
-```
-
-#### Agent Client Options
-
-| Option | Description |
-|--------|-------------|
-| `WithAgentClientTimeout(d time.Duration)` | Set HTTP client timeout (default: 30s) |
-| `WithAgentClientVerifyServer(bool)` | Enable/disable server certificate verification |
-| `WithAgentClientFailurePolicy(policy)` | Set failure policy (`verify.FailClosed`, `verify.FailOpenWithCache`, or `verify.FailOpen`) |
-| `WithAgentClientTLS(*tls.Config)` | Use custom TLS configuration |
-| `WithAgentClientVerifierOptions(opts...)` | Pass custom `verify.Option` values (e.g., `verify.WithCacheConfig(...)`) |
-
-> **Note:** When using `verify.FailOpenWithCache`, you must also provide a cache via `verify.WithCacheConfig(...)` in the verifier options. Without a cache, `FailOpenWithCache` behaves like `FailClosed`.
-
-### Key Generation
-
-The `keygen` package provides utilities for key generation:
-
-```go
-import "github.com/godaddy/ans-sdk-go/keygen"
-
-// Generate RSA key pair
-keyPair, err := keygen.GenerateRSAKeyPairWithPEM(2048, nil)
-if err != nil {
-    log.Fatal(err)
-}
-
-// Generate EC key pair (P-256)
+// 生成 EC 密钥对 (P-256)
 ecKeyPair, err := keygen.GenerateECKeyPairWithPEM(keygen.CurveP256(), nil)
-if err != nil {
-    log.Fatal(err)
-}
 
-// Save to files
-err = keyPair.WriteKeyPairToFiles("private.key", "public.pem")
+// 生成 RSA 密钥对 (2048+)
+rsaKeyPair, err := keygen.GenerateRSAKeyPairWithPEM(2048, nil)
+
+// 保存到文件
+err = ecKeyPair.WriteKeyPairToFiles("private.key", "public.pem")
 ```
 
-## Error Handling
+## ATI Name 格式
 
-API errors are returned as `*models.ResponseError`, which provides the HTTP status code, API error code, message, and optional details:
+ATI Name 是 Agent 身份的全局唯一标识，嵌入在身份证书的 URI SAN 中：
+
+```
+ati://v{major}.{minor}.{patch}.{agentHost}
+```
+
+例如：`ati://v1.0.0.agent.example.com`
+
+## DNS 记录
+
+| 记录名 | 类型 | 用途 |
+|--------|------|------|
+| `_ati.{host}` | TXT | 协议发现（Agent ID、版本、模式） |
+| `_ati-badge.{host}` | TXT | Badge URL（指向 CNNIC 透明日志） |
+| `_443._tcp.{host}` | TLSA | DANE 证书绑定（Silver 级别验证） |
+
+## 项目结构
+
+```
+ati-golang-sdk/
+├── ati/                          # 公共 SDK API
+│   ├── mtls_client.go           # mTLS 客户端（Bronze/Silver/Gold）
+│   ├── server.go                # 服务端 TLS 配置
+│   ├── trust_card.go            # Trust Card 查询
+│   ├── trust_level.go           # 信任等级定义
+│   └── diagnose.go              # 诊断工具
+├── verify/                       # 验证引擎
+│   ├── dns.go, dns_resolver.go  # DNS 解析
+│   ├── badge_record.go          # Badge 记录解析
+│   ├── dane.go                  # DANE/TLSA 验证
+│   ├── cert.go                  # 证书抽象
+│   ├── seal.go                  # TL 密封验证（JCS + ECDSA）
+│   ├── jcs.go                   # RFC 8785 JCS
+│   ├── merkle.go                # Merkle 证明验证
+│   ├── gold.go                  # Gold 验证编排
+│   ├── tlog.go                  # 透明日志客户端
+│   ├── cache.go                 # Badge 缓存
+│   ├── verify.go                # Badge 验证器
+│   └── scitt/                   # SCITT 密码学子系统
+├── models/                       # 数据模型
+├── internal/
+│   ├── registry/                # RA API 客户端
+│   └── httputility/             # HTTP 工具
+├── keygen/                       # 密钥生成
+├── cmd/ati-cli/                  # CLI 工具
+└── examples/                     # 使用示例
+```
+
+## CNNIC 透明日志
+
+ATI 使用 CNNIC 运营的透明日志（TL）记录 Agent 生命周期事件：
+
+- **API 端点**: `https://tl.ansagent.cn:8180/ans/api/v1`
+- **密封格式**: JSON/JCS + SHA-256 + ECDSA（非 CBOR/COSE）
+- **Merkle 树**: RFC 9162 风格的包含证明
+- **查询接口**: `GET /tl/agents/{agentId}/logs/latest`
+
+### Gold 验证流程
+
+```
+1. DNS 发现    → 查询 _ati TXT 获取 agentId
+2. TL 日志获取  → GET /tl/agents/{agentId}/logs/latest
+3. 密封验证    → JCS 规范化 → SHA-256 → ECDSA 签名验证
+4. Merkle 验证 → 重建根哈希，与期望值比对
+5. 指纹匹配    → 证书指纹与 TL 记录比对
+6. 状态检查    → ACTIVE / DEPRECATED 允许，REVOKED 拒绝
+```
+
+## 测试
+
+```bash
+# 运行所有测试
+go test ./... -count=1
+
+# 运行特定包测试
+go test ./ati/ -v
+go test ./verify/ -v
+
+# 覆盖率
+go test -cover -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+## 错误处理
+
+API 错误返回 `*models.ResponseError`，包含 HTTP 状态码、错误码和详细信息：
 
 ```go
 import (
     "errors"
     "net/http"
-    "github.com/godaddy/ans-sdk-go/models"
+    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 result, err := client.GetAgentDetails(ctx, agentID)
@@ -411,161 +316,27 @@ if err != nil {
     if errors.As(err, &respErr) {
         switch respErr.StatusCode {
         case http.StatusNotFound:
-            fmt.Println("Agent not found")
+            fmt.Println("Agent 不存在")
         case http.StatusUnauthorized:
-            fmt.Println("Authentication failed")
-        case http.StatusBadRequest:
-            fmt.Printf("Invalid request: %s\n", respErr.Code)
+            fmt.Println("认证失败")
         default:
-            fmt.Printf("API error %d: %s\n", respErr.StatusCode, respErr.Message)
+            fmt.Printf("API 错误 %d: %s\n", respErr.StatusCode, respErr.Message)
         }
-    } else {
-        fmt.Printf("Error: %v\n", err)
     }
 }
-
-## CLI Tool
-
-The SDK includes a comprehensive CLI tool for interacting with ANS:
-
-### Installation
-
-```bash
-cd cmd/ans-cli
-go build -o ans-cli
-./ans-cli --help
 ```
 
-### Usage Examples
+## 基础设施角色
 
-```bash
-# Set authentication
-export ANS_API_KEY="your-jwt-token"
-export ANS_BASE_URL="https://api.godaddy.com"
-
-# Register a new agent
-ans-cli register \
-  --name "My Agent" \
-  --host "my-agent.example.com" \
-  --version "1.0.0" \
-  --identity-csr ./identity.csr \
-  --endpoint-url "https://my-agent.example.com/api" \
-  --metadata-url "https://my-agent.example.com/.well-known/agent-card.json"
-
-# Search for agents
-ans-cli search --name "My Agent"
-
-# Resolve an agent by host
-ans-cli resolve my-agent.example.com --version "^1.0.0"
-
-# Get agent status
-ans-cli status <agent-id>
-
-# Verify ACME challenges
-ans-cli verify-acme <agent-id>
-
-# Revoke an agent
-ans-cli revoke <agent-id> --reason SUPERSEDED --comments "Replaced by v2.0.0"
-
-# Get transparency log badge
-ans-cli badge <agentId> --audit
-
-# Follow events in real-time
-ans-cli events --follow
-```
-
-## Package Structure
-
-```
-ans-sdk-go/
-├── go.mod                     # Module definition
-├── README.md                  # This file
-├── ans/                       # Main SDK package
-│   ├── client.go             # Registry Authority client
-│   ├── agent_client.go       # Agent-to-agent HTTP client
-│   ├── transparency.go       # Transparency Log client
-│   └── options.go            # Functional options
-├── keygen/                    # Key generation utilities
-│   └── keygen.go             # RSA/EC key generation
-├── models/                    # Data models (importable)
-│   ├── agent.go              # Agent-related models
-│   ├── certificate.go        # Certificate models
-│   ├── event.go              # Event models
-│   ├── resolution.go         # Agent resolution models
-│   ├── revocation.go         # Agent revocation models
-│   ├── transparency.go       # Transparency Log models
-│   └── error.go              # Error types & sentinel errors
-├── verify/                    # Certificate verification
-│   └── ...                   # Verification utilities
-├── examples/                  # Usage examples
-│   └── byoc/                 # BYOC registration example
-└── cmd/
-    └── ans-cli/              # CLI application
-        ├── main.go
-        ├── cmd/              # CLI commands
-        └── internal/         # CLI-specific code
-```
-
-## Testing
-
-Run tests with:
-```bash
-go test ./...
-```
-
-Run tests with coverage:
-```bash
-go test -cover -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out
-```
-
-Run linting:
-```bash
-golangci-lint run ./...
-```
-
-## Best Practices
-
-### Context Usage
-
-Always pass `context.Context` to client methods for proper cancellation and timeout handling:
-
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-
-result, err := client.RegisterAgent(ctx, req)
-```
-
-### Error Handling
-
-Use `errors.As` to extract structured error details from API responses:
-
-```go
-agent, err := client.GetAgentDetails(ctx, agentID)
-var respErr *models.ResponseError
-if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
-    return nil, fmt.Errorf("agent %s does not exist", agentID)
-}
-```
-
-### URL Encoding
-
-The SDK automatically handles URL encoding for query parameters and path segments. Don't encode values manually:
-
-```go
-// ✅ Correct - SDK handles encoding
-client.SearchAgents(ctx, "Name with spaces", "host.com", "1.0.0", 20, 0)
-
-// ❌ Wrong - don't pre-encode
-client.SearchAgents(ctx, url.QueryEscape("Name with spaces"), ...)
-```
-
-## Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on
-how to get involved, including commit message conventions, code review process, and more.
+| 角色 | 负责方 | SDK 交互方式 |
+|------|--------|-------------|
+| RA (注册机构) | 阿里云 ATI API | HTTPS REST API |
+| DNS | 阿里云云解析 | DNS UDP/TCP |
+| 透明日志 (TL) | CNNIC | HTTPS REST API |
+| Trust Card 托管 | CNNIC | HTTPS GET |
+| Private CA | CNNIC | 不直接通信（RA 代为） |
+| Public CA | 阿里云证书服务 | 不直接通信（RA 代为） |
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License

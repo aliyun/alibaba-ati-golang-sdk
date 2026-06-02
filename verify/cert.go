@@ -29,15 +29,19 @@ func CertFingerprintFromBytes(b [32]byte) CertFingerprint {
 
 // ParseCertFingerprint parses a fingerprint from "SHA256:<hex>" format.
 func ParseCertFingerprint(s string) (CertFingerprint, error) {
-	// Handle both "SHA256:" and "sha256:" prefixes
+	// Handle SHA256:, sha256:, SHA-256:, sha-256: prefixes
 	var hexStr string
 	switch {
 	case strings.HasPrefix(s, "SHA256:"):
 		hexStr = s[7:]
 	case strings.HasPrefix(s, "sha256:"):
 		hexStr = s[7:]
+	case strings.HasPrefix(s, "SHA-256:"):
+		hexStr = s[8:]
+	case strings.HasPrefix(s, "sha-256:"):
+		hexStr = s[8:]
 	default:
-		return CertFingerprint{}, errors.New("invalid fingerprint format: must start with 'SHA256:' (e.g., SHA256:abc123...)")
+		return CertFingerprint{}, errors.New("invalid fingerprint format: must start with 'SHA256:' or 'SHA-256:' (e.g., SHA256:abc123...)")
 	}
 
 	decoded, err := hex.DecodeString(hexStr)

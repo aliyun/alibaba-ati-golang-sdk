@@ -1,10 +1,10 @@
-# ANS SDK Go — 代码库深度分析文档
+# ATI SDK Go — 代码库深度分析文档
 
 ## 1. 项目概览
 
-**模块名**: `github.com/godaddy/ans-sdk-go`  
-**Go 版本**: 1.25.0  
-**定位**: GoDaddy Agent Name System (ANS) 的 Go SDK + CLI 工具，用于 AI Agent 的安全注册、验证、透明度日志和 Agent 间 HTTPS 通信。
+**模块名**: `gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk`
+**Go 版本**: 1.25.0
+**定位**: 阿里云 Agent Trust Infrastructure (ATI) 的 Go SDK，为 AI Agent 提供 mTLS 安全通信、多级信任验证（Bronze/Silver/Gold）、CNNIC 透明日志集成和诊断工具。
 
 ### 核心依赖
 
@@ -12,7 +12,7 @@
 |------|------|
 | `miekg/dns` | DNS 查询（TXT / TLSA 记录、DNSSEC） |
 | `spf13/cobra` + `spf13/viper` | CLI 命令框架 + 配置管理 |
-| `fxamacker/cbor/v2` | CBOR 编解码（COSE_Sign1、SCITT） |
+| `fxamacker/cbor/v2` | CBOR 编解码（SCITT 兼容层） |
 
 ---
 
@@ -20,34 +20,38 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     cmd/ans-cli                             │
+│                     cmd/ati-cli                             │
 │  (CLI 入口, cobra commands, viper config)                   │
 └───────────────┬──────────────────────┬──────────────────────┘
                 │                      │
     ┌───────────▼──────────┐  ┌────────▼──────────────┐
-    │      ans/            │  │      verify/           │
+    │      ati/            │  │      verify/           │
     │  ┌─────────────┐     │  │  ┌─────────────────┐   │
-    │  │ Client      │     │  │  │ ServerVerifier   │   │
-    │  │ (Registry   │     │  │  │ ClientVerifier   │   │
-    │  │  API)       │     │  │  │ AnsVerifier      │   │
-    │  ├─────────────┤     │  │  ├─────────────────┤   │
-    │  │Transparency │     │  │  │ Badge Verify     │   │
-    │  │ Client      │     │  │  │ SCITT Verify     │   │
-    │  ├─────────────┤     │  │  │ DANE Verify      │   │
-    │  │ AgentClient │─────┼──┤  │ DNS Resolver     │   │
-    │  │ (A2A HTTP)  │     │  │  │ TLog Client      │   │
-    │  └─────────────┘     │  │  │ URL Validator    │   │
-    └──────────────────────┘  │  │ Badge Cache      │   │
-                              │  └─────────────────┘   │
+    │  │AgentClient  │     │  │  │ ServerVerifier   │   │
+    │  │ (mTLS +     │     │  │  │ ClientVerifier   │   │
+    │  │  Bronze/    │     │  │  │ AnsVerifier      │   │
+    │  │  Silver/    │     │  │  ├─────────────────┤   │
+    │  │  Gold)      │     │  │  │ Badge Verify     │   │
+    │  ├─────────────┤     │  │  │ Gold Verify      │   │
+    │  │ServerTLS    │     │  │  │ DANE Verify      │   │
+    │  │ Config      │─────┼──┤  │ Seal Verify      │   │
+    │  ├─────────────┤     │  │  │ Merkle Verify    │   │
+    │  │TrustCard    │     │  │  │ JCS Canonical    │   │
+    │  ├─────────────┤     │  │  │ DNS Resolver     │   │
+    │  │Diagnose     │     │  │  │ TLog Client      │   │
+    │  └─────────────┘     │  │  │ Badge Cache      │   │
+    └──────────────────────┘  │  └─────────────────┘   │
                               │  ┌─────────────────┐   │
-                              │  │ verify/scitt/    │   │
-                              │  │  COSE_Sign1      │   │
-                              │  │  Receipt         │   │
-                              │  │  StatusToken     │   │
-                              │  │  Merkle Tree     │   │
-                              │  │  Root Keys       │   │
-                              │  └─────────────────┘   │
-                              └────────────────────────┘
+    ┌──────────────────────┐  │  │ verify/scitt/    │   │
+    │ internal/registry/   │  │  │  COSE_Sign1      │   │
+    │  ┌─────────────┐     │  │  │  Receipt         │   │
+    │  │ Client      │     │  │  │  StatusToken     │   │
+    │  │ (RA API)    │     │  │  │  Root Keys       │   │
+    │  ├─────────────┤     │  │  └─────────────────┘   │
+    │  │Transparency │     │  └────────────────────────┘
+    │  │ Client      │     │
+    │  └─────────────┘     │
+    └──────────────────────┘
     ┌──────────────────────┐  ┌────────────────────────┐
     │   models/            │  │  internal/httputility/ │
     │  (所有数据结构)       │  │  (HTTP 请求工具)       │
@@ -62,264 +66,181 @@
 
 ## 3. 包级详细分析
 
-### 3.1 `models/` — 数据结构层
+### 3.1 `ati/` — 公共 SDK API 层
 
-所有 API 请求/响应的 DTO、枚举、值对象，无业务逻辑。
+这是 SDK 的主要入口包，提供面向用户的高层 API。
 
-#### 3.1.1 Agent 注册与管理
-
-```go
-// 注册请求
-AgentRegistrationRequest {
-    AgentHost, Version, DisplayName, Description,
-    ProviderID, Endpoints []AgentEndpoint, BYOC 配置
-}
-
-// 注册响应（待验证状态）
-RegistrationPending {
-    AgentID, AnsName, Status,
-    Challenges []ChallengeInfo,   // ACME HTTP / DNS 挑战
-    DNSRecords []DNSRecordInfo    // 需要配置的 DNS 记录
-}
-
-// Agent 详情
-AgentDetails { AgentID, AnsName, Status, Host, Version, ... }
-
-// Agent 搜索
-AgentSearchResponse { Results []AgentDetails, Pagination }
-```
-
-#### 3.1.2 Badge（徽章）
-
-Badge 是 ANS 透明度日志中记录的代理注册证明。
+#### 3.1.1 `AgentClient` — mTLS 客户端（`mtls_client.go`）
 
 ```go
-BadgeStatus = ACTIVE | WARNING | DEPRECATED | EXPIRED | REVOKED
-  - IsValidForConnection(): ACTIVE/WARNING/DEPRECATED → true
-  - ShouldReject(): EXPIRED/REVOKED → true
-
-Badge {
-    Status BadgeStatus
-    Payload → Producer → AgentEvent {
-        ANSID, ANSName, EventType, Agent{Host,Version},
-        Attestations { ServerCert, IdentityCert (fingerprint+type) },
-        IssuedAt, ExpiresAt, RAID
-    }
-    SchemaVersion, Signature, MerkleProof
-}
-
-EventType = AGENT_REGISTERED | AGENT_RENEWED | AGENT_DEPRECATED | AGENT_REVOKED
-```
-
-#### 3.1.3 Transparency Log Schema（V0/V1 双版本）
-
-```
-V0 (旧版):
-  TransparencyLogV0 → ProducerV0 → EventV0 {
-      AgentFQDN, RABadge { Attestations (string fingerprints) }
-  }
-
-V1 (新版):
-  TransparencyLogV1 → ProducerV1 → EventV1 {
-      Attestations { ServerCert, IdentityCert (结构化),
-                     ValidServerCerts[], ValidIdentityCerts[] (多证书) }
-      MetadataHashes, RevocationReasonCode
-  }
-
-SchemaVersion = "V0" | "V1" | "" (空=V0)
-```
-
-#### 3.1.4 其他数据结构
-
-```go
-// FQDN 值对象 — RFC 1035 校验
-Fqdn { value string }
-  .AnsBadgeName() → "_ans-badge.<fqdn>"
-  .RaBadgeName()  → "_ra-badge.<fqdn>"  (legacy)
-  .TlsaName(port) → "_<port>._tcp.<fqdn>"
-
-// 语义化版本
-Version { Major, Minor, Patch }
-  ParseVersion("v1.2.3"), Compare(), Equal()
-
-// 证书
-CertificateResponse { CertificatePEM, Validity, CsrID }
-CsrSubmissionRequest/Response, CsrStatusResponse (PENDING/SIGNED/REJECTED)
-
-// 撤销
-RevocationReason = KEY_COMPROMISE | CESSATION_OF_OPERATION | ...
-AgentRevocationRequest/Response
-
-// 错误
-ErrNotFound, ErrUnauthorized, ErrForbidden, ErrBadRequest, ...
-ResponseError { StatusCode, Code, Message, Details }
-```
-
----
-
-### 3.2 `ans/` — API 客户端层
-
-#### 3.2.1 `Client` — ANS Registry API 客户端
-
-```go
-Client { config *clientConfig }
-
-clientConfig {
-    baseURL    string       // 默认 "https://api.godaddy.com"
-    httpClient *http.Client // 默认 timeout=120s
-    authHeader string       // "sso-jwt <token>" 或 "sso-key <key>:<secret>"
-    verbose    bool
+AgentClient {
+    httpClient   *http.Client
+    tlsConfig    *tls.Config
+    trustLevel   TrustLevel       // Bronze / Silver / Gold
+    identityCert tls.Certificate
+    caCertPool   *x509.CertPool
+    certExpiry   time.Time
+    dnsResolver  verify.DNSResolver
+    daneResolver verify.DANEResolver    // Silver 级别 DANE 验证
+    tlogClient   verify.TransparencyLogClient  // Gold 级别 TL 查询
+    tlPublicKey  *ecdsa.PublicKey       // Gold 级别密封验证公钥
 }
 ```
 
 **Options 模式**:
 ```go
-NewClient(
-    WithBaseURL(url),
-    WithJWT(token),        // 内部端点
-    WithAPIKey(key, sec),  // 公共网关
-    WithTimeout(d),
-    WithHTTPClient(c),
-    WithVerbose(bool),
+NewAgentClient(
+    WithMTLSCerts(identityCert, privateKey, serverCert, caBundle),
+    WithTrustLevel(ati.Gold),
+    WithClientTimeout(30*time.Second),
+    WithDNSResolver(resolver),
+    WithAgentDANEResolver(daneResolver),
+    WithTLogClient(tlogClient),
+    WithTLPublicKey(key),
 )
-```
-
-**API 方法**（全部通过 `httputility.DoRequest` 发送）：
-
-| 方法 | HTTP | 路径 | 用途 |
-|------|------|------|------|
-| `RegisterAgent` | POST | `/v1/agents/register` | 注册 Agent |
-| `GetAgentDetails` | GET | `/v1/agents/{id}` | 获取详情 |
-| `GetChallengeDetails` | GET | `/v1/agents/{id}/challenge` | 获取挑战信息 |
-| `VerifyACME` | POST | `/v1/agents/{id}/verify-acme` | 触发 ACME 验证 |
-| `VerifyDNS` | POST | `/v1/agents/{id}/verify-dns` | 验证 DNS 配置 |
-| `SearchAgents` | GET | `/v1/agents?filters` | 搜索 Agent |
-| `GetIdentityCertificates` | GET | `/v1/agents/{id}/certificates/identity` | 获取身份证书 |
-| `GetServerCertificates` | GET | `/v1/agents/{id}/certificates/server` | 获取服务器证书 |
-| `SubmitIdentityCSR` | POST | `/v1/agents/{id}/certificates/identity` | 提交身份 CSR |
-| `SubmitServerCSR` | POST | `/v1/agents/{id}/certificates/server` | 提交服务器 CSR |
-| `GetCSRStatus` | GET | `/v1/agents/{id}/csrs/{csrId}/status` | CSR 状态查询 |
-| `GetAgentEvents` | GET | `/v1/agents/events` | 分页获取事件 |
-| `ResolveAgent` | POST | `/v1/agents/resolution` | 按 host+version 解析 |
-| `RevokeAgent` | POST | `/v1/agents/{id}/revoke` | 撤销 Agent |
-
-#### 3.2.2 `TransparencyClient` — 透明度日志客户端
-
-```go
-TransparencyClient { config *clientConfig }
-// 默认 baseURL = "https://transparency.ans.godaddy.com"
-// 公共读取，无需 auth
-```
-
-**关键特性**：
-- `doRequestWithSchemaVersion()`: 自定义请求处理，捕获 `X-Schema-Version` 响应头
-- `parsePayloadBySchema()`: 根据版本动态解析为 V0/V1 结构体
-
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| `GetAgentTransparencyLog` | `/v1/agents/{id}` | 当前日志条目 |
-| `GetAgentTransparencyLogAudit` | `/v1/agents/{id}/audit` | 审计历史（分页） |
-| `GetCheckpoint` | `/v1/log/checkpoint` | 当前检查点 |
-| `GetCheckpointHistory` | `/v1/log/checkpoint/history` | 检查点历史 |
-| `GetLogSchema` | `/v1/log/schema/{version}` | JSON Schema |
-
-#### 3.2.3 `AgentClient` — Agent 间安全 HTTP 客户端
-
-这是最复杂的客户端，封装了 Badge 验证 + TLS 证书校验。
-
-```go
-AgentClient {
-    httpClient *http.Client
-    verifier   *verify.AnsVerifier
-    config     *agentClientConfig {
-        timeout, verifyServer, tlsConfig,
-        failurePolicy, verifierOptions
-    }
-}
 ```
 
 **请求生命周期** (`Do` 方法):
 
 ```
-1. URL 解析 & 校验 (HTTPS required when verifyServer=true)
+1. URL 解析 & 校验 (必须 HTTPS)
        │
-2. prefetchBadge(host)
-   ├── FailClosed: 错误 → 立即返回 error
-   ├── FailOpenWithCache: 错误 → 继续（verifier 内部查 stale cache）
-   └── FailOpen: 错误 → 继续
+2. Bronze 验证:
+   a) DNS 发现 — 查询 _ati TXT 记录（阻塞检查）
+      ├── 未找到 → 返回 error（目标不是 ATI Agent）
+      └── 找到 → 记录 AgentID
+   b) 构建 HTTP 请求, 发送（mTLS 握手）
+   c) 验证对端证书:
+      ├── CA 链有效（TLS 握手已验证）
+      ├── URI SAN 中 ati:// 前缀
+      └── SAN 主机名匹配
        │
-3. executeRequest() — 构建 HTTP 请求, JSON body, 发送
+3. Silver 验证（可选）:
+   └── DANE/TLSA 验证 → 拒绝则返回 error
        │
-4. verifyTLSCert(host, resp)
-   ├── 提取 resp.TLS.PeerCertificates[0]
-   ├── CertIdentityFromX509() → CertIdentity
-   ├── verifier.VerifyServer(ctx, host, certIdentity)
-   ├── 成功 → 返回 Response + VerificationOutcome
-   ├── 失败 + FailClosed → close body, return error
-   └── 失败 + FailOpen → 返回 outcome (warning)
+4. Gold 验证（可选）:
+   └── verify.VerifyGold() → 密封 + Merkle + 指纹 + 状态
+       ├── 失败 → 返回 error
+       └── 成功 → 标记 SealVerified + MerkleVerified
+       │
+5. 返回 Response + BronzeOutcome
 ```
 
-**便捷方法**: `Get/Post/Put/Delete`, `GetJSON/PostJSON/PutJSON`, `Prefetch`
+**验证结果**:
+```go
+BronzeOutcome {
+    DNSDiscovered  bool      // _ati TXT 发现
+    CAChainValid   bool      // CA 链有效
+    SANMatches     bool      // URI SAN 匹配
+    AgentID        string    // Agent ID
+    PeerATIName    string    // 对端 ATI Name
+    DANEVerified   bool      // Silver: DANE 通过
+    SealVerified   bool      // Gold: 密封验证通过
+    MerkleVerified bool      // Gold: Merkle 证明通过
+    TrustLevel     TrustLevel // 达到的信任等级
+}
+```
+
+**便捷方法**: `Get/Post/Put/Delete`, `Prefetch`, `CertStatus`
+
+#### 3.1.2 `ServerTLSConfig` — 服务端 TLS（`server.go`）
+
+```go
+NewServerTLSConfig(
+    WithServerCert(certFile, keyFile),
+    WithClientCA(caBundleFile),
+    WithClientVerifier(ati.Bronze), // 客户端验证等级
+)
+```
+
+通过 `VerifyPeerCertificate` 回调自动验证客户端证书：
+- **Bronze**: 验证 `ati://` URI SAN 存在
+- **Silver**: Bronze + DANE 验证
+- **Gold**: Silver + `verify.VerifyGold()` 全链路验证
+
+`PeerATIName(tls.ConnectionState)` 从 TLS 连接中提取对端 Agent 身份。
+
+#### 3.1.3 `TrustCard` — Trust Card 查询（`trust_card.go`）
+
+```go
+GetTrustCard(ctx, host, version, opts...) → *models.TrustCard
+```
+
+流程：
+1. 查询 `_ati` TXT 获取 agentId
+2. 请求 CNNIC TL: `GET {tlBaseURL}/tl/agents/{agentId}/logs/latest`
+3. 解析 TL 响应，提取 TrustCard 元数据
+
+#### 3.1.4 `Diagnose` — 诊断工具（`diagnose.go`）
+
+```go
+Diagnose(ctx, host, opts...) → *DiagnoseResult
+```
+
+运行 7 步诊断链：
+1. Host 校验（FQDN 格式）
+2. DNS 发现（`_ati` TXT）
+3. DNS Badge 查找（`_ati-badge` TXT，非致命）
+4. TL 日志获取
+5. 密封验证（JCS + ECDSA）
+6. Merkle 证明验证
+7. 证书指纹检查
+
+输出格式：
+- `result.String()` — 人类可读报告
+- `result.JSON()` — 结构化 JSON
+
+#### 3.1.5 `TrustLevel` — 信任等级（`trust_level.go`）
+
+```go
+const (
+    Bronze TrustLevel = iota  // DNS 发现 + PKI
+    Silver                     // + DANE/TLSA
+    Gold                       // + TL 密封 + Merkle 证明
+)
+```
 
 ---
 
-### 3.3 `verify/` — 验证引擎（核心）
+### 3.2 `verify/` — 验证引擎（核心）
 
-#### 3.3.1 架构总览
-
-```
-                    AnsVerifier (Facade)
-                   ╱                  ╲
-         ServerVerifier          ClientVerifier
-              │                        │
-    ┌─────────┴─────────┐    ┌────────┴────────┐
-    │ Verify(fqdn,cert) │    │ Verify(cert)     │
-    │ VerifyWithScitt()  │    │ VerifyWithScitt() │
-    │ Prefetch()        │    │                   │
-    └───────────────────┘    └───────────────────┘
-              │                        │
-              └──────── 共享 ──────────┘
-                   verifierConfig {
-                     dnsResolver, tlogClient, cache,
-                     failurePolicy, urlValidator,
-                     daneResolver, scittKeyLookup,
-                     clockSkewTolerance, logger
-                   }
-```
-
-#### 3.3.2 `CertIdentity` & `CertFingerprint` — 证书抽象
+#### 3.2.1 `CertIdentity` & `CertFingerprint` — 证书抽象（`cert.go`）
 
 ```go
 CertFingerprint { bytes [32]byte }  // SHA-256
   - FromDER(der) / FromBytes([32]byte)
-  - Parse("SHA256:<hex>")
+  - Parse("SHA256:<hex>") 或 Parse("SHA-256:<hex>")
   - Matches(other string) bool
   - String() → "SHA256:<hex>"
 
 CertIdentity {
-    CommonName *string
-    DNSSANs    []string      // DNS Subject Alternative Names
-    URISANs    []string      // URI SANs (含 ans:// URI)
+    CommonName  *string
+    DNSSANs     []string
+    URISANs     []string
     Fingerprint CertFingerprint
 }
   - FQDN() → 优先 DNS SAN，回退 CN
-  - AnsName() → 从 URI SAN 提取 ans:// 名称
-  - Version() → 从 ANS name 提取版本
+  - AtiName() → 从 URI SAN 提取 ati:// 名称
+  - Version() → 从 ATI name 提取版本
 
-AnsName { Version, Host, raw }
-  - 格式: "ans://v<major>.<minor>.<patch>.<fqdn>"
+ATIName { Version, Host, raw }
+  - 格式: "ati://v<major>.<minor>.<patch>.<fqdn>"
 ```
 
-#### 3.3.3 Badge DNS 解析流程
+#### 3.2.2 Badge DNS 解析流程（`dns.go`, `dns_resolver.go`）
 
 ```
 StandardDNSResolver (net.Resolver, timeout=10s)
     │
-    ├── LookupAnsBadge(fqdn)
-    │     1. 查询 "_ans-badge.<fqdn>" TXT 记录
+    ├── LookupATIBadge(fqdn)
+    │     1. 查询 "_ati-badge.<fqdn>" TXT 记录
     │     2. 解析失败(SERVFAIL/超时) → 返回 hard error (不回退)
     │     3. NXDOMAIN → 回退查询 "_ra-badge.<fqdn>" (legacy)
-    │     4. 解析 TXT → ParseAnsBadgeRecord()
+    │     4. 解析 TXT → ParseATIBadgeRecord()
+    │
+    ├── LookupATIDiscovery(fqdn)
+    │     → 查询 "_ati.<fqdn>" TXT 记录
+    │     → 返回 ATIDiscoveryResult { Found, Records[]*ATIRecord }
     │
     ├── FindPreferredBadge(fqdn)
     │     → 获取所有记录，按版本降序排序，返回最新
@@ -327,142 +248,62 @@ StandardDNSResolver (net.Resolver, timeout=10s)
     └── FindBadgeForVersion(fqdn, version)
           → 精确匹配 → 无版本记录回退
 
-AnsBadgeRecord 格式: "v=ans-badge1; version=v1.0.0; url=https://..."
+ATIBadgeRecord 格式: "v=ati-badge1; version=v1.0.0; url=https://..."
+ATIRecord { ID, RA, Version, Mode }
 ```
 
-#### 3.3.4 Badge URL 安全校验
+#### 3.2.3 Gold 验证（`gold.go`）
 
 ```go
-URLValidator { trustedDomains []string }
-// 默认信任域名:
-//   - transparency.ans.godaddy.com
-//   - transparency.ans.ote-godaddy.com
-
-校验规则:
-  1. 必须 HTTPS
-  2. 域名必须在信任列表中（不区分大小写）
-  3. 禁止非标准端口（仅允许 443 或空）
-  4. 禁止路径穿越（..）和查询参数
-```
-
-#### 3.3.5 Transparency Log 客户端 (Badge Fetch)
-
-```go
-TransparencyLogClient interface {
-    FetchBadge(ctx, url) (*Badge, error)
+GoldVerifierConfig {
+    TLBaseURL   string            // 默认 "https://tl.ansagent.cn:8180/ans/api/v1"
+    TLPublicKey *ecdsa.PublicKey   // 预配置的 CNNIC 公钥
+    DNSResolver DNSResolver
+    TLogClient  TransparencyLogClient
+    Logger      *slog.Logger
 }
 
-HTTPTransparencyLogClient — 1MB 响应限制, JSON 反序列化为 Badge
+VerifyGold(ctx, fqdn, cert, cfg) → *VerificationOutcome
 ```
 
-#### 3.3.6 Badge 缓存
+6 步流程：
+1. DNS 发现 — `LookupATIDiscovery` 获取 agentId
+2. TL 日志获取 — `FetchTLLog` 请求 CNNIC TL
+3. 密封验证 — `VerifySeal` (JCS 规范化 + SHA-256 + ECDSA)
+4. Merkle 证明 — `VerifyMerkleProof` (RFC 9162 风格)
+5. 指纹匹配 — 证书指纹与 TL 记录比对
+6. 状态检查 — ACTIVE/DEPRECATED 允许，REVOKED 拒绝
+
+#### 3.2.4 密封验证（`seal.go` + `jcs.go`）
 
 ```go
-BadgeCache {
-    entries map[string]*cacheEntry  // key = fqdn 或 fqdn+version
-    mu      sync.RWMutex
-    config  CacheConfig { TTL, MaxEntries, BackgroundRefresh }
-}
-
-操作:
-  - GetByFqdn / GetByFqdnVersion → 命中且未过期
-  - GetStaleByFqdn / GetStaleByFqdnVersion → 过期但在 MaxStaleness 内
-  - Insert / InsertForVersion → 写入
+VerifySeal(tlResp *models.TLLogResponse, trustedKey *ecdsa.PublicKey) error
 ```
 
-#### 3.3.7 ServerVerifier — 服务器证书验证流程
+流程：
+1. 提取 4 个被密封字段：`status`、`schemaVersion`、`payload`、`evidenceRef`
+2. JCS 规范化（RFC 8785）— 键排序、空白移除、ES6 数字格式
+3. SHA-256 摘要
+4. ECDSA 签名验证（`ecdsa.VerifyASN1`）
+5. 公钥来源：优先使用预配置的 `trustedKey`，回退到 `seal.publicKey` PEM
 
-```
-Verify(ctx, fqdn, cert):
-    │
-    1. 缓存查找
-    │   ├── 命中 → verifyWithBadge()
-    │   │   └── 指纹不匹配 → 可能证书更新，继续刷新
-    │   └── 未命中 → 继续
-    │
-    2. fetchBadge(fqdn):
-    │   a) DNS 查找 → FindPreferredBadge()
-    │   │   ├── NotFound → NewNotAnsAgentOutcome (不应用 failurePolicy)
-    │   │   └── DNS error → applyFailurePolicy()
-    │   b) validateBadgeURL()
-    │   c) tlogClient.FetchBadge(url)
-    │       └── error → applyFailurePolicy()
-    │
-    3. 写入缓存
-    │
-    4. verifyWithBadge(badge, cert, fqdn):
-    │   a) badge.Status.IsValidForConnection()? → EXPIRED/REVOKED 拒绝
-    │   b) 服务器证书指纹匹配 badge.ServerCertFingerprint()
-    │   c) badge.AgentHost() == fqdn (大小写不敏感)
-    │   d) cert.FQDN() == badge.AgentHost()
-    │   e) DEPRECATED → 添加 warning
-    │
-    5. DANE/TLSA 检查（可选）
-    │   └── DANEMismatch / DNSSECFailed → 拒绝（覆盖 badge 结果）
-    │
-    → VerificationOutcome
+```go
+JCSCanonicalize(data []byte) ([]byte, error)
+JCSCanonicalizeFields(fields map[string]json.RawMessage) ([]byte, error)
 ```
 
-#### 3.3.8 ClientVerifier — mTLS 客户端证书验证流程
+#### 3.2.5 Merkle 证明验证（`merkle.go`）
 
-```
-Verify(ctx, cert):
-    │
-    1. 从证书提取 FQDN (DNS SAN → CN)
-    2. 从 URI SAN 提取 AnsName (ans://v1.0.0.host)
-    3. 从 AnsName 提取 Version
-    4. 缓存查找 (fqdn + version)
-    5. fetchBadge(fqdn, version) — DNS FindBadgeForVersion()
-    6. verifyWithBadge():
-    │   a) Status 检查
-    │   b) IdentityCert 指纹匹配（注意：是 IdentityCert 不是 ServerCert）
-    │   c) Hostname 匹配
-    │   d) ANS Name 匹配 (badge.AgentName() == cert.AnsName())
-    7. DANE 检查
+```go
+VerifyMerkleProof(proof *models.MerkleProof) error
 ```
 
-#### 3.3.9 SCITT 验证路径（高安全级别）
+RFC 9162 风格的审计路径遍历：
+- 从 leafHash + path 重建根哈希
+- 与 rootHash 做 constant-time 比较
+- 节点哈希：`SHA-256(left || right)`（无前缀字节）
 
-`VerifyWithScitt()` 是 Badge 验证的增强路径：
-
-```
-VerifyWithScitt(ctx, fqdn, cert, headers):
-    │
-    1. headers 为空 → 回退到标准 Verify()
-    2. 必须同时有 X-SCITT-Receipt + X-ANS-Status-Token
-    3. 确认 scittKeyLookup 已配置
-    │
-    4. scitt.VerifyReceipt(receipt, keys):
-    │   a) ParseCoseSign1 → 解析 CBOR COSE_Sign1
-    │   b) 验证 VDS=1 (RFC 9162)
-    │   c) 通过 kid 查找签名密钥
-    │   d) ECDSA 签名验证 (P1363 → DER → VerifyASN1)
-    │   e) Issuer Binding 检查
-    │   f) 提取 VDP, Walk Merkle Inclusion Path
-    │   ⚠ TransportError + ShouldFallbackToBadge → 回退 badge
-    │
-    5. scitt.VerifyStatusToken(token, keys, clockSkew):
-    │   a) ParseCoseSign1 + ECDSA 验证
-    │   b) 解码 CBOR payload → StatusTokenPayload
-    │   c) 过期检查 (now > exp + skew → 拒绝)
-    │   d) 终端状态检查 (EXPIRED/REVOKED → 拒绝)
-    │
-    6. 状态允许连接? (ACTIVE/WARNING/DEPRECATED)
-    │
-    7. 指纹匹配:
-    │   - roleServer → MatchesServerCert(payload, fingerprint)
-    │   - roleIdentity → MatchesIdentityCert(payload, fingerprint)
-    │   (全部使用 constant-time 比较)
-    │
-    8. AnsName host 绑定检查
-    9. DANE 检查
-    │
-    → VerificationOutcome { Tier: TierFullScitt }
-```
-
-**关键安全设计**: SCITT 验证失败（签名无效、伪造等）**永不应用 FailOpen 策略**，只有 DNS/TLog 基础设施故障才走 FailurePolicy。
-
-#### 3.3.10 DANE/TLSA 验证
+#### 3.2.6 DANE/TLSA 验证（`dane.go`）
 
 ```go
 DANEVerifier { resolver DANEResolver }
@@ -472,256 +313,198 @@ StandardDANEResolver {
     timeout time.Duration   // 默认 5s
 }
 
-LookupTLSA(fqdn, port):
-  1. 构造查询名: "_<port>._tcp.<fqdn>."
-  2. 设置 EDNS0 (4096 buf, DO flag) + RD=1
-  3. DNS 查询
-  4. SERVFAIL → DANEErrorDNSSECFailed
-  5. NXDOMAIN / 无应答 → Found=false
-  6. 解析 TLSA RR → TLSARecord { Usage, Selector, MatchingType, CertHash }
-  7. resp.AuthenticatedData → DNSSECValid
-
-Verify(fqdn, port, cert):
-  1. LookupTLSA()
-  2. !Found → DANENoRecords (pass)
-  3. !DNSSECValid → DANESkipped (pass, 不强制)
-  4. 遍历 Usage=3 (DANE-EE) 记录，比对 cert hex fingerprint
-  5. 匹配 → DANEVerified / 不匹配 → DANEMismatch (reject)
+Verify(ctx, fqdn, port, cert) → *DANEOutcome
 ```
 
-#### 3.3.11 失败策略 (FailurePolicy)
+流程：
+1. 查询 `_443._tcp.{fqdn}` TLSA 记录
+2. 无记录 → Pass（DANE 非强制）
+3. DNSSEC 未验证 → Skip
+4. Usage=3 (DANE-EE) 记录比对证书指纹
+5. 匹配 → DANEVerified / 不匹配 → DANEMismatch (reject)
+
+#### 3.2.7 透明日志客户端（`tlog.go`）
 
 ```go
-FailClosed       // DNS/TLog 错误 → 拒绝 (默认, 最安全)
-FailOpenWithCache // 错误 → 尝试 stale cache (MaxStaleness=10min)
+TransparencyLogClient interface {
+    FetchBadge(ctx, url) (*Badge, error)
+    FetchTLLog(ctx, url) (*models.TLLogResponse, error)
+}
+
+HTTPTransparencyLogClient — 1MB 响应限制, JSON 反序列化
+```
+
+#### 3.2.8 Badge 缓存（`cache.go`）
+
+```go
+BadgeCache {
+    entries map[string]*cacheEntry
+    mu      sync.RWMutex
+    config  CacheConfig { TTL, MaxEntries, BackgroundRefresh }
+}
+```
+
+#### 3.2.9 Badge 验证器（`verify.go`）
+
+```go
+ServerVerifier / ClientVerifier / AnsVerifier (Facade)
+```
+
+旧的 badge-based 验证路径，保留兼容。新代码推荐使用 `ati.AgentClient`。
+
+#### 3.2.10 失败策略（`policy.go`）
+
+```go
+FailClosed       // DNS/TLog 错误 → 拒绝 (默认)
+FailOpenWithCache // 错误 → 尝试 stale cache
 FailOpen         // 错误 → 接受 (不推荐)
 ```
 
-仅应用于 DNS 和 TLog 基础设施错误；SCITT 签名错误**始终拒绝**。
-
-#### 3.3.12 `VerificationOutcome` — 统一验证结果
+#### 3.2.11 `VerificationOutcome` — 统一验证结果（`outcome.go`）
 
 ```go
 OutcomeType:
-  Verified | NotAnsAgent | InvalidStatus |
-  FingerprintMismatch | HostnameMismatch | AnsNameMismatch |
+  Verified | NotAtiAgent | InvalidStatus |
+  FingerprintMismatch | HostnameMismatch | AtiNameMismatch |
   DNSError | TlogError | CertError | FailOpen |
-  URLValidationError | DANERejection | ScittError
+  URLValidationError | DANERejection | ScittError | GoldError
 
 VerificationTier:
-  TierBadgeOnly  // 仅 badge 验证
-  TierFullScitt  // SCITT receipt + status token 验证
-
-VerificationOutcome {
-    Type, Tier, Badge, MatchedFingerprint,
-    Expected, Actual (mismatch 诊断),
-    Status, Host, Error, Warnings[],
-    DANEOutcome
-}
+  TierBadgeOnly  // Badge 验证
+  TierFullScitt  // SCITT receipt 验证
+  TierGold       // Gold (CNNIC TL) 验证
 ```
 
 ---
 
-### 3.4 `verify/scitt/` — SCITT 密码学子系统
+### 3.3 `verify/scitt/` — SCITT 密码学子系统
 
-#### 3.4.1 COSE_Sign1 解析器
+SCITT（Supply Chain Integrity, Transparency and Trust）兼容层，保留自 GoDaddy ANS 原始实现。
 
-**为什么手写而不用 go-cose?**
-1. go-cose 不暴露 CBOR 解码选项（MaxNestedLevels 等），无法做 DoS 防护
-2. 自定义 header (vds=395, CWT claims) 需要手动解析
-3. 必须保留 ProtectedBytes 原始字节用于签名验证
+包含：COSE_Sign1 解析、Receipt 验证、Status Token 验证、RFC 9162 Merkle Tree、C2SP Root Keys 管理。
+
+> 注意：ATI 的 CNNIC 透明日志使用 JSON/JCS/ECDSA 格式（而非 CBOR/COSE），Gold 验证使用 `verify/seal.go` + `verify/merkle.go`。SCITT 子系统保留用于与 GoDaddy ANS 兼容。
+
+---
+
+### 3.4 `models/` — 数据结构层
+
+#### 3.4.1 核心模型
 
 ```go
-ParsedCoseSign1 {
-    ProtectedBytes []byte   // 原样保留, 不重新编码
-    Protected ProtectedHeader {
-        Alg int64    // 必须是 -7 (ES256)
-        Kid [4]byte  // 必须恰好 4 字节
-        Vds *int64   // 395: Verifiable Data Structure
-        ContentType *string
-        CwtIss *string, CwtIat *int64
-    }
-    Unprotected cbor.RawMessage
-    Payload     []byte     // 非空
-    Signature   []byte     // 恰好 64 字节 (P1363)
+// ATI Name 格式的 FQDN 值对象
+Fqdn { value string }
+  .AtiBadgeName() → "_ati-badge.<fqdn>"
+  .RaBadgeName()  → "_ra-badge.<fqdn>"  (legacy)
+  .TlsaName(port) → "_<port>._tcp.<fqdn>"
+
+// 语义化版本
+Version { Major, Minor, Patch }
+
+// CNNIC TL 响应
+TLLogResponse {
+    Status, SchemaVersion string
+    Payload       TLPayload        // Agent 元数据
+    EvidenceRef   TLEvidenceRef    // 证据引用
+    Seal          TLSeal           // 密封签名
+    MerkleProof   MerkleProof      // Merkle 包含证明
 }
-```
 
-**安全限制**:
-- `MaxCoseInputSize = 1 MiB`
-- CBOR: `MaxNestedLevels=16, MaxArrayElements=1024, MaxMapPairs=256`
-- Tag 18 自动剥离
-
-#### 3.4.2 Receipt 验证
-
-```
-VerifyReceipt(receiptBytes, keys):
-  1. ParseCoseSign1
-  2. validateVDS(vds == 1)  // RFC 9162
-  3. keys.Get(kid) → TrustedKey
-  4. verifyECDSA:
-     a) BuildSigStructure(["Signature1", protected, "", payload])
-     b) SHA-256(sigStructure)
-     c) P1363 (64 bytes) → DER (asn1.Marshal {R,S})
-     d) ecdsa.VerifyASN1(key, digest, derSig)
-  5. verifyIssuerBinding (CWT iss == key.Name)
-  6. extractVDP (unprotected header, key 396):
-     {-1: tree_size, -2: leaf_index, -3: inclusion_path[]}
-  7. WalkInclusionPath → rootHash
-
-→ VerifiedReceipt { TreeSize, LeafIndex, RootHash, EventBytes, KeyID }
-```
-
-**⚠ 重要**: `RootHash` **未**与任何受信的 tree head 交叉验证。ECDSA 签名保证叶节点级信任；树头验证需要带外（witness/monitor）。
-
-#### 3.4.3 Status Token 验证
-
-```
-VerifyStatusTokenAt(tokenBytes, keys, clockSkew, now):
-  1. ParseCoseSign1
-  2. keys.Get(kid)
-  3. verifyECDSA (同上)
-  4. Issuer Binding
-  5. decodeStatusPayload (CBOR map):
-     支持整数键 (1-8) 和字符串键 ("agent_id" 等) 双模式
-     必填: agent_id, status, exp, ans_name
-  6. 过期检查: now > exp + clockSkew → TokenErrExpired
-  7. 终端状态: EXPIRED/REVOKED → TokenErrTerminalStatus
-
-StatusTokenPayload {
-    AgentID, AnsName, Status (AgentStatus),
-    Iat, Exp (unix timestamp),
-    ValidIdentityCerts []CertEntry,  // 证书指纹+类型
-    ValidServerCerts   []CertEntry,
-    MetadataHashes map[string]string
+TLPayload {
+    AgentID, AgentName, AgentHost, Version, AgentStatus string
+    Certificates *TLCertificates  // 证书指纹
 }
-```
 
-**指纹匹配** (constant-time):
-- `MatchesServerCert(payload, [32]byte)` → `subtle.ConstantTimeCompare`
-- `MatchesIdentityCert(payload, [32]byte)` → `subtle.ConstantTimeCompare`
+TLSeal {
+    SignatureAlgorithm, Signature, PublicKey string
+}
 
-#### 3.4.4 Merkle Tree (RFC 9162)
+MerkleProof {
+    TreeSize int64, LeafIndex *int64
+    LeafHash, RootHash string
+    Path []string
+}
 
-```go
-ComputeLeafHash(data)  → SHA-256(0x00 || data)
-ComputeNodeHash(l, r)  → SHA-256(0x01 || left || right)
+// Trust Card
+TrustCard {
+    AgentID, AgentName, AgentDisplayName, Version, AgentHost string
+    Endpoints []TrustCardEndpoint
+}
 
-WalkInclusionPath(eventBytes, leafIndex, treeSize, hashPath):
-  - leafHash = ComputeLeafHash(eventBytes)
-  - 沿 path 逐层向上计算: 奇数/等于 sn → hash(p, current), 否则 → hash(current, p)
-  - 消耗完 path 后 sn==0 → 成功
-  - MaxHashPathLen = 63 (最大 2^63 叶节点)
-
-VerifyMerkleInclusion → WalkInclusionPath + constant-time root 比较
-```
-
-#### 3.4.5 Root Keys (C2SP 格式)
-
-```go
-TrustedKey { Name string, Kid [4]byte, Key *ecdsa.PublicKey }
-
-C2SP 格式: "name+hex_kid+base64_spki_der"
-  - 解析: name, hex→4字节kid, base64→SPKI DER (可选 0x02 前缀)
-  - 验证: P-256 曲线, kid == SHA-256(SPKI DER)[:4]
-
-KeyStore { keys map[[4]byte]TrustedKey }
-  - NewKeyStore(strings) — 解析 + 去重
-  - Get(kid) → TrustedKey
-  - MergeFrom(strings) → 新 KeyStore + MergeResult (不可变合并)
-```
-
-#### 3.4.6 SCITT HTTP 客户端
-
-```go
-scitt.HTTPClient { baseURL, httpClient, headers, ... }
-  - 必须 HTTPS (除非 WithAllowInsecureTransport)
-  - 默认 timeout 30s, 最大响应 2 MiB
-
-FetchReceipt(agentID)    → GET /v1/agents/{id}/receipt
-FetchStatusToken(agentID) → GET /v1/agents/{id}/status-token
-FetchRootKeys()           → GET /root-keys (换行分隔的 C2SP 字符串)
-
-HTTP 状态映射:
-  404 → TransportErrNotFound
-  410 → TransportErrAgentTerminal
-  501 → TransportErrNotSupported
-```
-
-#### 3.4.7 SCITT Headers（HTTP 传输）
-
-```go
-X-SCITT-Receipt      → base64 encoded COSE_Sign1 receipt
-X-ANS-Status-Token   → base64 encoded COSE_Sign1 status token
-
-MaxBase64HeaderSize = ceil(1MiB/3)*4 ≈ 1.33 MiB
-
-ExtractHeaders(http.Header) → Headers { Receipt, StatusToken []byte }
-  IsEmpty() / HasBoth()
-```
-
-#### 3.4.8 错误体系
-
-```
-CoseError   { Type: Oversized|NotCose|CborDecode|InvalidArray|InvalidSig|... }
-SignatureError { Type: Invalid|IssuerMismatch|UnknownKeyID|InvalidKeyFormat|... }
-MerkleError { Type: InvalidProof|RootMismatch }
-TokenError  { Type: Expired|TerminalStatus|PayloadEmpty|MissingField|... }
-TransportError { Type: NotFound|AgentTerminal|NotSupported|HTTPError|Base64Decode }
-  - ShouldFallbackToBadge(): NotFound|AgentTerminal|NotSupported → true
-    (基础设施问题可回退，伪造/签名错误不可回退)
-```
-
-#### 3.4.9 RefreshableKeyStore & Supplier
-
-```go
-RefreshableKeyStore — 定期从远端刷新 root keys 的包装器
-Supplier interface { FetchKeys(ctx) ([]string, error) }
-  - 用 scitt.Client.FetchRootKeys() 作为 supplier
-  - 周期性刷新 + 失败保留旧 keys
+// Badge（透明度徽章）
+Badge { Status, Payload, SchemaVersion, Signature, MerkleProof }
 ```
 
 ---
 
-### 3.5 `internal/httputility/` — HTTP 工具
+### 3.5 `internal/registry/` — RA API 客户端
+
+从 `ans/` 迁移至 `internal/registry/`，作为内部实现。
+
+```go
+Client { config *clientConfig }
+
+clientConfig {
+    baseURL    string
+    httpClient *http.Client
+    authHeader string
+    verbose    bool
+}
+```
+
+**API 方法**:
+
+| 方法 | HTTP | 路径 | 用途 |
+|------|------|------|------|
+| `RegisterAgent` | POST | `/v1/agents/register` | 注册 Agent |
+| `GetAgentDetails` | GET | `/v1/agents/{id}` | 获取详情 |
+| `SearchAgents` | GET | `/v1/agents?filters` | 搜索 Agent |
+| `ResolveAgent` | POST | `/v1/agents/resolution` | 解析 Agent |
+| `RevokeAgent` | POST | `/v1/agents/{id}/revoke` | 撤销 Agent |
+| `SubmitIdentityCSR` | POST | `/v1/agents/{id}/certificates/identity` | 提交身份 CSR |
+| `SubmitServerCSR` | POST | `/v1/agents/{id}/certificates/server` | 提交服务器 CSR |
+| `GetCSRStatus` | GET | `/v1/agents/{id}/csrs/{csrId}/status` | CSR 状态查询 |
+| `VerifyACME` | POST | `/v1/agents/{id}/verify-acme` | ACME 验证 |
+| `VerifyDNS` | POST | `/v1/agents/{id}/verify-dns` | DNS 验证 |
+| `GetAgentEvents` | GET | `/v1/agents/events` | 事件流 |
+
+---
+
+### 3.6 `internal/httputility/` — HTTP 工具
 
 ```go
 DoRequest(ctx, cfg, method, path, body, result):
-  1. prepareRequestBody → json.Marshal → bytes.Buffer
+  1. json.Marshal body
   2. http.NewRequestWithContext
-  3. setRequestHeaders (Authorization, Content-Type, Accept)
+  3. 设置 Authorization/Content-Type/Accept
   4. httpClient.Do
   5. io.ReadAll(LimitReader(10MB))
-  6. status >= 400 → HandleErrorResponse → ResponseError
+  6. status >= 400 → ResponseError
   7. json.Unmarshal → result
 ```
 
 ---
 
-### 3.6 `keygen/` — 密钥生成工具
+### 3.7 `keygen/` — 密钥生成工具
 
 ```go
 GenerateRSAKeyPair(bits) → (privPEM, pubPEM, error)
-GenerateECKeyPair(curve) → (privPEM, pubPEM, error)
-  - P-256, P-384, P-521
-
-SavePrivateKeyToFile(path, pem, password) — AES-256-CBC 加密 (可选)
+GenerateECKeyPair(curve) → (privPEM, pubPEM, error)   // P-256, P-384, P-521
+SavePrivateKeyToFile(path, pem, password)              // AES-256-CBC 加密
 SavePublicKeyToFile(path, pem)
-LoadPrivateKeyFromFile(path, password)
-LoadPublicKeyFromFile(path)
 // 文件权限: 0600 (私钥) / 0644 (公钥)
 ```
 
 ---
 
-### 3.7 `cmd/ans-cli/` — CLI 工具
+### 3.8 `cmd/ati-cli/` — CLI 工具
 
 基于 Cobra + Viper 构建。
 
 #### 全局标志 (root.go)
 ```
---api-key    API key (环境变量 ANS_API_KEY)
---base-url   Base URL (环境变量 ANS_BASE_URL)
+--api-key    API key (环境变量 ATI_API_KEY)
+--base-url   Base URL (环境变量 ATI_BASE_URL)
 --verbose    详细输出
 --json       JSON 格式输出
 ```
@@ -750,120 +533,108 @@ LoadPublicKeyFromFile(path)
 
 ## 4. 核心流程图
 
-### 4.1 Agent 注册完整流程
+### 4.1 Agent 间 mTLS 通信流程（Bronze）
 
 ```
-客户端                          ANS API                      DNS
-  │                               │                           │
-  │── RegisterAgent(host,ver) ──→ │                           │
-  │                               │── 创建 Agent              │
-  │←── RegistrationPending ──────│                           │
-  │    {agentID, challenges,      │                           │
-  │     dnsRecords}               │                           │
-  │                               │                           │
-  │── 配置 DNS TXT 记录 ─────────────────────────────────────→│
-  │── 配置 ACME HTTP 挑战 ──→ (web server)                    │
-  │                               │                           │
-  │── VerifyDNS(agentID) ───────→│── 检查 DNS 记录 ─────────→│
-  │←── AgentStatus ──────────────│                           │
-  │                               │                           │
-  │── VerifyACME(agentID) ──────→│── 检查 HTTP 挑战          │
-  │←── AgentStatus (ACTIVE) ─────│                           │
-  │                               │                           │
-  │── SubmitServerCSR() ────────→│── 签发证书                 │
-  │── SubmitIdentityCSR() ──────→│── 签发证书                 │
-  │                               │                           │
-  │── GetCSRStatus(csrId) ──────→│── PENDING → SIGNED        │
-  │← GetServerCertificates() ───│                           │
+Agent A (AgentClient)               DNS (阿里云云解析)        Agent B (服务器)
+     │                                    │                        │
+     │── 1. DNS 查询 _ati.B ────────────→ │                        │
+     │←─ ATIRecord { ID, Version } ──────│                        │
+     │                                    │                        │
+     │══ 2. mTLS 握手 ═══════════════════════════════════════════►│
+     │   (双向证书验证，AgentA 提供 Identity Cert)                 │
+     │                                    │                        │
+     │── 3. Bronze 验证:                  │                        │
+     │   a) CA 链有效 ✓                   │                        │
+     │   b) ati:// URI SAN 存在 ✓         │                        │
+     │   c) SAN 主机名匹配 ✓             │                        │
+     │                                    │                        │
+     │══ 4. HTTP 请求 ══════════════════════════════════════════►│
+     │◄═ 5. HTTP 响应 ══════════════════════════════════════════│
+     │                                    │                        │
+     │── 6. 返回 Response + BronzeOutcome │                        │
 ```
 
-### 4.2 Agent 间安全通信流程
+### 4.2 Gold 级别验证流程
 
 ```
-Agent A (客户端)                                    Agent B (服务器)
-     │                                                    │
-     │── 1. Prefetch Badge ─→ DNS TXT "_ans-badge.B" ────│
-     │←─ badge record { url }                             │
-     │── 2. Fetch Badge ───→ Transparency Log             │
-     │←─ Badge { status, fingerprint, host }              │
-     │                                                    │
-     │══ 3. TLS Handshake ═══════════════════════════════►│
-     │   (获取 PeerCertificates[0])                       │
-     │                                                    │
-     │── 4. Verify:                                       │
-     │   a) Badge.Status valid?                           │
-     │   b) cert.fingerprint == badge.fingerprint?        │
-     │   c) hostname match?                               │
-     │   d) [可选] DANE/TLSA check                        │
-     │                                                    │
-     │══ 5. HTTP Request ════════════════════════════════►│
-     │◄═ 6. HTTP Response ═══════════════════════════════│
-     │                                                    │
-     │── 7. Return Response + VerificationOutcome         │
+AgentClient             DNS              CNNIC TL            Target Agent
+     │                   │                   │                     │
+     │── _ati TXT ─────→│                   │                     │
+     │←─ agentId ────────│                   │                     │
+     │                   │                   │                     │
+     │══ mTLS 握手 ══════════════════════════════════════════════►│
+     │   (Bronze 验证通过)                   │                     │
+     │                   │                   │                     │
+     │── GET /tl/agents/{id}/logs/latest ──→│                     │
+     │←─ TLLogResponse { Seal, Merkle } ────│                     │
+     │                   │                   │                     │
+     │── 密封验证:                           │                     │
+     │   JCS(status,schema,payload,evidence) │                     │
+     │   → SHA-256 → ECDSA verify            │                     │
+     │                   │                   │                     │
+     │── Merkle 验证:                        │                     │
+     │   leafHash + path → rebuild root      │                     │
+     │   compare rootHash ✓                  │                     │
+     │                   │                   │                     │
+     │── 指纹匹配: cert.fingerprint == TL ✓  │                     │
+     │── 状态检查: ACTIVE ✓                  │                     │
+     │                   │                   │                     │
+     │── Gold 验证通过 → TrustLevel=Gold      │                     │
 ```
 
-### 4.3 SCITT 增强验证流程
+### 4.3 服务端客户端验证流程
 
 ```
-Agent A                         Agent B              SCITT Service
-  │                               │                       │
-  │══ TLS + HTTP Request ════════►│                       │
-  │◄═ Response ══════════════════│                       │
-  │   + X-SCITT-Receipt: <b64>   │                       │
-  │   + X-ANS-Status-Token: <b64>│                       │
-  │                               │                       │
-  │── ExtractHeaders()            │                       │
-  │                               │                       │
-  │── VerifyReceipt(receipt, keys)│                       │
-  │   ├── ParseCoseSign1          │                       │
-  │   ├── VDS == 1 (RFC 9162)     │                       │
-  │   ├── ECDSA 签名验证          │                       │
-  │   ├── Issuer 绑定检查         │                       │
-  │   └── Merkle Inclusion Proof  │                       │
-  │                               │                       │
-  │── VerifyStatusToken(token, keys, skew)                │
-  │   ├── ParseCoseSign1          │                       │
-  │   ├── ECDSA 签名验证          │                       │
-  │   ├── 解码 payload            │                       │
-  │   ├── 过期检查                │                       │
-  │   ├── 终端状态检查            │                       │
-  │   └── cert 指纹匹配          │                       │
-  │       (constant-time compare) │                       │
-  │                               │                       │
-  │── DANE 检查 (可选)            │                       │
-  │                               │                       │
-  │── Outcome: Tier=FullScitt ✓   │                       │
+Client Agent                                        Server (VerifyPeerCertificate)
+     │                                                    │
+     │══ TLS ClientHello + Certificate ══════════════════►│
+     │                                                    │
+     │                                              ┌─────┴─────┐
+     │                                              │ Bronze:    │
+     │                                              │ ati:// URI │
+     │                                              │ SAN 存在？ │
+     │                                              ├────────────┤
+     │                                              │ Silver:    │
+     │                                              │ + DANE     │
+     │                                              │ 验证       │
+     │                                              ├────────────┤
+     │                                              │ Gold:      │
+     │                                              │ + TL 验证  │
+     │                                              │ VerifyGold │
+     │                                              └─────┬─────┘
+     │                                                    │
+     │◄═ TLS Handshake Complete ═════════════════════════│
 ```
 
 ---
 
 ## 5. 安全设计要点
 
-### 5.1 防 DoS
-- CBOR 解码限制: 嵌套 16 层, 数组 1024, Map 256
-- COSE 输入最大 1 MiB, Base64 header 最大 ~1.33 MiB
-- HTTP 响应体限制: API 10 MB, TLog 1 MB, SCITT 2 MiB
+### 5.1 传输安全
+- mTLS 双向证书验证
+- 最低 TLS 1.2
+- 仅允许 HTTPS（AgentClient.Do 强制检查）
 
-### 5.2 防伪造
-- **SCITT 签名错误永不 FailOpen**: `applyFailurePolicy` 注释明确说明
-- `TransportError.ShouldFallbackToBadge()` 只允许基础设施错误回退
-- ECDSA 签名使用 `ecdsa.VerifyASN1` (标准库安全实现)
-- 指纹比较使用 `crypto/subtle.ConstantTimeCompare` 防时序攻击
+### 5.2 DNS 发现阻塞
+- Bronze 级别 DNS 发现是阻塞检查：未找到 `_ati` 记录则拒绝请求
+- 防止绕过 ATI 体系直接通信
 
-### 5.3 防降级
-- Badge URL 必须 HTTPS + 可信域名
-- Agent 通信要求 HTTPS (verifyServer=true 时)
-- DANE 检查可在 badge 验证成功后额外拒绝
+### 5.3 密码学
+- JCS 规范化（RFC 8785）确保密封签名的确定性
+- ECDSA 签名使用 `ecdsa.VerifyASN1`（标准库安全实现）
+- 证书指纹使用 SHA-256
+- Merkle 根比对使用 `crypto/subtle.ConstantTimeCompare` 防时序攻击
 
-### 5.4 密钥管理
-- C2SP 格式: kid = SHA-256(SPKI)[:4] — 防止 kid 篡改
-- KeyStore 不可变, MergeFrom 返回新实例
-- RefreshableKeyStore 周期性远程刷新, 失败保留旧 keys
+### 5.4 DANE 非强制
+- TLSA 记录不存在 → Pass（不拒绝）
+- DNSSEC 未验证 → Skip
+- 仅在 DANE-EE (Usage=3) 记录存在且指纹不匹配时拒绝
 
-### 5.5 Clock Skew 容忍
-- Status Token 过期检查: `now > exp + clockSkew`
-- 默认 120 秒, 最大 10 分钟 (硬限制)
-- 负值钳位到 0
+### 5.5 HTTP 响应限制
+- API 响应: 10 MB
+- TLog 响应: 1 MB
+- SCITT 响应: 2 MiB
 
 ---
 
@@ -871,78 +642,82 @@ Agent A                         Agent B              SCITT Service
 
 | 模式 | 应用场景 |
 |------|---------|
-| **Functional Options** | `ans.NewClient(opts...)`, `verify.NewServerVerifier(opts...)`, `scitt.NewHTTPClient(opts...)` |
+| **Functional Options** | `ati.NewAgentClient(opts...)`, `ati.NewServerTLSConfig(opts...)`, `ati.GetTrustCard(ctx, host, ver, opts...)` |
+| **Builder** | `DiagnoseResult` 逐步构建诊断步骤 |
+| **Strategy** | `TrustLevel` (Bronze/Silver/Gold) 决定验证深度 |
+| **Value Object** | `Fqdn`, `Version`, `CertFingerprint`, `ATIName` |
+| **Interface Abstraction** | `DNSResolver`, `DANEResolver`, `TransparencyLogClient` |
+| **Mock** | `dns_mock.go`, `dane_mock.go`, `tlog_mock.go` |
 | **Facade** | `AnsVerifier` 统一封装 `ServerVerifier` + `ClientVerifier` |
-| **Strategy** | `FailurePolicy` (FailClosed/FailOpenWithCache/FailOpen) |
-| **Value Object** | `Fqdn`, `Version`, `CertFingerprint`, `AnsName` |
-| **Interface Abstraction** | `DNSResolver`, `DANEResolver`, `TransparencyLogClient`, `KeyLookup`, `scitt.Client` |
-| **Immutable Data** | `KeyStore.MergeFrom()` 返回新实例 |
-| **Mock** | `dns_mock.go`, `dane_mock.go`, `tlog_mock.go`, `scitt/client_mock.go` |
-| **Cache-aside** | `BadgeCache` 配合 TTL + stale fallback |
 
 ---
 
 ## 7. 目录与文件职责速查
 
 ```
-ans/
-  client.go           ANS Registry API 客户端 (RegisterAgent, SearchAgents, ...)
-  transparency.go     透明度日志 API 客户端 (GetCheckpoint, Audit, ...)
-  agent_client.go     Agent 间安全 HTTP 客户端 (badge 验证 + TLS)
-  options.go          客户端配置 options
-  validate.go         参数校验工具
+ati/
+  mtls_client.go       mTLS 客户端 (Bronze/Silver/Gold 多级信任验证)
+  server.go            服务端 TLS 配置 (VerifyPeerCertificate 回调)
+  trust_card.go        Trust Card 查询 (CNNIC TL)
+  trust_level.go       Bronze / Silver / Gold 信任等级定义
+  diagnose.go          7 步诊断链
 
 models/
-  agent.go            Agent 注册/状态/搜索 DTO
-  badge.go            Badge 结构 + 状态枚举
-  certificate.go      证书/CSR DTO
-  transparency.go     透明度日志/检查点 DTO
-  transparency_schemas.go  V0/V1 schema 定义
-  event.go            事件 DTO
-  fqdn.go             FQDN 值对象
-  version.go          语义化版本
-  resolution.go       Agent 解析 DTO
-  revocation.go       撤销 DTO
-  error.go            Sentinel 错误
-  response_error.go   API 错误响应
+  agent.go             Agent 注册/状态/搜索 DTO
+  badge.go             Badge 结构 + 状态枚举
+  tl_log.go            CNNIC TL 响应模型 (TLLogResponse, TLSeal, TLPayload)
+  trust_card.go        TrustCard 模型
+  transparency.go      MerkleProof, 透明度日志 DTO (V0/V1)
+  fqdn.go              FQDN 值对象
+  version.go           语义化版本
+  error.go             Sentinel 错误
+  response_error.go    API 错误响应
 
 verify/
-  verify.go           核心验证逻辑 (ServerVerifier, ClientVerifier, AnsVerifier)
-  cert.go             证书抽象 (CertFingerprint, CertIdentity, AnsName)
-  badge_record.go     Badge TXT 记录解析
-  dns.go              DNS 接口
-  dns_resolver.go     标准 DNS 解析器
-  tlog.go             透明度日志客户端 (badge fetch)
-  cache.go            Badge 缓存
-  dane.go             DANE/TLSA 验证
-  url_validator.go    Badge URL 安全校验
-  policy.go           失败策略
-  options.go          验证器配置 options
-  outcome.go          验证结果
-  errors.go           错误类型
+  cert.go              证书抽象 (CertFingerprint, CertIdentity, ATIName)
+  badge_record.go      _ati-badge TXT 记录解析
+  dns.go               DNS 接口 (DNSResolver, ATIRecord, ATIDiscoveryResult)
+  dns_resolver.go      标准 DNS 解析器
+  dane.go              DANE/TLSA 验证
+  gold.go              Gold 验证编排 (6 步流程)
+  seal.go              CNNIC TL 密封验证 (JCS + SHA-256 + ECDSA)
+  jcs.go               RFC 8785 JSON Canonicalization Scheme
+  merkle.go            Merkle 包含证明验证 (RFC 9162 风格)
+  tlog.go              透明日志客户端 (FetchBadge, FetchTLLog)
+  cache.go             Badge 缓存 (TTL + stale fallback)
+  verify.go            Badge 级别验证器 (ServerVerifier, ClientVerifier)
+  outcome.go           统一验证结果 (VerificationOutcome)
+  policy.go            失败策略 (FailClosed/FailOpenWithCache/FailOpen)
+  url_validator.go     Badge URL 安全校验
+  dns_mock.go          Mock DNS 解析器
+  dane_mock.go         Mock DANE 解析器
+  tlog_mock.go         Mock 透明日志客户端
 
 verify/scitt/
-  cose.go             COSE_Sign1 手写解析器
-  receipt.go          SCITT Receipt 验证
-  status_token.go     Status Token 验证
-  merkle.go           RFC 9162 Merkle Tree
-  root_keys.go        C2SP 密钥解析 + KeyStore
-  refreshable_key_store.go  自动刷新的密钥存储
-  supplier.go         密钥供应商接口
-  client.go           SCITT HTTP 客户端
-  headers.go          SCITT HTTP header 解码
-  types.go            AgentStatus, CertEntry, StatusTokenPayload
-  errors.go           SCITT 错误体系
+  cose.go              COSE_Sign1 解析器 (SCITT 兼容)
+  receipt.go           SCITT Receipt 验证
+  status_token.go      Status Token 验证
+  merkle.go            RFC 9162 Merkle Tree (SCITT 版本)
+  root_keys.go         C2SP 密钥解析 + KeyStore
+  client.go            SCITT HTTP 客户端
+  headers.go           SCITT HTTP header 解码
+
+internal/registry/
+  client.go            RA API 客户端
+  transparency.go      透明度日志 API 客户端
+  agent_client.go      Agent 间 HTTP 客户端 (badge-based, legacy)
+  options.go           客户端配置 options
+  validate.go          参数校验
 
 internal/httputility/
-  httputil.go         HTTP 请求封装
+  httputil.go          HTTP 请求封装
 
 keygen/
-  keygen.go           RSA/EC 密钥生成 + PEM 编解码
+  keygen.go            RSA/EC 密钥生成 + PEM 编解码
 
-cmd/ans-cli/
-  main.go             CLI 入口
-  cmd/root.go         全局标志 + 根命令
-  cmd/*.go            各子命令
-  internal/config/    Viper 配置加载
+cmd/ati-cli/
+  main.go              CLI 入口
+  cmd/root.go          全局标志 + 根命令
+  cmd/*.go             各子命令
+  internal/config/     Viper 配置加载
 ```

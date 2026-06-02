@@ -22,6 +22,8 @@ const (
 type TransparencyLogClient interface {
 	// FetchBadge fetches a badge from the given URL.
 	FetchBadge(ctx context.Context, url string) (*models.Badge, error)
+	// FetchTLLog fetches a CNNIC TL log entry from the given URL.
+	FetchTLLog(ctx context.Context, url string) (*models.TLLogResponse, error)
 }
 
 // HTTPTransparencyLogClient is an HTTP-based implementation of TransparencyLogClient.
@@ -116,4 +118,69 @@ func (c *HTTPTransparencyLogClient) FetchBadge(ctx context.Context, url string) 
 	}
 
 	return &badge, nil
+}
+
+// FetchTLLog fetches a CNNIC TL log entry from the given URL.
+func (c *HTTPTransparencyLogClient) FetchTLLog(ctx context.Context, url string) (*models.TLLogResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, &TlogError{
+			Type:   TlogErrorInvalidResponse,
+			URL:    url,
+			Reason: fmt.Sprintf("failed to create request: %v", err),
+		}
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, &TlogError{
+			Type:   TlogErrorServiceUnavailable,
+			URL:    url,
+			Reason: err.Error(),
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil, &TlogError{
+			Type:     TlogErrorNotFound,
+			URL:      url,
+			HTTPCode: resp.StatusCode,
+		}
+	}
+
+	if resp.StatusCode >= http.StatusInternalServerError {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil, &TlogError{
+			Type:     TlogErrorServiceUnavailable,
+			URL:      url,
+			HTTPCode: resp.StatusCode,
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBodyBytes))
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil, &TlogError{
+			Type:     TlogErrorInvalidResponse,
+			URL:      url,
+			HTTPCode: resp.StatusCode,
+			Reason:   fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(body)),
+		}
+	}
+
+	var tlResp models.TLLogResponse
+	limitedReader := io.LimitReader(resp.Body, maxBadgeResponseBodyBytes)
+	if err := json.NewDecoder(limitedReader).Decode(&tlResp); err != nil {
+		return nil, &TlogError{
+			Type:   TlogErrorInvalidResponse,
+			URL:    url,
+			Reason: fmt.Sprintf("failed to decode TL response: %v", err),
+		}
+	}
+
+	return &tlResp, nil
 }

@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.0.0] (2026-06-02)
+
+ATI SDK — 从 GoDaddy ANS 迁移至阿里云 + CNNIC Agent Trust Infrastructure。
+
+### Breaking Changes
+
+* **module**: 模块路径从 `github.com/godaddy/ans-sdk-go` 改为 `gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk`
+* **ati**: 新增 `ati/` 公共包替代 `ans/` 包，旧的 RA API 客户端移至 `internal/registry/`
+* **dns**: DNS 前缀从 `_ans` / `_ans-badge` 改为 `_ati` / `_ati-badge`
+* **name**: ATI Name 格式从 `ans://` 改为 `ati://`
+
+### Features
+
+* **ati**: `NewAgentClient` — mTLS 客户端，支持 Bronze/Silver/Gold 三级信任验证
+* **ati**: `NewServerTLSConfig` — 服务端 TLS 配置，`VerifyPeerCertificate` 回调自动验证客户端 ATI 身份
+* **ati**: `GetTrustCard` — 从 CNNIC 透明日志查询 Agent Trust Card
+* **ati**: `Diagnose` — 7 步诊断链（DNS 发现 → TL 查询 → 密封验证 → Merkle 证明 → 指纹/状态检查）
+* **ati**: `PeerATIName` — 从 TLS 连接提取对端 Agent ATI 身份
+* **verify**: Gold 验证从 SCITT (CBOR/COSE) 重写为 CNNIC TL (JSON/JCS/ECDSA)
+* **verify**: `VerifySeal` — RFC 8785 JCS 规范化 + SHA-256 + ECDSA 密封验证
+* **verify**: `JCSCanonicalize` / `JCSCanonicalizeFields` — RFC 8785 JSON 规范化实现
+* **verify**: `VerifyMerkleProof` — RFC 9162 风格 Merkle 包含证明验证
+* **verify**: `VerifyGold` — Gold 级别验证编排（6 步流程）
+* **verify**: `FetchTLLog` — 透明日志客户端新增 CNNIC TL 日志获取方法
+
+### Bug Fixes
+
+* **trust_card**: 修复 `resolveAgentID` 中 discovery 结果未正确检查 `Records` 长度的问题
+
+---
+
 ## [0.1.7](https://github.com/godaddy/ans-sdk-go/compare/v0.1.6...v0.1.7) (2026-04-21)
 
 
