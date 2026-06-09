@@ -8,23 +8,29 @@ import (
 
 // MockTransparencyLogClient is a mock implementation of TransparencyLogClient for testing.
 type MockTransparencyLogClient struct {
-	badges  map[string]*models.Badge
-	tlLogs  map[string]*models.TLLogResponse
-	errors  map[string]error
+	badges    map[string]*models.Badge
+	tlResps   map[string]*models.TLResponse
+	errors    map[string]error
 }
 
 // NewMockTransparencyLogClient creates a new mock transparency log client.
 func NewMockTransparencyLogClient() *MockTransparencyLogClient {
 	return &MockTransparencyLogClient{
-		badges: make(map[string]*models.Badge),
-		tlLogs: make(map[string]*models.TLLogResponse),
-		errors: make(map[string]error),
+		badges:  make(map[string]*models.Badge),
+		tlResps: make(map[string]*models.TLResponse),
+		errors:  make(map[string]error),
 	}
 }
 
 // WithBadge adds a badge for a URL.
 func (c *MockTransparencyLogClient) WithBadge(url string, badge *models.Badge) *MockTransparencyLogClient {
 	c.badges[url] = badge
+	return c
+}
+
+// WithTLResponse adds a TL response for a URL.
+func (c *MockTransparencyLogClient) WithTLResponse(url string, resp *models.TLResponse) *MockTransparencyLogClient {
+	c.tlResps[url] = resp
 	return c
 }
 
@@ -36,34 +42,24 @@ func (c *MockTransparencyLogClient) WithError(url string, err error) *MockTransp
 
 // FetchBadge fetches a badge from the given URL.
 func (c *MockTransparencyLogClient) FetchBadge(_ context.Context, url string) (*models.Badge, error) {
-	// Check for configured error first
 	if err, ok := c.errors[url]; ok {
 		return nil, err
 	}
-
-	// Return configured badge or NotFound
 	if badge, ok := c.badges[url]; ok {
 		return badge, nil
 	}
-
 	return nil, &TlogError{
 		Type: TlogErrorNotFound,
 		URL:  url,
 	}
 }
 
-// WithTLLog adds a TL log response for a URL.
-func (c *MockTransparencyLogClient) WithTLLog(url string, tlResp *models.TLLogResponse) *MockTransparencyLogClient {
-	c.tlLogs[url] = tlResp
-	return c
-}
-
-// FetchTLLog fetches a TL log response from the given URL.
-func (c *MockTransparencyLogClient) FetchTLLog(_ context.Context, url string) (*models.TLLogResponse, error) {
+// FetchTLResponse fetches a three-layer nested TL response from the given URL.
+func (c *MockTransparencyLogClient) FetchTLResponse(_ context.Context, url string) (*models.TLResponse, error) {
 	if err, ok := c.errors[url]; ok {
 		return nil, err
 	}
-	if resp, ok := c.tlLogs[url]; ok {
+	if resp, ok := c.tlResps[url]; ok {
 		return resp, nil
 	}
 	return nil, &TlogError{

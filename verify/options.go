@@ -22,6 +22,15 @@ type verifierConfig struct {
 	scittKeyLookup      scitt.KeyLookup
 	clockSkewTolerance  time.Duration
 	logger              *slog.Logger
+
+	// Extended verification options (spec §9.4)
+	trustPolicy      *TrustPolicy
+	producerKeys     ProducerKeyLookup
+	agentCardVerifier *AgentCardVerifier
+	sessionMonitor   *SessionMonitor
+	ocspChecker      *OCSPChecker
+	parallelFetch    bool
+	offlineMode      bool
 }
 
 // defaultClockSkewTolerance is the default maximum allowed clock skew (120 seconds).
@@ -139,5 +148,54 @@ func WithClockSkewTolerance(d time.Duration) Option {
 func WithLogger(l *slog.Logger) Option {
 	return func(c *verifierConfig) {
 		c.logger = l
+	}
+}
+
+// WithTrustPolicy sets the trust policy for verification decisions per spec §9.4.
+func WithTrustPolicy(tp *TrustPolicy) Option {
+	return func(c *verifierConfig) {
+		c.trustPolicy = tp
+	}
+}
+
+// WithProducerKeys sets the producer key lookup for verifying producer signatures.
+func WithProducerKeys(keys ProducerKeyLookup) Option {
+	return func(c *verifierConfig) {
+		c.producerKeys = keys
+	}
+}
+
+// WithAgentCardVerifier enables Agent Card verification with the given verifier.
+func WithAgentCardVerifier(v *AgentCardVerifier) Option {
+	return func(c *verifierConfig) {
+		c.agentCardVerifier = v
+	}
+}
+
+// WithSessionMonitor enables long-connection session monitoring.
+func WithSessionMonitor(sm *SessionMonitor) Option {
+	return func(c *verifierConfig) {
+		c.sessionMonitor = sm
+	}
+}
+
+// WithOCSPChecker enables OCSP revocation checking.
+func WithOCSPCheckerOption(checker *OCSPChecker) Option {
+	return func(c *verifierConfig) {
+		c.ocspChecker = checker
+	}
+}
+
+// WithParallelFetch enables parallel DNS and TL fetching.
+func WithParallelFetch(enabled bool) Option {
+	return func(c *verifierConfig) {
+		c.parallelFetch = enabled
+	}
+}
+
+// WithOfflineMode enables offline/self-contained verification mode.
+func WithOfflineMode(enabled bool) Option {
+	return func(c *verifierConfig) {
+		c.offlineMode = enabled
 	}
 }

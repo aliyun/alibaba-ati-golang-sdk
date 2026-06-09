@@ -1,6 +1,6 @@
 # ATI Golang SDK 技术规格文档
 
-v1.2 | 2026-06-01 | 基于 PRD V2.0 + CNNIC 接口文档 v0.3 + GoDaddy ANS SDK v0.1.7
+v2.0 | 2026-06-09 | 基于 PRD V2.0 + CNNIC 接口文档 v0.3 + ANS/ATI Verification Spec
 
 ## 30 秒快速上手
 
@@ -17,12 +17,11 @@ func main() {
                           "./certs/server.pem", "./certs/ca_bundle.pem"),
     )
 
-    // SDK 提供安全传输层（mTLS + DNS 发现 + Bronze 验证）
-    // 用户自己按 MCP/A2A/OpenAPI 协议构造请求
+    // SDK 提供安全传输层（mTLS + DNS 发现 + Gold 验证）
     resp, _ := client.Post(ctx, "https://translate.example.com/mcp",
         map[string]any{"method": "translate", "params": map[string]string{"text": "Hello"}})
 
-    // resp.VerificationOutcome 包含 Bronze 验证结果（DNS 存在 + CA 链 + SAN 匹配）
+    // resp.VerificationResult 包含完整验证结果（TrustLevel + TrustIndex + 各项检查状态）
 }
 ```
 
@@ -34,7 +33,6 @@ package main
 import "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
 
 func main() {
-    // 生成 Server 端 mTLS 配置
     tlsConfig, _ := ati.NewServerTLSConfig(
         ati.WithServerCert("./certs/server.pem", "./certs/key.pem"),
         ati.WithClientCA("./certs/cnnic_ca_bundle.pem"),
@@ -42,640 +40,880 @@ func main() {
 
     server := &http.Server{
         Addr:      ":443",
-        TLSConfig: tlsConfig,
+        TLSConfig: tlsConfig,  // TLS 1.3 minimum, VerifyConnection callback 内置
         Handler:   http.HandlerFunc(handler),
     }
     server.ListenAndServeTLS("", "")
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-    // 提取对方 Agent 的 ATI 身份
     peer, _ := ati.PeerATIName(r.TLS)
     fmt.Printf("来访 Agent: %s (v%s)\n", peer.Host, peer.Version)
 }
 ```
+
+### 离线验证（无网络场景）
+
+```go
+import "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify"
+
+verifier := verify.NewOfflineVerifier(tlPublicKey, producerKeys)
+result, err := verifier.VerifyOffline(ctx, embeddedStatement, certIdentity)
+// result.IsSuccess(), result.TrustLevel, result.Warnings
+```
+
+---
 
 ## 设计约束
 
 - **SDK 不做注册** — PRD 5.1：注册须通过控制台 GUI 完成，SDK 仅加载证书 + 通信
 - **只做安全传输层** — SDK 提供 mTLS + DNS 发现 + 信任验证，不封装应用协议（MCP/A2A/OpenAPI 由用户自行构造请求）
 - **Client + Server 双端** — SDK 既支持调用其他 Agent（Client），也支持被其他 Agent 调用时验证对方身份（Server）
-- **Bronze 默认且需要 DNS** — MVP Bronze 验证 = DNS 发现（确认已注册）+ PKI（CA 链 + SAN 匹配），不碰 badge/TL
+- **Gold 默认** — 完整五阶段验证（DNS + Receipt + Merkle + Producer Sig + Fingerprint）
+- **TLS 1.3 最低版本** — 所有 mTLS 连接强制 TLS 1.3
 - **开发者体验优先** — 每个决策回答"对调 SDK 的开发者意味着什么"
-- **API 表面最小化** — 公开 ~12 个方法（Client 端 + Server 端），注册相关 20+ 方法收入 internal
-- **SDK 不需要 OAuth2** — OAuth2 是控制台后端调 CNNIC 写接口用的；SDK 只调公开只读的 TL 查询接口（Gold 级）和 DNS
+- **API 表面最小化** — 公开 ~15 个方法（Client 端 + Server 端），注册相关方法收入 internal
+- **SDK 不需要 OAuth2** — OAuth2 是控制台后端调 CNNIC 写接口用的；SDK 只调公开只读的 TL 查询接口和 DNS
+
+---
+
+## 架构概览
+
+### 五阶段验证管道
+
+```
+Stage 1: DNS Discovery (Parallel)
+    ├── _ati TXT → ATI Record (id, ra, version, mode)
+    ├── _ati-badge TXT → Badge Record (url, version)
+    ├── TLSA → DANE records
+    └── HTTPS/SVCB → ALPN, ECH, port
+
+Stage 2: TL Log Fetch
+    GET /tl/agents/{agentId}/logs/latest → TLResponse
+
+Stage 3: Cryptographic Verification
+    ├── Receipt Signature (ECDSA P-256 over JCS-canonicalized content)
+    ├── Merkle Inclusion Proof (RFC 6962)
+    └── Producer Signature (ECDSA P-256 over JCS-canonicalized payload)
+
+Stage 4: Identity Binding
+    ├── Certificate Fingerprint Match (SHA-256)
+    ├── Agent Status Check (ACTIVE/REVOKED/DEPRECATED)
+    └── Agent Card Verification (optional)
+
+Stage 5: Trust Assessment
+    ├── Trust Index Computation (0-100)
+    ├── Trust Level Assignment (NONE/BASIC/VERIFIED/HIGH)
+    └── Revocation Status (OCSP dual-channel)
+```
+
+### 三层嵌套 TL Response 模型
+
+```
+TLResponse
+├── Status: "ACTIVE" | "REVOKED" | "DEPRECATED"
+├── Receipt (TL 签发的 inclusion receipt)
+│   ├── Alg: "ES256"
+│   ├── Kid: key identifier
+│   ├── Issuer: TL service name
+│   ├── MerkleRoot: hex-encoded SHA-256
+│   ├── TreeSize: int64
+│   ├── InclusionProof: {LeafIndex, AuditPath}
+│   ├── Timestamp: time.Time
+│   └── Signature: base64(ASN1 DER ECDSA)
+├── Envelope (Producer/RA 签名信封)
+│   ├── Alg: "ES256"
+│   ├── Kid: producer key identifier
+│   ├── Producer: RA identifier (e.g. "aliyun")
+│   └── Signature: base64(ASN1 DER ECDSA)
+└── Payload (EventPayload)
+    ├── AnsID: agent identifier
+    ├── AnsName: "ati://agent.example.com"
+    ├── EventType: "attestation"
+    ├── Agent: {Host, Name, Version, ProviderID}
+    ├── Attestations:
+    │   ├── IdentityCert: {Fingerprint, Type}
+    │   ├── ServerCert: {Fingerprint, Type}
+    │   ├── TrustCard: {CapabilitiesHash, HashAlg, Canonicalization, TrustCardUrl}
+    │   ├── SchemaHashes: []string
+    │   ├── DNSRecordsProvisioned: bool
+    │   └── DomainValidation: {Method, Timestamp}
+    ├── IssuedAt: time.Time
+    └── ExpiresAt: time.Time
+```
+
+---
 
 ## 外部依赖与通信接口
 
 ### Go Module 直接依赖
 
-| 依赖 | 用途 | 是否保留 |
-|------|------|---------|
-| `github.com/miekg/dns` | DNS 查询（TXT / TLSA / DNSSEC） | 保留 |
-| `github.com/spf13/cobra` | CLI 命令行框架 | 保留（CLI 精简后可能移除） |
-| `github.com/spf13/viper` | CLI 配置管理 | 同上 |
+| 依赖 | 用途 | 状态 |
+|------|------|------|
+| `github.com/miekg/dns` | DNS 查询（TXT / TLSA / HTTPS SVCB / DNSSEC） | 保留 |
+| `github.com/fxamacker/cbor/v2` | COSE/CBOR 解析（Agent Card COSE_Sign1） | 保留 |
+| `golang.org/x/sync` | errgroup（并行 DNS 查询） | 新增（direct） |
+| `golang.org/x/crypto` | OCSP 验证 | 新增（direct） |
 
 ### SDK 需要通信的外部服务
 
 | 接口 | 通信对象 | 地址 | 协议 | 认证方式 | SDK 使用场景 |
 |------|---------|------|------|---------|-------------|
-| CNNIC TL 查询 | CNNIC 透明日志服务 | `https://tl.ansagent.cn:8180/ans/api/v1` | HTTPS | 无（公开只读，透明日志设计原则） | Gold 验证：获取 TL 日志 + Merkle proof |
-| CNNIC RA API | CNNIC 注册服务 | `https://ra.ansagent.cn:8180/ans/api/v1` | HTTPS | OAuth2 (Bearer JWT) | **SDK 不调用** — 控制台后端调用 |
-| Agent-to-Agent | 目标 Agent 端点 | 动态（按 host） | **mTLS**（双向证书） | Identity Certificate | CallAgent() 核心通信 |
-| DNS 递归解析器 | DNS 服务 | `8.8.8.8:53`（可配置） | UDP/TCP DNS 明文 | 无（DNSSEC 验证完整性） | _ati / _ati-badge / TLSA 查询 |
+| CNNIC TL 查询 | CNNIC 透明日志服务 | `https://tl.ansagent.cn:8180/ans/api/v1` | HTTPS | 无（公开只读） | Gold 验证：获取 TL 日志 + Receipt |
+| Agent-to-Agent | 目标 Agent 端点 | 动态（按 host） | **mTLS**（TLS 1.3） | Identity Certificate | 核心通信 |
+| DNS 递归解析器 | DNS 服务 | `8.8.8.8:53`（可配置） | UDP/TCP | 无（DNSSEC 验证） | _ati / _ati-badge / TLSA / HTTPS 查询 |
 | Agent Card 端点 | Agent 主机 | 动态（从 _ati TXT url） | HTTPS | 无 | mode=card 时获取元数据 |
+| OCSP Responder | CA OCSP 服务 | 动态（从证书 AIA 扩展） | HTTP POST | 无 | 证书吊销状态检查 |
 
 ### 加密传输总结
 
 | 通道 | 加密 | 认证 | 完整性 |
 |------|------|------|--------|
-| SDK → CNNIC TL（查询） | TLS 1.2+ | 仅服务端证书（公开只读，无需客户端认证） | TLS |
-| SDK → Agent（mTLS） | TLS 1.2+ | **双向证书认证**（双方互出 Identity Cert） | TLS |
-| SDK → DNS | 明文 | 无 | DNSSEC 签名验证（二期） |
+| SDK → CNNIC TL（查询） | TLS 1.3 | 仅服务端证书 | TLS |
+| SDK → Agent（mTLS） | **TLS 1.3** | **双向证书认证** | TLS |
+| SDK → DNS | 明文 | 无 | DNSSEC 签名验证 |
+| SDK → OCSP | TLS | 服务端证书 | TLS + OCSP 签名 |
 
-> ⚠️ DNS 查询是唯一无加密通道。DNSSEC 保证数据完整性但不保证隐私。如需 DNS 隐私可考虑 DoH/DoT（PRD 未要求）。
+---
 
-### 认证职责划分
+## 核心验证模块
 
-| 角色 | 调用对象 | 认证方式 | 说明 |
-|------|---------|---------|------|
-| **SDK Client 端** | 目标 Agent 端点 | mTLS（出示自己的 Identity Cert） | 调用其他 Agent |
-| **SDK Server 端** | 来访 Agent 的 Identity Cert | mTLS（验证对方 Identity Cert） | 被其他 Agent 调用 |
-| **SDK**（Gold 级） | CNNIC TL 查询接口 | 无需认证（公开只读） | 透明日志：第三方可独立审计 |
-| **SDK** | DNS | 无 | _ati TXT / TLSA 查询 |
-| 控制台后端（非本项目） | CNNIC RA 写接口 | OAuth2 (client_credentials) | 注册/注销/实名 |
-| 控制台后端（非本项目） | CNNIC TL 写接口 | OAuth2 (client_credentials) | 添加 TL 日志 |
+### 模块一：Receipt Signature 验证
 
-> SDK 不调用任何需要 OAuth2 的写接口。SDK 的认证能力 = mTLS 双向证书，其他一切（OAuth2、API key）均不在 SDK 范围内。
+验证 TL 服务对 Merkle tree 状态的签名承诺。
 
-### CNNIC 接口模式说明（SDK 相关部分）
-
-SDK 只调用 CNNIC 的**同步只读**接口：
-- `GET /tl/agents/{agentId}/logs/latest` — 同步返回，公开无认证，SDK Gold 验证使用
-
-CNNIC 的**异步写接口**（注册、注销、实名、TL 写入）由控制台后端调用，与 SDK 无关：
-- 调用写入接口 → 返回 `taskId` → 轮询 `GET /tasks/{taskId}` → `passed` / `unpass`
-- 需要 OAuth2 认证
-- SDK 代码中 `internal/` 下可保留相关方法供控制台后端 Go 服务复用（可选）
-
-### CNNIC 接口协议字段差异
-
-注意 CNNIC 接口中 `endpoint.protocol` 当前仅支持 `A2A`，而 PRD 要求支持 MCP / A2A / OpenAPI。MVP 阶段需确认：
-- SDK 侧：protocol 字段作为 string 传递，不做枚举校验（兼容未来扩展）
-- 控制台侧：PRD 的 MCP/OpenAPI 选项是否在 CNNIC 联调前可用
-
-## 四大功能模块
-
-### 模块一：证书管理（新增）
+**算法流程**：
+1. 从 Receipt 提取 `{merkleRoot, treeSize, timestamp}`
+2. JSON 序列化 → JCS (RFC 8785) 规范化
+3. SHA-256 哈希
+4. ECDSA P-256 ASN1 DER 签名验证（使用 TL 公钥）
 
 ```go
-// WithMTLSCerts 加载控制台下载的 4 个 PEM 文件
-// 强校验：文件存在、格式正确、identity cert SAN 为 ati:// 开头
-// 加载时检查证书有效期，30天内到期打 warning 日志
-func WithMTLSCerts(identityCert, privateKey, serverCert, caBundle string) AgentClientOption
+func VerifyReceiptSignature(resp *models.TLResponse, tlPublicKey *ecdsa.PublicKey) error
 ```
 
-- 构建 tls.Config，配置双向 mTLS
-- 错误信息说人话："identity.pem 不是有效的 X.509 证书" 而非 "x509: malformed"
-- CertStatus() 方法返回证书剩余有效天数
+### 模块二：Merkle Inclusion Proof 验证
 
-ATIName 格式校验（PRD 5.5 Step 1）：
-- 格式：`ati://v{major}.{minor}.{patch}.{agentHost}`
-- 校验规则：scheme 必须为 `ati://`；version 部分须符合 semver；host 部分须为合法 FQDN
-- Identity Certificate 的 URI SAN 必须匹配此格式，加载时强校验
+验证 EventPayload 确实被包含在 Merkle tree 中。
 
-### 模块二：Agent 发现（改造 + 新增）
+**算法流程**：
+1. JCS 规范化 EventPayload → 计算 leaf hash: `SHA-256(0x00 || canonical_payload)`
+2. 从 InclusionProof.AuditPath 按 RFC 6962 算法重建 root hash
+3. 比对计算出的 root hash == Receipt.MerkleRoot
 
-#### _ati TXT 记录解析（PRD 6.4 / 6.6.1）：
-
-```
-_ati.{host} TXT "v=ati1; id={agentId}; ra=aliyun; version=v1.0.0; mode=card; url=https://..."
-_ati.{host} TXT "v=ati1; id={agentId}; ra=aliyun; version=v1.0.0; p=mcp; mode=direct"
+```go
+func VerifyInclusionProof(resp *models.TLResponse) error
 ```
 
-新字段（相比 GoDaddy ANS SDK）：
+**Merkle 节点哈希规则**（RFC 6962）：
+- Leaf: `H(0x00 || data)`
+- Internal: `H(0x01 || left || right)`
+- Audit path 中的哈希值为 hex 编码
+
+### 模块三：Producer Signature 验证
+
+验证 RA（Registration Authority）对 EventPayload 的签名背书。
+
+**算法流程**：
+1. JCS 规范化 EventPayload
+2. SHA-256 哈希
+3. ECDSA P-256 ASN1 DER 签名验证（使用 Producer 公钥，通过 Kid 查找）
+
+```go
+type ProducerKeyLookup interface {
+    GetProducerKey(kid string) (*ecdsa.PublicKey, error)
+}
+
+func VerifyProducerSignature(resp *models.TLResponse, keys ProducerKeyLookup) error
+```
+
+### 模块四：Certificate Fingerprint Matching
+
+绑定 TL 记录到 TLS 连接中实际出示的证书。
+
+```go
+type CertIdentity struct {
+    Fingerprint CertFingerprint  // SHA-256 of DER-encoded certificate
+}
+
+type CertFingerprint struct {
+    hash [32]byte
+}
+
+func CertFingerprintFromDER(der []byte) CertFingerprint
+func CertFingerprintFromX509(cert *x509.Certificate) CertFingerprint
+```
+
+**验证规则**：
+- `TLResponse.Payload.Attestations.IdentityCert.Fingerprint` == `SHA256:<hex>` 格式
+- 与 TLS 握手中实际证书的 SHA-256 指纹比对
+
+### 模块五：Agent Status 检查
+
+```go
+const (
+    StatusActive     = "ACTIVE"      // 验证通过
+    StatusRevoked    = "REVOKED"     // 硬失败
+    StatusDeprecated = "DEPRECATED"  // 软警告（仍可通过）
+)
+```
+
+- ACTIVE → 通过
+- REVOKED → 失败（ANS-4002）
+- DEPRECATED → 通过，附加 Warning
+
+---
+
+## Trust 评估系统
+
+### Trust Level（输出等级）
+
+```go
+type TrustLevel string
+
+const (
+    TrustLevelNone     TrustLevel = "NONE"     // 验证失败
+    TrustLevelBasic    TrustLevel = "BASIC"     // 仅 DNS 发现通过
+    TrustLevelVerified TrustLevel = "VERIFIED"  // Receipt + Merkle 通过
+    TrustLevelHigh     TrustLevel = "HIGH"      // 全部验证通过（含 Producer + Agent Card）
+)
+```
+
+### Trust Index（0-100 分）
+
+```go
+type TrustIndexParams struct {
+    ReceiptVerified  bool
+    MerkleVerified   bool
+    ProducerVerified bool
+    FingerprintMatch bool
+    DNSSECValid      bool
+    AgentCardValid   bool
+    StatusActive     bool
+    ClaimsVerified   int
+    TotalClaims      int
+}
+
+func ComputeTrustIndex(params TrustIndexParams) (int, TrustLevel)
+```
+
+**计分规则**：
+- Receipt Verified: +25
+- Merkle Verified: +20
+- Producer Signature: +15
+- Fingerprint Match: +15
+- DNSSEC Valid: +10
+- Agent Card Valid: +10
+- Status Active: +5
+- Claims Bonus: `(verified/total) * 10` (最多 +10 if AgentCard present)
+- Failure Penalty: 任一核心验证失败 → TrustLevel = NONE
+
+**Level 映射**：
+- 0-19 → NONE
+- 20-49 → BASIC
+- 50-79 → VERIFIED
+- 80-100 → HIGH
+
+---
+
+## Trust Policy 配置
+
+```go
+type TrustPolicy struct {
+    DNSSECMode       FailureAction  // REQUIRE / DEGRADE
+    TLUnreachable    FailureAction  // FAIL / DEGRADE
+    CapHashMismatch  FailureAction  // FAIL / DEGRADE
+    StaplingRequired bool
+    MinTrustLevel    TrustLevel
+    OfflineMode      bool
+    LongConnRecheckInterval time.Duration
+}
+
+type FailureAction string
+const (
+    FailureActionFail    FailureAction = "FAIL"
+    FailureActionDegrade FailureAction = "DEGRADE"
+)
+
+func DefaultTrustPolicy() *TrustPolicy
+func HighSecurityTrustPolicy() *TrustPolicy
+```
+
+**DefaultTrustPolicy**:
+- DNSSECMode: DEGRADE
+- TLUnreachable: DEGRADE
+- MinTrustLevel: BASIC
+- LongConnRecheckInterval: 5m
+
+**HighSecurityTrustPolicy**:
+- DNSSECMode: FAIL
+- TLUnreachable: FAIL
+- StaplingRequired: true
+- MinTrustLevel: VERIFIED
+- LongConnRecheckInterval: 1m
+
+---
+
+## DNS Discovery（并行）
+
+### Parallel Discovery
+
+```go
+type DiscoveryResult struct {
+    ATIRecords      []*ATIRecord
+    BadgeRecords    []ATIBadgeRecord
+    TLSARecords     []*TLSARecord
+    SVCBResult      *SVCBResult
+    AgentCardURL    string
+    TLQueryURL      string
+    SelectedVersion *models.Version
+    DNSSECStatus    string
+}
+
+func ParallelDiscovery(ctx context.Context, fqdn models.Fqdn, resolver DNSResolver) (*DiscoveryResult, error)
+```
+
+使用 `errgroup` 并行查询：
+- `_ati.{host}` TXT → ATI Records
+- `_ati-badge.{host}` TXT → Badge Records
+- `_443._tcp.{host}` TLSA → DANE records
+- `{host}` HTTPS/SVCB → ALPN, ECH, port
+
+### _ati TXT Record
+
+```
+_ati.{host} TXT "v=ati1; id={agentId}; ra=aliyun; version=v1.0.0; mode=direct"
+```
+
 | 字段 | 说明 | 必需 |
 |------|------|------|
-| id | Agent ID（如 ag-39dd66） | 是 |
-| ra | 签发 RA 标识符（如 aliyun） | 是 |
-| version | 带 v 前缀的 semver | 是 |
-| mode | card（获取元数据）/ direct（直连 FQDN） | 是 |
-| p | 通信协议过滤（mcp / a2a / openapi），可选 | 否 |
-| url | 元数据端点 URL（mode=card 时必需） | 条件必需 |
+| id | Agent ID | 是 |
+| ra | 签发 RA 标识符 | 是 |
+| version | semver（v前缀） | 是 |
+| mode | card / direct | 是 |
+| p | 协议过滤（mcp/a2a/openapi） | 否 |
+| url | 元数据端点（mode=card时必需） | 条件必需 |
 
-解析算法照搬 PRD 6.6.1：
-1. 查所有 `_ati` TXT 记录
-2. 按协议过滤（匹配 `p` 字段，无 `p` 字段的记录视为通配）
-3. semver 排最高版本（或精确匹配客户端指定版本）
-4. mode 分支：`card` → 获取 url 指向的元数据；`direct` → 直连 FQDN
-
-MVP 实现 mode=card 和 mode=direct 两种模式（PRD 6.6 zone 示例同时展示两种）。
-
-#### _ati-badge TXT 记录解析（PRD 6.5）：
+### _ati-badge TXT Record
 
 ```
-_ati-badge.{host} TXT "v=ati-badge1; version=v1.0.0; url=https://tl.ansagent.cn:8180/ans/api/v1/tl/agents/{agentId}/logs/latest"
+_ati-badge.{host} TXT "v=ati-badge1; version=v1.0.0; url=https://tl.ansagent.cn:8180/..."
 ```
 
-现有 `badge_record.go` 适配：
-- `ans-badge1` → `ati-badge1`
-- `version` 字段解析改为**必填**（PRD 6.5.1 明确标注"是"），缺失则返回解析错误
-- URL 域名白名单更新为 `tl.ansagent.cn`（联调）/ 正式环境域名待确认
-
-#### Trust Card 获取（PRD 11.2 / 11.3，全新）：
+### HTTPS/SVCB Record
 
 ```go
-func GetTrustCard(ctx context.Context, host string, version string) (*TrustCard, error)
+type SVCBResult struct {
+    Found     bool
+    ALPN      []string  // e.g. ["h2", "h3"]
+    Port      uint16
+    ECHConfig []byte
+    Target    string
+}
+
+func LookupHTTPSSVCB(ctx context.Context, server string, fqdn models.Fqdn) (*SVCBResult, error)
 ```
 
-Trust Card 是 Agent 的"可信名片"，由 **CNNIC 在注册时生成并托管**。
+---
 
-**获取路径（基于 CNNIC 接口规范）：**
-1. 解析 `_ati` TXT 记录，获取 `id`（agentId）
-2. 调用 CNNIC TL 接口：`GET /tl/agents/{agentId}/logs/latest`（需 OAuth2 认证）
-3. 从响应的 `payload` 中提取 Trust Card 内容（注册时 CNNIC 根据 `trustCardHosted: true` 生成）
+## mTLS + Handshake 集成
 
-注意区分：
-- **Agent Card**（元数据）：从 `_ati` TXT 的 `url` 字段获取，托管在 Agent 主机（如 `/.well-known/agent-card.json`）
-- **Trust Card**（可信名片）：注册时由 CNNIC 生成，内容包含在 TL 日志中，通过 TL 查询接口获取
+### VerifyConnection Callback（TLS 1.3）
 
-Trust Card 结构体（基于 CNNIC trustCardContent 字段定义）：
+Server 和 Client 端均使用 `tls.Config.VerifyConnection` callback（替代旧的 `VerifyPeerCertificate`），在 TLS 握手期间执行完整验证。
+
+**Server 端**（`ati/server.go`）：
+```go
+func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error)
+```
+- TLS 1.3 minimum
+- ClientAuth: RequireAndVerifyClientCert
+- VerifyConnection callback: DANE → SAN URI → Gold TL → 硬拒绝
+
+**Client 端**（`ati/mtls_client.go`）：
+```go
+func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error)
+```
+- VerifyConnection callback: Bronze/Silver/Gold 检查
+- 证书有效期警告
+
+### 证书有效性检查
+
+```go
+type CertValidityCheck struct {
+    Valid            bool
+    RemainingPercent float64
+    ExpiresAt        time.Time
+    Warning          string   // non-empty if <30 days remaining
+}
+
+func CheckCertValidity(cert *x509.Certificate, now time.Time) *CertValidityCheck
+```
+
+---
+
+## Agent Card 验证
+
+### 验证管道
+
+```go
+type AgentCardVerifier struct {
+    producerKeys ProducerKeyLookup
+    httpFetcher  HTTPFetcher
+}
+
+type AgentCardResult struct {
+    SignatureValid    bool
+    CapHashValid     bool
+    SchemaHashValid  bool
+    ClaimsVerified   int
+    TotalClaims      int
+    TrustIndex       int
+    TrustLevel       TrustLevel
+}
+
+func (v *AgentCardVerifier) VerifyAgentCard(ctx context.Context, card *models.TrustCard, attestations models.EventAttestations) (*AgentCardResult, error)
+```
+
+**验证步骤**：
+1. COSE_Sign1 签名验证
+2. capabilitiesHash 完整性: JCS(trust content) → SHA-256 → 比对
+3. Schema hash: fetch metadataUrl → SHA-256 → 比对 attestations.schemaHashes
+4. verifiableClaims: 逐项验证第三方签名
+5. 计算 Trust Index
+
+### Stapling（短期状态凭证）
+
+```go
+type StapledCredential struct {
+    AnsID     string
+    Status    string
+    IssuedAt  time.Time
+    ExpiresAt time.Time
+    Signature []byte
+}
+
+func VerifyStapledCredential(cred *StapledCredential, keys ProducerKeyLookup, now time.Time) error
+func ParseStapledCredential(raw []byte) (*StapledCredential, error)
+```
+
+- 在 VerifyConnection 中优先检查 Stapled Credential
+- 过期或缺失时 fallback 到 TL 查询
+
+---
+
+## Session Monitor（长连接周期性重验证）
+
+```go
+type SessionMonitor struct {
+    interval    time.Duration
+    tlogClient  TransparencyLogClient
+    dnsResolver DNSResolver
+    onRevoked   func(fqdn string)
+}
+
+func NewSessionMonitor(interval time.Duration, tlogClient TransparencyLogClient, dnsResolver DNSResolver, onRevoked func(string)) *SessionMonitor
+func (m *SessionMonitor) Watch(ctx context.Context, fqdn models.Fqdn, cert *CertIdentity) func()
+func (m *SessionMonitor) Stop()
+```
+
+**行为**：
+- 周期性重新查询 TL 状态
+- 如果状态变为 REVOKED/EXPIRED → 调用 onRevoked 回调
+- 通过 TrustPolicy.LongConnRecheckInterval 配置间隔
+
+---
+
+## Offline Verification（离线模式）
+
+```go
+type OfflineVerifier struct {
+    tlPublicKey  *ecdsa.PublicKey
+    producerKeys ProducerKeyLookup
+}
+
+func NewOfflineVerifier(tlKey *ecdsa.PublicKey, producerKeys ProducerKeyLookup) *OfflineVerifier
+func (v *OfflineVerifier) VerifyOffline(ctx context.Context, embeddedStatement []byte, cert *CertIdentity) (*VerificationResult, error)
+```
+
+**验证流程**（无网络访问）：
+1. 解析 JSON → `*models.TLResponse`
+2. 验证 Receipt 签名（使用预置 TL 公钥）
+3. 验证 Merkle Inclusion Proof
+4. 验证 Producer 签名（如配置了 ProducerKeys）
+5. 证书指纹匹配
+
+**限制**：
+- RevocationStatusUnknown 标记（无法查询实时状态）
+- 结果附加 Warning: "revocation status unknown (offline mode)"
+
+---
+
+## JWS Detached Signatures（事务级签名）
+
+用于对单次请求/响应的 payload 进行不可否认签名。
+
+```go
+func CreateJWSDetached(payload []byte, privateKey *ecdsa.PrivateKey, kid string) (string, error)
+func VerifyJWSDetached(signature string, payload []byte, keys ProducerKeyLookup) error
+```
+
+**格式**（RFC 7797 b64:false）：
+- Header: `{"alg":"ES256","kid":"...","b64":false,"crit":["b64"]}`
+- Signature: raw r||s (64 bytes), base64url 编码
+- Wire format: `base64url(header)..base64url(signature)` (payload detached)
+
+**签名输入**: `ASCII(base64url(header)) || '.' || payload`
+
+---
+
+## OCSP Dual-Channel Revocation
+
+```go
+type OCSPChecker struct {
+    httpClient *http.Client
+}
+
+type OCSPResult struct {
+    Status     string    // "good", "revoked", "unknown"
+    ProducedAt time.Time
+    Source     string    // "stapled" or "active"
+}
+
+func NewOCSPChecker() *OCSPChecker
+func (c *OCSPChecker) CheckOCSP(ctx context.Context, cert, issuer *x509.Certificate, stapledResp []byte) (*OCSPResult, error)
+```
+
+**双通道策略**：
+1. 优先使用 TLS 握手中的 stapled OCSP response
+2. Stapled 无效/过期 → 主动 POST 到 AIA 中的 OCSP responder
+3. 全部失败 → 返回 "unknown" + Warning
+
+---
+
+## ConnectRequest + Version Policy
+
+### Connect API
+
+```go
+type ConnectRequest struct {
+    Target        string
+    VersionPolicy VersionPolicy
+    TrustPolicy   *TrustPolicy
+}
+
+type ConnectResult struct {
+    *VerificationResult
+    AgentID string
+    Version *models.Version
+}
+
+func (c *AgentClient) Connect(ctx context.Context, req *ConnectRequest) (*ConnectResult, error)
+```
+
+### Version Policy
+
+```go
+type VersionPolicy string
+const (
+    VersionPolicyExact            VersionPolicy = "EXACT"
+    VersionPolicyLatest           VersionPolicy = "LATEST"
+    VersionPolicyLatestCompatible VersionPolicy = "LATEST_COMPATIBLE"
+)
+
+func ResolveVersion(records []*ATIRecord, policy VersionPolicy, requested string) (*ATIRecord, error)
+```
+
+- EXACT: 精确匹配指定版本
+- LATEST: 选择最高 semver 版本
+- LATEST_COMPATIBLE: 同 major 版本内选最高
+
+---
+
+## Error Code System
+
+### ANSError 结构体
+
+```go
+type ANSError struct {
+    Code     string        // "ANS-1001"
+    Severity Severity      // HARD / SOFT
+    Stage    int           // 1-5
+    Message  string
+    Evidence string        // 锚定证据
+    Cause    error         // 底层错误
+}
+
+type Severity string
+const (
+    SeverityHard Severity = "HARD"  // 验证失败，不可降级
+    SeveritySoft Severity = "SOFT"  // 可按 TrustPolicy 降级
+)
+```
+
+### 错误码清单
+
+| Code | Stage | Severity | 含义 |
+|------|-------|----------|------|
+| ANS-1001 | 1 | HARD | DNS discovery: no _ati records |
+| ANS-1002 | 1 | SOFT | DNSSEC validation failed (bogus) |
+| ANS-1003 | 1 | SOFT | DNSSEC insecure (unsigned zone) |
+| ANS-2001 | 2 | SOFT | TL service unreachable |
+| ANS-2002 | 2 | HARD | TL response invalid/malformed |
+| ANS-3001 | 3 | HARD | Receipt signature verification failed |
+| ANS-3002 | 3 | HARD | Merkle inclusion proof invalid |
+| ANS-3003 | 3 | SOFT | Producer signature verification failed |
+| ANS-4001 | 4 | HARD | Certificate fingerprint mismatch |
+| ANS-4002 | 4 | HARD | Agent status REVOKED |
+| ANS-4003 | 4 | SOFT | Agent status DEPRECATED |
+| ANS-5001 | 5 | SOFT | Agent Card hash mismatch |
+| ANS-5002 | 5 | SOFT | Trust level below policy minimum |
+
+---
+
+## Unified Verification Result
+
+```go
+type VerificationResult struct {
+    AnsName          string
+    Connected        bool
+    TrustLevel       TrustLevel
+    TrustIndex       int
+    IdentityVerified bool
+    TLVerified       bool
+    AgentCardResult  *AgentCardResult
+    DNSSECStatus     string
+    Status           string
+    Warnings         []string
+    Error            *ANSError
+}
+
+func (r *VerificationResult) IsSuccess() bool
+func (r *VerificationResult) MeetsTrustLevel(min TrustLevel) bool
+func (r *VerificationResult) ToError() error
+```
+
+---
+
+## Gold Verification Pipeline（完整流程）
+
+```go
+type GoldVerifierConfig struct {
+    TLBaseURL    string
+    TLPublicKey  *ecdsa.PublicKey
+    DNSResolver  DNSResolver
+    TLogClient   TransparencyLogClient
+    ProducerKeys ProducerKeyLookup
+}
+
+func VerifyGold(ctx context.Context, fqdn models.Fqdn, cert *CertIdentity, cfg *GoldVerifierConfig) *VerificationResult
+```
+
+**完整流程**：
+1. DNS Discovery → 获取 Agent ID
+2. Fetch TL Log → `GET /tl/agents/{agentId}/logs/latest`
+3. Verify Receipt Signature（TL 公钥）
+4. Verify Merkle Inclusion Proof（RFC 6962）
+5. Verify Producer Signature（RA 公钥，可选）
+6. Certificate Fingerprint Match
+7. Status Check（ACTIVE/REVOKED/DEPRECATED）
+8. Compute Trust Index → Assign Trust Level
+
+---
+
+## Verifier Configuration（功能选项）
+
+```go
+type verifierConfig struct {
+    // Core
+    tlBaseURL    string
+    tlPublicKey  *ecdsa.PublicKey
+    dnsResolver  DNSResolver
+    tlogClient   TransparencyLogClient
+    
+    // Extended
+    trustPolicy       *TrustPolicy
+    producerKeys      ProducerKeyLookup
+    agentCardVerifier *AgentCardVerifier
+    sessionMonitor    *SessionMonitor
+    ocspChecker       *OCSPChecker
+    parallelFetch     bool
+    offlineMode       bool
+}
+
+// Option functions
+func WithTrustPolicy(tp *TrustPolicy) Option
+func WithProducerKeys(keys ProducerKeyLookup) Option
+func WithAgentCardVerifier(v *AgentCardVerifier) Option
+func WithSessionMonitor(m *SessionMonitor) Option
+func WithOCSPCheckerOption(c *OCSPChecker) Option
+func WithParallelFetch(enabled bool) Option
+func WithOfflineMode(enabled bool) Option
+```
+
+---
+
+## Trust Card
+
+### 获取流程
+
+```go
+func GetTrustCard(ctx context.Context, host string, version string, opts ...TrustCardOption) (*models.TrustCard, error)
+```
+
+1. 解析 `_ati` TXT → 获取 agentId
+2. 调用 TL 接口: `GET /tl/agents/{agentId}/logs/latest`
+3. 从 TLResponse.Payload 提取 Trust Card 信息
+
+### Trust Card 结构体
+
 ```go
 type TrustCard struct {
-    AgentID          string              `json:"agentId"`
-    AgentName        string              `json:"agentName"`          // ati://v{ver}.{host}
-    AgentDisplayName string              `json:"agentDisplayName"`
-    AgentDescription string              `json:"agentDescription"`
-    Version          string              `json:"version"`
-    AgentHost        string              `json:"agentHost"`
-    Endpoints        []TrustCardEndpoint `json:"endpoints"`
-    SecuritySchemes  map[string]any      `json:"securitySchemes,omitempty"`  // CNNIC 暂不支持
-    VerifiableClaims []map[string]any    `json:"verifiableClaims,omitempty"` // CNNIC 暂不支持
-}
-
-type TrustCardEndpoint struct {
-    Protocol    string   `json:"protocol"`
-    AgentURL    string   `json:"agentUrl"`
-    MetadataURL string   `json:"metadataUrl,omitempty"`
-    DocURL      string   `json:"docUrl,omitempty"`
-    Transports  []string `json:"transports,omitempty"`
-    Functions   []EndpointFunction `json:"functions,omitempty"`
-}
-
-type EndpointFunction struct {
-    ID   string   `json:"id"`
-    Name string   `json:"name"`
-    Tags []string `json:"tags,omitempty"`
+    AgentID          string
+    AgentName        string              // ati://agent.example.com
+    AgentDisplayName string
+    AgentDescription string
+    Version          string
+    AgentHost        string
+    Endpoints        []TrustCardEndpoint
+    Capabilities     []string
+    VerifiableClaims []VerifiableClaim
 }
 ```
 
-### 模块三：信任验证（改造）
+---
 
-三级验证（PRD 9.4）：
-
-| 等级 | 验证内容 | 时间 | 对应现有代码 |
-|------|---------|------|-------------|
-| Bronze（默认） | DNS 发现（_ati TXT 存在）+ PKI（CA 链 + SAN 匹配） | MVP 7.30 | 全新路径 |
-| Silver | Bronze + DANE（双 TLSA：`_443._tcp` + `_ati-identity._tls`） | 二期 9.1 | DANEVerifier 适配新前缀 |
-| Gold | Silver + TL Merkle proof + seal 验签 | 二期 9.1 | 重写（SCITT → CNNIC TL） |
+## 诊断
 
 ```go
-// MVP：Bronze 是默认值，开发者无需显式配置
-client, _ := ati.NewAgentClient(ati.WithMTLSCerts(...))
-
-// 二期：显式提升验证等级
-client, _ := ati.NewAgentClient(
-    ati.WithMTLSCerts(...),
-    ati.WithTrustLevel(ati.Silver),
-)
+func Diagnose(ctx context.Context, host string, opts ...DiagnoseOption) (*DiagnoseResult, error)
 ```
 
-Bronze 验证流程（MVP）：
-1. 查询 `_ati.{host}` TXT 记录 → 确认对方是已注册的 ATI Agent（记录存在）
-2. mTLS 握手 → 验证对方证书链由 CNNIC Private CA 签发
-3. 提取对方 Identity Cert 的 URI SAN → 确认 `ati://v{ver}.{host}` 中的 host 与连接目标一致
+**9 步诊断**：
+1. Host Validation
+2. DNS Discovery (_ati TXT)
+3. Badge Record (_ati-badge TXT)
+4. TL Log Fetch
+5. Receipt Signature Verification
+6. Merkle Inclusion Proof
+7. Producer Signature Verification
+8. Agent Card Verification
+9. Stapling Check
 
-> Bronze 不查 badge/TL，但**需要 DNS**——确保对方不仅有合法证书，还是在 ATI 系统中注册过的 Agent。
-
-DANE 双 TLSA 命名（二期实现，但模型层 MVP 预埋）：
-- Server TLSA：`_443._tcp.{host}`（现有 `Fqdn.TlsaName(port)` 已支持）
-- Identity TLSA：`_ati-identity._tls.{host}`（新增，需扩展 Fqdn 模型）
-
-#### Gold 级 Badge/TL 验证流程（二期，基于 CNNIC TL 接口）
-
-基于 CNNIC `GET /tl/agents/{agentId}/logs/latest` 接口，Gold 验证完整流程如下：
-
-```
-Step 1: DNS 发现
-    查询 _ati.{host} TXT → 提取 id（agentId）
-    查询 _ati-badge.{host} TXT → 提取 url（TL 端点，可选校验用）
-
-Step 2: 获取 TL 日志（公开只读，无需认证）
-    GET https://tl.ansagent.cn:8180/ans/api/v1/tl/agents/{agentId}/logs/latest
-
-Step 3: 验证 TL 封存签名（seal）
-    3.1 取响应中 seal 对象
-    3.2 将 status + schemaVersion + payload + evidenceRef 按 RFC8785-JCS 规范化
-    3.3 计算 SHA-256 摘要
-    3.4 用 CNNIC TL 公钥（seal.publicKey 或预置）验证 ECDSA 签名（seal.signature）
-
-Step 4: 验证 Merkle Inclusion Proof
-    4.1 取 merkleProof 对象
-    4.2 从 leafHash + path 重建到 rootHash
-    4.3 验证计算出的 rootHash == merkleProof.rootHash
-
-Step 5: 证书指纹匹配
-    5.1 取 payload.certificates.identityCertFingerprint（格式 "SHA-256:<hex>"）
-    5.2 计算 TLS 握手中对方出示的 Identity Certificate 的 SHA-256 指纹
-    5.3 比对一致
-    5.4 （可选）比对 payload.certificates.serverCertFingerprint 与 Server Certificate
-
-Step 6: 状态校验
-    6.1 确认 payload.agentStatus == "ACTIVE"
-    6.2 确认 status == "ACTIVE"（顶层字段）
-```
-
-对应 Go 结构体（TL 日志响应）：
+**输出格式**：
 ```go
-type TLLogResponse struct {
-    Status        string        `json:"status"`
-    SchemaVersion string        `json:"schemaVersion"`
-    Payload       TLPayload     `json:"payload"`
-    EvidenceRef   TLEvidenceRef `json:"evidenceRef"`
-    Seal          TLSeal        `json:"seal"`
-    MerkleProof   MerkleProof   `json:"merkleProof"`
+type DiagnoseResult struct {
+    Host      string
+    Timestamp string
+    Steps     []DiagnoseStep
+    Summary   string  // "ALL PASS" / "PARTIAL FAIL" / "FAIL (reason)"
 }
 
-type TLPayload struct {
-    LogID            string          `json:"logId,omitempty"`
-    EventType        string          `json:"eventType"`         // AGENT_REGISTERED / AGENT_UPDATED / AGENT_REVOKED
-    Timestamp        string          `json:"timestamp"`
-    AgentName        string          `json:"agentName"`         // ati://v{ver}.{host}
-    AgentDisplayName string          `json:"agentDisplayName"`
-    AgentHost        string          `json:"agentHost"`
-    Version          string          `json:"version"`
-    AgentID          string          `json:"agentId"`
-    AgentStatus      string          `json:"agentStatus"`       // ACTIVE / REVOKED
-    Certificates     *TLCertificates `json:"certificates,omitempty"`
-}
-
-type TLCertificates struct {
-    ServerCertFingerprint   string `json:"serverCertFingerprint"`   // "SHA-256:<hex>"
-    IdentityCertFingerprint string `json:"identityCertFingerprint"` // "SHA-256:<hex>"
-}
-
-type TLEvidenceRef struct {
-    EvidenceID    string `json:"evidenceId"`
-    SubmitterID   string `json:"submitterId"`
-    EvidenceType  string `json:"evidenceType"`
-    EvidenceURI   string `json:"evidenceUri"`
-    EvidenceHash  string `json:"evidenceHash"`  // "SHA-256:<hex>"
-    HashAlgorithm string `json:"hashAlgorithm"`
-    HashTarget    string `json:"hashTarget"`
-    ContentType   string `json:"contentType"`
-}
-
-type TLSeal struct {
-    Canonicalization   string `json:"canonicalization"`   // RFC8785-JCS
-    DigestAlgorithm    string `json:"digestAlgorithm"`   // SHA-256
-    SignatureAlgorithm string `json:"signatureAlgorithm"` // SHA-256withECDSA
-    SignatureEncoding  string `json:"signatureEncoding"`  // DER_BASE64
-    KeyID              string `json:"keyId"`
-    Signature          string `json:"signature"`
-    PublicKey          string `json:"publicKey,omitempty"` // PEM 格式
-}
-
-type MerkleProof struct {
-    LeafHash    string   `json:"leafHash"`
-    LeafIndex   int64    `json:"leafIndex"`
-    TreeSize    int64    `json:"treeSize"`
-    TreeVersion int64    `json:"treeVersion"`
-    Path        []string `json:"path"`
-    RootHash    string   `json:"rootHash"`
-}
+func (r *DiagnoseResult) String() string  // 人类可读
+func (r *DiagnoseResult) JSON() string    // 结构化
 ```
 
-与现有 GoDaddy SCITT 验证的对比：
+---
 
-| 维度 | GoDaddy ANS（现有） | CNNIC ATI（目标） |
-|------|---------------------|-------------------|
-| 日志格式 | SCITT Receipt (CBOR/COSE) | JSON + JCS 规范化 |
-| 签名算法 | COSE Sign1 | SHA-256withECDSA (DER_BASE64) |
-| 包含证明 | SCITT inclusion proof | Merkle path + rootHash |
-| 认证方式 | 无（公开） | 预判公开只读（待确认） |
-| 证书指纹 | badge.payload.fingerprint | payload.certificates.*Fingerprint |
-| 状态字段 | badge.payload.status | payload.agentStatus + 顶层 status |
-
-> 现有 `verify/tlog.go` 中的 SCITT 验证逻辑需要完全重写为 CNNIC TL 验证逻辑。核心差异：SCITT 用 CBOR/COSE，CNNIC 用 JSON/JCS/ECDSA。
-
-### 模块四：安全通信（改造）
-
-SDK 只做安全传输层：mTLS 连接 + DNS 发现 + 信任验证。用户自行按 MCP/A2A/OpenAPI 协议构造请求。
-
-```go
-// HTTP 方法（改造：加入 mTLS 客户端证书出示 + Bronze 验证）
-func (c *AgentClient) Get(ctx, url string) (*Response, error)
-func (c *AgentClient) Post(ctx, url string, body any) (*Response, error)
-func (c *AgentClient) Put(ctx, url string, body any) (*Response, error)
-func (c *AgentClient) Delete(ctx, url string) (*Response, error)
-func (c *AgentClient) Do(ctx, method, url string, body any) (*Response, error)
-func (c *AgentClient) Prefetch(ctx, host string) error
-```
-
-改造重点（Client 端 — 调用其他 Agent）：
-- 现有代码只验服务端证书（badge 指纹比对），不出示客户端证书
-- ATI 改造后：`tls.Config.Certificates` 加载 Identity Cert + Private Key → mTLS 客户端认证
-- ATI 改造后：`tls.Config.RootCAs` 加载 CNNIC CA bundle → 验证对方 Identity Cert 信任链
-- 验证逻辑从 badge 指纹比对改为 Bronze PKI（DNS + CA 链 + SAN 匹配）
-
-#### Server 端能力（新增 — 被其他 Agent 调用时验证对方）
-
-SDK 同时提供 Server 端 mTLS 验证能力，用于 Agent 接收其他 Agent 的调用时验证对方身份。
-
-```go
-// 生成 Server 端 tls.Config（配置到 http.Server 或框架中间件）
-func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error)
-
-// Server 端选项
-func WithServerCert(serverCert, privateKey string) ServerOption   // 你的 Server Certificate
-func WithClientCA(caBundle string) ServerOption                    // CNNIC CA bundle（验证客户端）
-func WithClientVerifier(level TrustLevel) ServerOption            // 客户端验证等级
-
-// 验证结果提取（从 TLS 连接状态中提取对方身份）
-func PeerATIName(tlsState *tls.ConnectionState) (*AtiName, error)
-```
-
-使用示例：
-```go
-tlsConfig, _ := ati.NewServerTLSConfig(
-    ati.WithServerCert("./certs/server.pem", "./certs/key.pem"),
-    ati.WithClientCA("./certs/cnnic_ca_bundle.pem"),
-)
-
-server := &http.Server{
-    Addr:      ":443",
-    TLSConfig: tlsConfig,
-    Handler:   myHandler,
-}
-server.ListenAndServeTLS("", "")
-
-// 在 handler 中提取对方身份
-func myHandler(w http.ResponseWriter, r *http.Request) {
-    peerName, _ := ati.PeerATIName(r.TLS)
-    // peerName.Host = "caller.example.com"
-    // peerName.Version = "1.0.0"
-}
-```
-
-Server 端验证逻辑（Bronze）：
-1. TLS 握手时要求客户端出示证书（`tls.Config.ClientAuth = tls.RequireAndVerifyClientCert`）
-2. 验证客户端 Identity Cert 由 CNNIC CA 签发
-3. 提取 URI SAN `ati://v{ver}.{host}` 确认格式合法
-4. （可选）查询 `_ati.{host}` TXT 确认对方已注册
-
-现有代码基础：`verify/` 包中已有 `ClientVerifier`（server 验证 client），需改造为 CNNIC CA 信任链验证。
-
-### 诊断（新增，Nice-to-have）
-
-```go
-func Diagnose(ctx context.Context, host string, opts ...Option) (*DiagnoseResult, error)
-```
-
-- 跑完整验证链路，逐步输出：DNS 解析 → Badge 获取 → 证书匹配 → mTLS 握手
-- 默认脱敏（指纹前 8 位，不打印私钥路径）
-- .String() 人类可读 / .JSON() 结构化输出
-
-> 注：PRD 中无此需求，属于 SDK 开发者体验自主决策。如工期紧张可延后至二期。
-
-## 公开 API 清单（~10 个入口）
+## 公开 API 清单
 
 | API | 角色 | 说明 |
 |-----|------|------|
-| NewAgentClient(opts...) | Client | 创建客户端（加载证书、配置验证等级） |
-| WithMTLSCerts(identity, key, server, ca) | Client | 证书配置（mTLS 双向认证） |
-| WithTrustLevel(level) | Client | 验证等级（默认 Bronze，二期支持 Silver/Gold） |
-| AgentClient.Get/Post/Put/Delete/Do | Client | HTTP 方法（内置 mTLS + 信任验证） |
-| AgentClient.Prefetch(host) | Client | 预取 Badge（Gold 验证时有用） |
-| AgentClient.CertStatus() | Client | 证书有效期检查 |
-| NewServerTLSConfig(opts...) | Server | 生成 Server 端 mTLS tls.Config |
-| WithServerCert(cert, key) | Server | 配置 Server Certificate |
-| WithClientCA(caBundle) | Server | 配置 CNNIC CA bundle 验证客户端 |
-| PeerATIName(tlsState) | Server | 从 TLS 连接中提取对方 ATI 身份 |
-| GetTrustCard(ctx, host, version) | 通用 | 获取 Trust Card（从 CNNIC TL） |
-| Diagnose(ctx, host, opts...) | 通用 | 诊断（Nice-to-have） |
+| `NewAgentClient(opts...)` | Client | 创建客户端 |
+| `WithMTLSCerts(identity, key, server, ca)` | Client | 证书配置 |
+| `AgentClient.Connect(ctx, req)` | Client | Spec-aligned 完整验证连接 |
+| `AgentClient.Get/Post/Put/Delete/Do` | Client | HTTP 方法（内置验证） |
+| `NewServerTLSConfig(opts...)` | Server | Server 端 TLS 配置 |
+| `PeerATIName(tlsState)` | Server | 提取对方 ATI 身份 |
+| `GetTrustCard(ctx, host, version)` | 通用 | 获取 Trust Card |
+| `Diagnose(ctx, host, opts...)` | 通用 | 诊断 |
+| `verify.VerifyGold(ctx, fqdn, cert, cfg)` | 验证 | Gold 完整验证 |
+| `verify.NewOfflineVerifier(key, keys)` | 验证 | 离线验证器 |
+| `verify.VerifyJWSDetached(sig, payload, keys)` | 验证 | JWS Detached 验证 |
+| `verify.CreateJWSDetached(payload, key, kid)` | 签名 | JWS Detached 创建 |
+| `verify.NewSessionMonitor(...)` | 监控 | 长连接重验证 |
+| `verify.ParallelDiscovery(ctx, fqdn, resolver)` | 发现 | 并行 DNS 查询 |
+| `verify.ComputeTrustIndex(params)` | 评估 | Trust 评分 |
 
-注册相关方法（RegisterAgent/VerifyACME/SubmitCSR 等 14 个）移入 internal/，不对外暴露。
+---
 
-> 关于 WithProfile / GoDaddyProfile：PRD 无 GoDaddy ANS 兼容性要求。如需保留过渡期双模支持，应作为 internal 实现细节，不暴露为公开 API。MVP 公开 API 仅面向 ATI。
+## Implementation Checklist
 
-## 硬编码替换清单（10 项）
+| # | Feature | Status | Files |
+|---|---------|--------|-------|
+| 1 | Three-layer TL Response model | ✅ | `models/tl_log.go` |
+| 2 | Unified error code system | ✅ | `verify/error_codes.go` |
+| 3 | TrustPolicy configuration | ✅ | `verify/trust_policy.go` |
+| 4 | Trust Index computation | ✅ | `verify/trust_index.go` |
+| 5 | Producer signature verification | ✅ | `verify/producer.go` |
+| 6 | Unified VerificationResult | ✅ | `verify/verification_result.go` |
+| 7 | Receipt signature (seal) | ✅ | `verify/seal.go` |
+| 8 | Merkle inclusion proof (RFC 6962) | ✅ | `verify/merkle.go` |
+| 9 | Gold verification pipeline | ✅ | `verify/gold.go` |
+| 10 | Certificate validity check | ✅ | `verify/cert.go` |
+| 11 | Agent Card verification | ✅ | `verify/agent_card.go` |
+| 12 | Stapling credential | ✅ | `verify/stapling.go` |
+| 13 | Session monitor | ✅ | `verify/session_monitor.go` |
+| 14 | Parallel DNS discovery | ✅ | `verify/parallel.go` |
+| 15 | HTTPS/SVCB records | ✅ | `verify/svcb.go` |
+| 16 | Offline verification | ✅ | `verify/offline.go` |
+| 17 | JWS Detached signatures | ✅ | `verify/jws_detached.go` |
+| 18 | OCSP dual-channel | ✅ | `verify/ocsp.go` |
+| 19 | VerifyConnection (Server) | ✅ | `ati/server.go` |
+| 20 | VerifyConnection (Client) | ✅ | `ati/mtls_client.go` |
+| 21 | ConnectRequest + VersionPolicy | ✅ | `ati/connect.go`, `ati/version_policy.go` |
+| 22 | Options expansion | ✅ | `verify/options.go` |
+| 23 | Diagnose (9 steps) | ✅ | `ati/diagnose.go` |
+| 24 | Trust Card | ✅ | `ati/trust_card.go` |
+| 25 | JCS canonicalization | ✅ | `verify/jcs.go` |
+| 26 | DNS DANE/TLSA | ✅ | `verify/dane.go` |
 
-| # | 项 | 文件 | 当前 → 目标 |
-|---|---|------|------------|
-| 1 | Module path | go.mod | github.com/godaddy/ans-sdk-go → gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk |
-| 2 | TL URL | transparency.go:27 | → `https://tl.ansagent.cn:8180/ans/api/v1`（联调） |
-| 3 | DNS badge 前缀 | fqdn.go:59 | _ans-badge. → _ati-badge. |
-| 4 | DNS discovery 前缀 | 新增 | _ati.（含 id/ra/version/mode/p/url 字段解析） |
-| 5 | Badge 版本标识 | badge_record.go:25 | ans-badge1 → ati-badge1 |
-| 6 | URL 白名单 | url_validator.go:13-14 | → `tl.ansagent.cn`（联调）/ 正式域名待确认 |
-| 7 | URI scheme | cert.go:102 | ans:// → ati:// |
-| 8 | Identity TLSA 前缀 | fqdn.go（新增方法） | 新增 `_ati-identity._tls.{host}` 命名生成 |
-| 9 | CLI | root.go | ans-cli/ANS_ → ati-cli/ATI_ |
-| 10 | Auth | options.go | sso-jwt/sso-key → WithAccessKey() |
+---
 
-## 全量 ANS → ATI 重命名清单
+## Test Coverage
 
-除硬编码替换外，所有源码中的 `ans`/`ANS`/`Ans` 标识符需统一替换为 `ati`/`ATI`/`Ati`。以下为完整清单：
+| Package | Test Files | Key Test Scenarios |
+|---------|-----------|-------------------|
+| `verify` | `gold_test.go` | Success, DNS not found, TL fetch error, bad receipt sig, fingerprint mismatch, revoked, deprecated |
+| `verify` | `seal_test.go` | Valid signature, wrong key, tampered payload, empty sig, nil response |
+| `verify` | `merkle_test.go` | Single leaf, multi-level tree, empty path, invalid proof |
+| `verify` | `producer_test.go` | Valid, invalid sig, key not found, empty sig, tampered payload |
+| `verify` | `offline_test.go` | Success, empty response, invalid JSON, bad receipt sig, fingerprint mismatch |
+| `verify` | `jws_detached_test.go` | Round-trip, tampered payload, wrong key, invalid format, wrong curve |
+| `verify` | `trust_index_test.go` | Full trust, minimal, none, level thresholds |
+| `verify` | `trust_policy_test.go` | Default policy, high security, ShouldReject |
+| `verify` | `verification_result_test.go` | IsSuccess, MeetsTrustLevel, ToError |
+| `verify` | `error_codes_test.go` | Construction, Error(), WithCause, WithEvidence, IsHard |
+| `ati` | `diagnose_test.go` | All pass, invalid host, DNS error, TL error, no badge, string/JSON output |
+| `ati` | `trust_card_test.go` | Success, invalid host, DNS fail, TL errors, invalid JSON, cancelled ctx |
+| `ati` | `server_test.go` | VerifyConnection present, TLS 1.3, client auth required |
 
-### 目录 / 文件重命名
-
-| 当前路径 | 目标路径 |
-|---------|---------|
-| `ans/` | `ati/` |
-| `cmd/ans-cli/` | `cmd/ati-cli/` |
-
-### Package 声明
-
-| 文件 | 当前 | 目标 |
-|------|------|------|
-| ati/*.go（原 ans/*.go） | `package ans` | `package ati` |
-| cmd/ati-cli/cmd/*.go | import path 含 `ans-cli` | 替换为 `ati-cli` |
-
-### Import Path 全局替换
-
-```
-github.com/godaddy/ans-sdk-go  →  gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk
-```
-
-涉及所有 .go 文件的 import 块（约 60+ 处）。
-
-### 类型 / 结构体重命名
-
-| 包 | 当前 | 目标 | 文件 |
-|----|------|------|------|
-| verify | `AnsVerifier` | `AtiVerifier` | verify/verify.go |
-| verify | `AnsName` | `AtiName` | verify/cert.go |
-| verify | `AnsNameParts` | `AtiNameParts` | verify/cert.go |
-| verify | `AnsBadgeRecord` | `AtiBadgeRecord` | verify/badge_record.go |
-| verify | `AnsAgentOutcome` | `AtiAgentOutcome` | verify/outcome.go |
-| verify | `AnsNameMismatch` | `AtiNameMismatch` | verify/outcome.go |
-| verify | `AnsNameMismatchOutcome` | `AtiNameMismatchOutcome` | verify/outcome.go |
-| models | `AnsAgent` | `AtiAgent` | models/agent.go |
-
-### 常量 / 枚举重命名
-
-| 包 | 当前 | 目标 | 文件 |
-|----|------|------|------|
-| verify | `BadgeRecordSourceAnsBadge` | `BadgeRecordSourceAtiBadge` | verify/badge_record.go |
-| verify | `BadgeRecordSourceRaBadge` | `BadgeRecordSourceRaBadge`（保留，RA 不变） | verify/badge_record.go |
-
-### 函数重命名
-
-| 包 | 当前 | 目标 | 文件 |
-|----|------|------|------|
-| verify | `ParseAnsBadgeRecord()` | `ParseAtiBadgeRecord()` | verify/badge_record.go |
-| verify | `ParseAnsName()` | `ParseAtiName()` | verify/cert.go |
-| verify | `NewAnsVerifier()` | `NewAtiVerifier()` | verify/verify.go |
-| models | `Fqdn.AnsBadgeName()` | `Fqdn.AtiBadgeName()` | models/fqdn.go |
-
-### 结构体字段 + JSON Tag 重命名
-
-| 包 | 结构体 | 当前字段 | 目标字段 | JSON Tag |
-|----|--------|---------|---------|----------|
-| models | Agent / AgentDetails / AgentRegistration | `ANSName string` | `ATIName string` | `json:"atiName"` |
-| models | Badge Event | `ANSID string` | `ATIID string` | `json:"atiId"` |
-| models | Badge Event | `ANSName string` | `ATIName string` | `json:"atiName"` |
-| models | TransparencyLogV0 | `ANSID string` | `ATIID string` | `json:"atiId"` |
-| models | TransparencyLogV0 | `ANSName string` | `ATIName string` | `json:"atiName"` |
-| models | TransparencyLogV1 | `ANSName string` | `ATIName string` | `json:"atiName"` |
-| models | TransparencyLogV1 | `ANSCapabilities []string` | `ATICapabilities []string` | `json:"atiCapabilities"` |
-| models | TransparencyLogV1 | `ANSCapabilitiesHash *string` | `ATICapabilitiesHash *string` | `json:"atiCapabilitiesHash"` |
-| models | RevocationStatus | `AnsName string` | `AtiName string` | `json:"atiName"` |
-| models | ResolutionResult | `AnsName string` | `json:"atiName"` |
-| models | Event | `AnsName string` | `AtiName string` | `json:"atiName"` |
-
-### 环境变量 / CLI Flag
-
-| 当前 | 目标 | 位置 |
-|------|------|------|
-| `ANS_API_KEY` | `ATI_API_KEY` | cmd/ati-cli/cmd/root.go |
-| `ANS_API_SECRET` | `ATI_API_SECRET` | cmd/ati-cli/cmd/root.go |
-| `ANS_BASE_URL` | `ATI_BASE_URL` | cmd/ati-cli/cmd/root.go |
-| `ANS_TRANSPARENCY_URL` | `ATI_TRANSPARENCY_URL` | cmd/ati-cli/cmd/badge.go |
-
-### 字符串字面量
-
-| 当前 | 目标 | 位置 |
-|------|------|------|
-| `"ans://"` | `"ati://"` | verify/cert.go |
-| `"ans-badge1"` | `"ati-badge1"` | verify/badge_record.go |
-| `"_ans-badge."` | `"_ati-badge."` | models/fqdn.go |
-| `"transparency.ans.godaddy.com"` | `"tl.ansagent.cn:8180"` | verify/url_validator.go, ans/transparency.go |
-| `"transparency.ans.ote-godaddy.com"` | 删除（联调与正式用同域名，通过 hosts 切换） | verify/url_validator.go |
-| `"https://api.godaddy.com"` | `"https://ra.ansagent.cn:8180/ans/api/v1"`（CNNIC RA） | ans/options.go |
-| `"https://api.ote-godaddy.com"` | 删除（联调环境通过 hosts 解析 42.83.147.217） | cmd/ati-cli/cmd/root.go |
-| `"ANS Name:"` / `"ANSName:"` | `"ATI Name:"` / `"ATIName:"` | cmd 输出 |
-| `"API key is required. Set --api-key flag or ANS_API_KEY"` | 替换为 ATI_API_KEY | cmd 多处 |
-
-### 注释 / 文档字符串
-
-所有 .go 文件中的注释里出现的 `ANS`/`ans`/`Ans`（指代 Agent Name Service）统一替换为 `ATI`/`ati`/`Ati`。保留 `Answer` 等普通英文单词不替换。
-
-### 执行策略
-
-建议顺序：
-1. 先重命名目录（`ans/` → `ati/`，`cmd/ans-cli/` → `cmd/ati-cli/`）
-2. 全局 sed 替换 import path（`github.com/godaddy/ans-sdk-go` → `gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk`）
-3. 全局 sed 替换标识符（按以下优先级避免误伤）：
-   - `ANSName` → `ATIName`（大写缩写）
-   - `ANSID` → `ATIID`
-   - `ANSCapabilities` → `ATICapabilities`
-   - `ANS_` → `ATI_`（环境变量前缀）
-   - `AnsVerifier` → `AtiVerifier`（驼峰）
-   - `AnsName` → `AtiName`
-   - `AnsBadge` → `AtiBadge`
-   - `ParseAns` → `ParseAti`
-   - `NewAns` → `NewAti`
-   - `ans://` → `ati://`（URI scheme）
-   - `ans-badge` → `ati-badge`（DNS 前缀 / 版本标识）
-   - `ans-sdk` → `ati-sdk`
-   - `ans-cli` → `ati-cli`
-   - `_ans-` → `_ati-`（DNS TXT 前缀）
-   - `package ans` → `package ati`
-4. 手动检查：`Answer`、`transport`、`Transparent` 等含 `ans` 子串的单词不应被误替换
-5. 运行 `go build ./...` 验证编译通过
-6. 运行 `go test ./...` 验证测试通过
-
-### JSON Tag 兼容性说明
-
-> ⚠️ JSON tag 改动（如 `"ansName"` → `"atiName"`）意味着与 CNNIC / 阿里云后端 API 的 JSON 协议变更。需与后端确认接口字段名是否同步改为 `atiName`/`atiId` 等。如后端暂未改动，可先保留 JSON tag 不变，仅改 Go 字段名。
-
-## 执行计划（12-18 天）
-
-| 周 | 工作 | 预估 | 依赖 CNNIC |
-|----|------|------|-----------|
-| W1 | Module path + 硬编码替换（#1-#10） | 2-3d | 部分（TL URL） |
-| W1 | WithMTLSCerts() + CertStatus() + ATIName 校验 | 1-2d | 否 |
-| W1 | AK/SK 认证 + API 收窄（internal 化注册方法） | 2d | 否 |
-| W2 | Bronze 验证路径（全新） | 2-3d | 否 |
-| W2 | _ati 记录解析（含 p 字段）+ _ati-badge 适配 | 2d | 否（格式 PRD 已定义） |
-| W2 | Trust Card 获取 + WithTrustLevel() | 1-2d | 否 |
-| W3 | Diagnose()（如工期允许）+ CLI 精简 | 1-2d | 否 |
-| W3 | 单元测试 + 文档 | 2-3d | 否 |
-
-不依赖 CNNIC 的工作占 80%+，可立即开工。
-
-## 已确认决策（Design Decisions）
-
-| # | 决策 | 来源 |
-|---|------|------|
-| D1 | Module path = `gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk` | 与用户确认 |
-| D2 | TL base URL = `https://tl.ansagent.cn:8180/ans/api/v1`（联调 IP 42.83.147.217） | CNNIC 接口文档 v0.3 |
-| D3 | TL 查询公开只读，SDK 不需要 OAuth2 | GoDaddy 协议同理 + 透明日志设计原则 |
-| D4 | SDK 只做安全传输层，不封装 MCP/A2A/OpenAPI 应用协议（无 CallAgent） | 与用户确认 |
-| D5 | SDK 提供 Client + Server 双端能力 | 与用户确认 |
-| D6 | Bronze 验证需要查 DNS（_ati TXT 存在）+ PKI（CA 链 + SAN 匹配） | 与用户确认 |
-| D7 | Trust Card schema 已确认（CNNIC trustCardContent 字段定义） | CNNIC 接口文档 v0.3 |
-| D8 | SDK 不需要 OAuth2 — OAuth2 是控制台后端调 CNNIC 写接口用的 | 架构分析 |
-| D9 | 现有代码无 mTLS 客户端证书能力，WithMTLSCerts 为全新实现 | 代码审查 |
-
-## 开放问题（仅剩余未阻塞 MVP 的问题）
-
-| # | 问题 | 紧急度 | 说明 |
-|---|------|--------|------|
-| 1 | PRD 内部矛盾：2.1 MVP 提及"DNSSEC 验证"，但 2.2/9.4 将 DNSSEC 归入二期(Silver) | 🟡 | 不阻塞 MVP — Bronze 不需要 DNSSEC |
-| 2 | _ati TXT `p` 字段取值：CNNIC 接口 endpoint.protocol 目前仅支持 A2A，PRD 要求 MCP/A2A/OpenAPI | 🟡 | SDK 不校验枚举值，string 传递即可 |
-| 3 | CNNIC TL 封存签名验证细节：公钥发布渠道、RFC8785-JCS Go 库选型 | 🟢 | 二期 Gold 才需要 |
-| 4 | 多语言 SDK 是否同步开发（Go 优先，Java/Rust 排期？） | 🟢 | 不影响 Go SDK 开发 |
+---
 
 ## 明确不做
 
 | 项 | 原因 |
 |----|------|
 | SDK 注册 API | PRD 5.1：控制台注册 |
-| CallAgent() 高级 RPC 封装 | SDK 只做传输层，不封装 MCP/A2A/OpenAPI 协议 |
-| OAuth2 认证逻辑 | 控制台后端调 CNNIC 写接口才需要，SDK 不调写接口 |
+| CallAgent() 高级 RPC 封装 | SDK 只做传输层 |
+| OAuth2 认证逻辑 | 控制台后端调写接口才需要 |
 | DNS 写入 / 传播检查 | 控制台/云解析负责 |
-| CLI 注册命令 | 控制台做 |
-| 双模 Trust Card fallback | 破坏信任模型 |
-| GoDaddy Profile 公开 API | PRD 无兼容性要求，如需过渡放 internal |
-| 蚂蚁链锚定 | V2 候选 |
-| Trust Score API | 用 Diagnose() 替代 |
+| 蚂蚁链锚定 | V3 候选 |
 | SDK WithProxy() | Go stdlib HTTPS_PROXY 已支持 |
-| DryRun 模式 | 用 Diagnose() 替代 |
 
-## MVP 联调最小依赖
+---
 
-Bronze 验证（MVP）联调所需外部依赖：
+## 已确认决策
 
-| 依赖项 | 说明 | 如何获取 |
-|--------|------|---------|
-| CNNIC Private CA 根证书 PEM | 信任锚，验证对方 Identity Cert 签发链 | 找 CNNIC 要 |
-| 一套 CNNIC 签发的测试证书 | identity.pem + key.pem（通过控制台注册流程获得） | 控制台注册后下载 |
-| 测试域名 | 能控制 DNS 的域名，配好 `_ati` TXT 记录 | 自行准备 |
-| 一个 mTLS Agent 端点 | 对端也配了 CNNIC 证书，用于验证双向握手 | 本地自建 or 联调环境 |
-
-不需要：
-- ~~OAuth2 账号~~ — SDK 不调写接口
-- ~~CNNIC TL 服务~~ — Bronze 不查 TL
-- ~~DNSSEC~~ — Bronze 不做 DNSSEC 验证
+| # | 决策 | 来源 |
+|---|------|------|
+| D1 | Module path = `gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk` | 与用户确认 |
+| D2 | TL base URL = `https://tl.ansagent.cn:8180/ans/api/v1` | CNNIC 接口文档 v0.3 |
+| D3 | TL 查询公开只读，SDK 不需要 OAuth2 | 透明日志设计原则 |
+| D4 | SDK 只做安全传输层 | 与用户确认 |
+| D5 | TLS 1.3 最低版本 | ANS/ATI Verification Spec |
+| D6 | 三层嵌套 TL Response 替代旧 flat model | 与用户确认 |
+| D7 | VerifyConnection 替代 VerifyPeerCertificate | TLS 1.3 best practice |
+| D8 | JCS (RFC 8785) 规范化 + ECDSA P-256 | ANS/ATI Verification Spec |
+| D9 | Merkle proof 使用 hex 编码（非 base64） | 与 CNNIC 接口对齐 |
+| D10 | Receipt 签名对象: `{merkleRoot, treeSize, timestamp}` | Spec §7.2 |

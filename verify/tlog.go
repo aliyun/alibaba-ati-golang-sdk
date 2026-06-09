@@ -22,8 +22,8 @@ const (
 type TransparencyLogClient interface {
 	// FetchBadge fetches a badge from the given URL.
 	FetchBadge(ctx context.Context, url string) (*models.Badge, error)
-	// FetchTLLog fetches a CNNIC TL log entry from the given URL.
-	FetchTLLog(ctx context.Context, url string) (*models.TLLogResponse, error)
+	// FetchTLResponse fetches a three-layer nested TL response from the given URL.
+	FetchTLResponse(ctx context.Context, url string) (*models.TLResponse, error)
 }
 
 // HTTPTransparencyLogClient is an HTTP-based implementation of TransparencyLogClient.
@@ -120,8 +120,8 @@ func (c *HTTPTransparencyLogClient) FetchBadge(ctx context.Context, url string) 
 	return &badge, nil
 }
 
-// FetchTLLog fetches a CNNIC TL log entry from the given URL.
-func (c *HTTPTransparencyLogClient) FetchTLLog(ctx context.Context, url string) (*models.TLLogResponse, error) {
+// FetchTLResponse fetches a three-layer nested TL response from the given URL.
+func (c *HTTPTransparencyLogClient) FetchTLResponse(ctx context.Context, url string) (*models.TLResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, &TlogError{
@@ -172,7 +172,7 @@ func (c *HTTPTransparencyLogClient) FetchTLLog(ctx context.Context, url string) 
 		}
 	}
 
-	var tlResp models.TLLogResponse
+	var tlResp models.TLResponse
 	limitedReader := io.LimitReader(resp.Body, maxBadgeResponseBodyBytes)
 	if err := json.NewDecoder(limitedReader).Decode(&tlResp); err != nil {
 		return nil, &TlogError{

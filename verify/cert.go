@@ -8,9 +8,49 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
+
+// CertValidityCheck examines a peer certificate's validity period.
+type CertValidityCheck struct {
+	Valid            bool
+	RemainingPercent float64
+	ExpiresAt        time.Time
+	Warning          string
+}
+
+// CheckCertValidity validates a peer certificate's time bounds and computes remaining lifetime.
+func CheckCertValidity(cert *x509.Certificate, now time.Time) *CertValidityCheck {
+	result := &CertValidityCheck{
+		ExpiresAt: cert.NotAfter,
+	}
+
+	if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
+		result.Valid = false
+		if now.After(cert.NotAfter) {
+			result.Warning = "certificate has expired"
+		} else {
+			result.Warning = "certificate is not yet valid"
+		}
+		return result
+	}
+
+	result.Valid = true
+	total := cert.NotAfter.Sub(cert.NotBefore).Seconds()
+	remaining := cert.NotAfter.Sub(now).Seconds()
+	if total > 0 {
+		result.RemainingPercent = remaining / total
+	}
+
+	if result.RemainingPercent < 0.2 {
+		daysLeft := int(remaining / 86400)
+		result.Warning = fmt.Sprintf("certificate expires in %d days (%.0f%% lifetime remaining)", daysLeft, result.RemainingPercent*100)
+	}
+
+	return result
+}
 
 // CertFingerprint represents a SHA-256 certificate fingerprint.
 type CertFingerprint struct {
