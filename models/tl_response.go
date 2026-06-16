@@ -39,7 +39,7 @@ type TLPayload struct {
 	AgentName        string         `json:"agentName"`
 	AgentDisplayName string         `json:"agentDisplayName"`
 	AgentHost        string         `json:"agentHost"`
-	AgentStatus      string         `json:"agentStatus"`
+	AgentStatus      TLAgentStatus  `json:"agentStatus"`
 	Version          string         `json:"version"`
 	Certificates     TLCertificates `json:"certificates"`
 }

@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"time"
 
 	openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
 	openapiutil "github.com/alibabacloud-go/openapi-util/service"
@@ -74,7 +75,7 @@ func (c *RAClient) GetAgent(ctx context.Context, agentID string) (*RAAgentInfo, 
 		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
-	resp, err := c.client.CallApi(params, request, runtime)
+	resp, err := c.callApiWithContext(ctx, params, request, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("GetAgent API call failed: %w", err)
 	}
@@ -115,7 +116,7 @@ func (c *RAClient) GetAgentByFQDN(ctx context.Context, fqdn string) (*RAAgentInf
 		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
-	resp, err := c.client.CallApi(params, request, runtime)
+	resp, err := c.callApiWithContext(ctx, params, request, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("GetAgentByFQDN API call failed: %w", err)
 	}
@@ -153,7 +154,7 @@ func (c *RAClient) GetAgentBadge(ctx context.Context, agentID string) (*BadgeRes
 		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
-	resp, err := c.client.CallApi(params, request, runtime)
+	resp, err := c.callApiWithContext(ctx, params, request, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("GetAgentBadge API call failed: %w", err)
 	}
@@ -195,7 +196,7 @@ func (c *RAClient) RegisterAgent(ctx context.Context, req *AgentRegistrationRequ
 		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
-	resp, err := c.client.CallApi(params, request, runtime)
+	resp, err := c.callApiWithContext(ctx, params, request, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("RegisterAgent API call failed: %w", err)
 	}
@@ -257,7 +258,7 @@ func (c *RAClient) ListAgents(ctx context.Context, opts ...ListOption) ([]*RAAge
 		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
-	resp, err := c.client.CallApi(params, request, runtime)
+	resp, err := c.callApiWithContext(ctx, params, request, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("ListAgents API call failed: %w", err)
 	}
@@ -304,7 +305,7 @@ func (c *RAClient) GetAuditTrail(ctx context.Context, agentID string, opts ...Au
 		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
-	resp, err := c.client.CallApi(params, request, runtime)
+	resp, err := c.callApiWithContext(ctx, params, request, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("GetAuditTrail API call failed: %w", err)
 	}
@@ -315,6 +316,38 @@ func (c *RAClient) GetAuditTrail(ctx context.Context, agentID string, opts ...Au
 	}
 
 	return &trail, nil
+}
+
+// callApiWithContext wraps CallApi to respect context cancellation/timeout.
+// The underlying SDK does not accept context directly, so we propagate the
+// context deadline into RuntimeOptions timeouts and check cancellation around the call.
+func (c *RAClient) callApiWithContext(ctx context.Context, params *openapi.Params, request *openapi.OpenApiRequest, runtime *dara.RuntimeOptions) (map[string]interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, context.DeadlineExceeded
+		}
+		ms := int(remaining.Milliseconds())
+		if runtime.ConnectTimeout == nil || ms < dara.IntValue(runtime.ConnectTimeout) {
+			runtime.ConnectTimeout = dara.Int(ms)
+		}
+		if runtime.ReadTimeout == nil || ms < dara.IntValue(runtime.ReadTimeout) {
+			runtime.ReadTimeout = dara.Int(ms)
+		}
+	}
+
+	resp, err := c.client.CallApi(params, request, runtime)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, err
+	}
+	return resp, nil
 }
 
 const (

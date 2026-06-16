@@ -143,7 +143,7 @@ func TestServerVerifier_TlogError(t *testing.T) {
 func TestServerVerifier_InvalidBadgeStatus(t *testing.T) {
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
-			AgentStatus: string(models.TLStatusRevoked),
+			AgentStatus: models.TLStatusRevoked,
 			AgentHost:   "test.example.com",
 			Certificates: models.TLCertificates{
 				ServerCertFingerprint: "SHA256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -177,7 +177,7 @@ func TestServerVerifier_InvalidBadgeStatus(t *testing.T) {
 func TestServerVerifier_SuccessfulVerification(t *testing.T) {
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
-			AgentStatus: string(models.TLStatusActive),
+			AgentStatus: models.TLStatusActive,
 			AgentHost:   "test.example.com",
 			Certificates: models.TLCertificates{
 				ServerCertFingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
@@ -211,7 +211,7 @@ func TestServerVerifier_SuccessfulVerification(t *testing.T) {
 func TestServerVerifier_CachedBadge(t *testing.T) {
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
-			AgentStatus: string(models.TLStatusActive),
+			AgentStatus: models.TLStatusActive,
 			AgentHost:   "test.example.com",
 			Certificates: models.TLCertificates{
 				ServerCertFingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
@@ -255,7 +255,7 @@ func TestServerVerifier_CachedBadge(t *testing.T) {
 func TestServerVerifier_Prefetch_WithCache(t *testing.T) {
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
-			AgentStatus: string(models.TLStatusActive),
+			AgentStatus: models.TLStatusActive,
 		},
 	}
 
@@ -300,7 +300,7 @@ func TestServerVerifier_Prefetch_Error(t *testing.T) {
 func TestServerVerifier_HostnameMismatch_BadgeHost(t *testing.T) {
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
-			AgentStatus: string(models.TLStatusActive),
+			AgentStatus: models.TLStatusActive,
 			AgentHost:   "other.example.com",
 			Certificates: models.TLCertificates{
 				ServerCertFingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
@@ -334,7 +334,7 @@ func TestServerVerifier_HostnameMismatch_BadgeHost(t *testing.T) {
 func TestServerVerifier_FingerprintMismatch_BadgeCert(t *testing.T) {
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
-			AgentStatus: string(models.TLStatusActive),
+			AgentStatus: models.TLStatusActive,
 			AgentHost:   "test.example.com",
 			Certificates: models.TLCertificates{
 				ServerCertFingerprint: "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -368,7 +368,7 @@ func TestServerVerifier_FingerprintMismatch_BadgeCert(t *testing.T) {
 func TestServerVerifier_DeprecatedBadge(t *testing.T) {
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
-			AgentStatus: string(models.TLStatusDeprecated),
+			AgentStatus: models.TLStatusDeprecated,
 			AgentHost:   "test.example.com",
 			Certificates: models.TLCertificates{
 				ServerCertFingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
@@ -424,7 +424,7 @@ func TestClientVerifier_SuccessfulVerification(t *testing.T) {
 	version, _ := models.ParseVersion("v1.0.0")
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
-			AgentStatus: string(models.TLStatusActive),
+			AgentStatus: models.TLStatusActive,
 			AgentName:   "ati://v1.0.0.test.example.com",
 			AgentHost:   "test.example.com",
 			Certificates: models.TLCertificates{
@@ -466,7 +466,7 @@ func TestClientVerifier_IdentityFingerprintMismatch(t *testing.T) {
 	version, _ := models.ParseVersion("v1.0.0")
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
-			AgentStatus: string(models.TLStatusActive),
+			AgentStatus: models.TLStatusActive,
 			AgentName:   "ati://v1.0.0.test.example.com",
 			AgentHost:   "test.example.com",
 			Certificates: models.TLCertificates{

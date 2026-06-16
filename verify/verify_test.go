@@ -24,7 +24,7 @@ func createTestTLResponse(host, version, serverFP, identityFP string) *models.TL
 			AgentDisplayName: "Test Agent",
 			AgentHost:        host,
 			Version:          version,
-			AgentStatus:      string(models.TLStatusActive),
+			AgentStatus:      models.TLStatusActive,
 			Certificates: models.TLCertificates{
 				ServerCertFingerprint:   serverFP,
 				IdentityCertFingerprint: identityFP,
@@ -156,7 +156,7 @@ func TestServerVerifier_InvalidStatus(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
 	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Payload.AgentStatus = string(models.TLStatusRevoked)
+	badge.Payload.AgentStatus = models.TLStatusRevoked
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -196,7 +196,7 @@ func TestServerVerifier_WarningStatus(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
 	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Payload.AgentStatus = string(models.TLStatusWarning)
+	badge.Payload.AgentStatus = models.TLStatusWarning
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -238,7 +238,7 @@ func TestServerVerifier_ExpiredStatus(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
 	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Payload.AgentStatus = string(models.TLStatusExpired)
+	badge.Payload.AgentStatus = models.TLStatusExpired
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -591,7 +591,7 @@ func TestClientVerifier_ExpiredStatus(t *testing.T) {
 	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
 	badge := createTestTLResponse(host, version, "SHA256:server", identityFP)
-	badge.Payload.AgentStatus = string(models.TLStatusExpired)
+	badge.Payload.AgentStatus = models.TLStatusExpired
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -908,7 +908,7 @@ func TestServerVerifier_DeprecatedWarning(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
 	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Payload.AgentStatus = string(models.TLStatusDeprecated)
+	badge.Payload.AgentStatus = models.TLStatusDeprecated
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -952,7 +952,7 @@ func TestClientVerifier_DeprecatedWarning(t *testing.T) {
 	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
 	badge := createTestTLResponse(host, version, "SHA256:server", identityFP)
-	badge.Payload.AgentStatus = string(models.TLStatusDeprecated)
+	badge.Payload.AgentStatus = models.TLStatusDeprecated
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -1032,7 +1032,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 	t.Run("6.2: old version DEPRECATED, new ACTIVE, client presents old version", func(t *testing.T) {
 		// v1.0.0 DEPRECATED, v1.0.1 ACTIVE — client presents v1.0.0
 		deprecatedBadge := createTestTLResponse(host, "v1.0.0", "SHA256:server", identityFP)
-		deprecatedBadge.Payload.AgentStatus = string(models.TLStatusDeprecated)
+		deprecatedBadge.Payload.AgentStatus = models.TLStatusDeprecated
 		deprecatedURL := "https://tlog.example.com/v1/agents/deprecated-id"
 
 		activeBadge := createTestTLResponse(host, "v1.0.1", "SHA256:server2", "SHA256:identity2")
@@ -1073,7 +1073,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		activeURL := "https://tlog.example.com/v1/agents/active-id"
 
 		deprecatedBadge := createTestTLResponse(host, "v1.0.0", "SHA256:old-fp", "SHA256:old-id")
-		deprecatedBadge.Payload.AgentStatus = string(models.TLStatusDeprecated)
+		deprecatedBadge.Payload.AgentStatus = models.TLStatusDeprecated
 		deprecatedURL := "https://tlog.example.com/v1/agents/deprecated-id"
 
 		dnsResolver := NewMockDNSResolver().

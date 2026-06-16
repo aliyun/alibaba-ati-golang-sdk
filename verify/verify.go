@@ -270,7 +270,7 @@ func (v *ServerVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn) 
 
 // verifyWithTLResponse verifies a certificate against a TL response.
 func (v *ServerVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *CertIdentity, fqdn models.Fqdn) *VerificationOutcome {
-	status := models.TLAgentStatus(tlResp.Payload.AgentStatus)
+	status := tlResp.Payload.AgentStatus
 	if !status.IsValidForConnection() {
 		return NewInvalidStatusOutcome(tlResp, status)
 	}
@@ -444,7 +444,7 @@ func (v *ClientVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn, 
 
 // verifyWithTLResponse verifies a client certificate against a TL response.
 func (v *ClientVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *CertIdentity, fqdn models.Fqdn, atiName *ATIName) *VerificationOutcome {
-	status := models.TLAgentStatus(tlResp.Payload.AgentStatus)
+	status := tlResp.Payload.AgentStatus
 	if !status.IsValidForConnection() {
 		return NewInvalidStatusOutcome(tlResp, status)
 	}
