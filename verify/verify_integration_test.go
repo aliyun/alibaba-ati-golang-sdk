@@ -129,6 +129,7 @@ func TestServerVerifier_TlogError(t *testing.T) {
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
 		WithTlogClient(mockTlog),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -160,6 +161,7 @@ func TestServerVerifier_InvalidBadgeStatus(t *testing.T) {
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
 		WithTlogClient(mockTlog),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -193,6 +195,7 @@ func TestServerVerifier_SuccessfulVerification(t *testing.T) {
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
 		WithTlogClient(mockTlog),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -227,6 +230,7 @@ func TestServerVerifier_CachedBadge(t *testing.T) {
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
 		WithTlogClient(mockTlog),
+		WithTLBaseURL(""),
 		WithCache(cache),
 		WithoutURLValidation(),
 	)
@@ -266,6 +270,7 @@ func TestServerVerifier_Prefetch_WithCache(t *testing.T) {
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
 		WithTlogClient(mockTlog),
+		WithTLBaseURL(""),
 		WithCache(cache),
 		WithoutURLValidation(),
 	)
@@ -313,6 +318,7 @@ func TestServerVerifier_HostnameMismatch_BadgeHost(t *testing.T) {
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
 		WithTlogClient(mockTlog),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -346,6 +352,7 @@ func TestServerVerifier_FingerprintMismatch_BadgeCert(t *testing.T) {
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
 		WithTlogClient(mockTlog),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -379,6 +386,7 @@ func TestServerVerifier_DeprecatedBadge(t *testing.T) {
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
 		WithTlogClient(mockTlog),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -435,6 +443,7 @@ func TestClientVerifier_SuccessfulVerification(t *testing.T) {
 	v := NewClientVerifier(
 		WithDNSResolver(mockDNS),
 		WithTlogClient(mockTlog),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -476,6 +485,7 @@ func TestClientVerifier_IdentityFingerprintMismatch(t *testing.T) {
 	v := NewClientVerifier(
 		WithDNSResolver(mockDNS),
 		WithTlogClient(mockTlog),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 

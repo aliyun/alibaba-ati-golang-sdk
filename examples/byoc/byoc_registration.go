@@ -1,3 +1,5 @@
+//go:build ignore
+
 //nolint:cyclop,depguard,forbidigo,funlen,gocognit,gosec,mnd // This is an example file demonstrating the BYOC workflow
 package main
 

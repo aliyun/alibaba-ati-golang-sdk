@@ -70,6 +70,7 @@ func TestServerVerifier_Success(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -96,6 +97,7 @@ func TestServerVerifier_NotATIAgent(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -132,6 +134,7 @@ func TestServerVerifier_FingerprintMismatch(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -171,6 +174,7 @@ func TestServerVerifier_InvalidStatus(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -209,6 +213,7 @@ func TestServerVerifier_WarningStatus(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -250,6 +255,7 @@ func TestServerVerifier_ExpiredStatus(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -289,6 +295,7 @@ func TestServerVerifier_HostnameMismatch(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -320,6 +327,7 @@ func TestServerVerifier_WithCache(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithCache(cache),
 	)
 
@@ -356,6 +364,7 @@ func TestServerVerifier_Prefetch(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithCache(cache),
 		WithoutURLValidation(),
 	)
@@ -406,6 +415,7 @@ func TestClientVerifier_Success(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -425,6 +435,7 @@ func TestClientVerifier_NoCN(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -446,6 +457,7 @@ func TestClientVerifier_NoAnsName(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -486,6 +498,7 @@ func TestClientVerifier_ATINameMismatch(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -522,6 +535,7 @@ func TestClientVerifier_FingerprintMismatch(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -558,6 +572,7 @@ func TestClientVerifier_HostnameMismatch(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -594,6 +609,7 @@ func TestClientVerifier_ExpiredStatus(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -632,6 +648,7 @@ func TestAnsVerifier(t *testing.T) {
 	verifier := NewAnsVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -684,6 +701,7 @@ func TestServerVerifier_RefreshOnMismatch(t *testing.T) {
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
+			WithTLBaseURL(""),
 			WithCache(cache),
 			WithoutURLValidation(),
 		)
@@ -711,6 +729,7 @@ func TestServerVerifier_RefreshOnMismatch(t *testing.T) {
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
+			WithTLBaseURL(""),
 			WithCache(cache),
 			WithoutURLValidation(),
 		)
@@ -779,6 +798,7 @@ func TestServerVerifier_FailurePolicy_DNSError(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
+				WithTLBaseURL(""),
 				WithFailurePolicy(tt.policy),
 			}
 			if tt.cache != nil {
@@ -863,6 +883,7 @@ func TestServerVerifier_FailurePolicy_TLogError(t *testing.T) {
 			verifier := NewServerVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
+				WithTLBaseURL(""),
 				WithFailurePolicy(tt.policy),
 				WithoutURLValidation(),
 			)
@@ -905,6 +926,7 @@ func TestServerVerifier_DeprecatedWarning(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -948,6 +970,7 @@ func TestClientVerifier_DeprecatedWarning(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -987,6 +1010,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		verifier := NewClientVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
+			WithTLBaseURL(""),
 			WithoutURLValidation(),
 		)
 
@@ -1027,6 +1051,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		verifier := NewClientVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
+			WithTLBaseURL(""),
 			WithoutURLValidation(),
 		)
 
@@ -1064,6 +1089,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
+			WithTLBaseURL(""),
 			WithoutURLValidation(),
 		)
 
@@ -1099,6 +1125,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		verifier := NewClientVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
+			WithTLBaseURL(""),
 			WithoutURLValidation(),
 		)
 
@@ -1214,6 +1241,7 @@ func TestAnsVerifier_Prefetch(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(tt.dnsResolver),
 				WithTlogClient(tt.tlogClient),
+				WithTLBaseURL(""),
 				WithoutURLValidation(),
 			}
 			if tt.cache != nil {
@@ -1256,6 +1284,7 @@ func TestAnsVerifier_VerifyServer_EmptyFqdn(t *testing.T) {
 			verifier := NewAnsVerifier(
 				WithDNSResolver(NewMockDNSResolver()),
 				WithTlogClient(NewMockTransparencyLogClient()),
+				WithTLBaseURL(""),
 			)
 
 			cert := createTestCertIdentity("test.example.com", "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
@@ -1287,6 +1316,7 @@ func TestServerVerifier_Prefetch_CacheHit(t *testing.T) {
 				verifier := NewServerVerifier(
 					WithDNSResolver(NewMockDNSResolver()),
 					WithTlogClient(NewMockTransparencyLogClient()),
+					WithTLBaseURL(""),
 					WithCache(cache),
 				)
 				return verifier, fqdn, tlResp
@@ -1298,6 +1328,7 @@ func TestServerVerifier_Prefetch_CacheHit(t *testing.T) {
 				verifier := NewServerVerifier(
 					WithDNSResolver(NewMockDNSResolver()),
 					WithTlogClient(NewMockTransparencyLogClient()),
+					WithTLBaseURL(""),
 					WithoutURLValidation(),
 				)
 				fqdn, _ := models.NewFqdn("unknown.example.com")
@@ -1360,6 +1391,7 @@ func TestServerVerifier_URLValidation_Additional(t *testing.T) {
 			verifier := NewServerVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
+				WithTLBaseURL(""),
 				WithTrustedRADomains(tt.domains),
 			)
 
@@ -1417,6 +1449,7 @@ func TestServerVerifier_DANERejection(t *testing.T) {
 			verifier := NewServerVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
+				WithTLBaseURL(""),
 				WithoutURLValidation(),
 				WithDANEResolver(daneResolver),
 			)
@@ -1472,6 +1505,7 @@ func TestServerVerifier_DANEVerified(t *testing.T) {
 			verifier := NewServerVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
+				WithTLBaseURL(""),
 				WithoutURLValidation(),
 				WithDANEResolver(daneResolver),
 			)
@@ -1542,6 +1576,7 @@ func TestClientVerifier_FailurePolicy_DNSError(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
+				WithTLBaseURL(""),
 				WithFailurePolicy(tt.policy),
 				WithoutURLValidation(),
 			}
@@ -1601,6 +1636,7 @@ func TestClientVerifier_TLogError(t *testing.T) {
 			verifier := NewClientVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
+				WithTLBaseURL(""),
 				WithFailurePolicy(FailClosed),
 				WithoutURLValidation(),
 			)
@@ -1644,6 +1680,7 @@ func TestClientVerifier_WithCache(t *testing.T) {
 			verifier := NewClientVerifier(
 				WithDNSResolver(NewMockDNSResolver()),
 				WithTlogClient(NewMockTransparencyLogClient()),
+				WithTLBaseURL(""),
 				WithCache(cache),
 				WithoutURLValidation(),
 			)
@@ -1692,6 +1729,7 @@ func TestClientVerifier_URLValidation(t *testing.T) {
 			verifier := NewClientVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
+				WithTLBaseURL(""),
 				WithTrustedRADomains(tt.domains),
 			)
 
@@ -1745,6 +1783,7 @@ func TestClientVerifier_DANERejection(t *testing.T) {
 			verifier := NewClientVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
+				WithTLBaseURL(""),
 				WithoutURLValidation(),
 				WithDANEResolver(daneResolver),
 			)
@@ -1933,6 +1972,7 @@ func TestServerVerifier_VerifyWithScitt_NilHeaders(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 		WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -1988,6 +2028,7 @@ func TestServerVerifier_VerifyWithScitt_NoKeyLookup(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(NewMockDNSResolver()),
 		WithTlogClient(NewMockTransparencyLogClient()),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -2024,6 +2065,7 @@ func TestClientVerifier_VerifyWithScitt_NilHeaders(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 		WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -2063,6 +2105,7 @@ func TestClientVerifier_VerifyWithScitt_NoKeyLookup(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(NewMockDNSResolver()),
 		WithTlogClient(NewMockTransparencyLogClient()),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -2088,6 +2131,7 @@ func TestClientVerifier_VerifyWithScitt_NoCN(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(NewMockDNSResolver()),
 		WithTlogClient(NewMockTransparencyLogClient()),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -2122,6 +2166,7 @@ func TestClientVerifier_VerifyWithScitt_EmptyHeaders(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 		WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
+		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -2227,6 +2272,7 @@ func TestVerifyWithScitt_PolicyEnforcement(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
+				WithTLBaseURL(""),
 				WithoutURLValidation(),
 			}
 			if tt.keyLookup != nil {
@@ -2374,6 +2420,7 @@ func TestVerifyWithScitt_TransportErrorFallback(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
+				WithTLBaseURL(""),
 				WithoutURLValidation(),
 				WithScittKeyLookup(tt.lookup),
 			}
@@ -2443,6 +2490,7 @@ func TestAnsVerifier_VerifyServerWithScitt(t *testing.T) {
 			verifier := NewAnsVerifier(
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
+				WithTLBaseURL(""),
 				WithoutURLValidation(),
 			)
 
@@ -2501,6 +2549,7 @@ func TestAnsVerifier_VerifyClientWithScitt(t *testing.T) {
 			verifier := NewAnsVerifier(
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
+				WithTLBaseURL(""),
 				WithoutURLValidation(),
 			)
 

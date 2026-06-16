@@ -1,3 +1,5 @@
+//go:build ignore
+
 //nolint:sloglint // Examples use global logger for simplicity
 package main
 
