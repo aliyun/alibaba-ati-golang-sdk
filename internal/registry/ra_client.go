@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
-	openapiutil "github.com/alibabacloud-go/openapi-util/client"
-	"github.com/alibabacloud-go/tea/tea"
+	openapiutil "github.com/alibabacloud-go/openapi-util/service"
+	"github.com/alibabacloud-go/tea/dara"
 	"github.com/aliyun/credentials-go/credentials"
 )
 
@@ -28,9 +28,9 @@ func NewRAClient(opts ...RAClientOption) (*RAClient, error) {
 	}
 
 	credConfig := &credentials.Config{
-		Type:            tea.String("access_key"),
-		AccessKeyId:     tea.String(cfg.accessKeyID),
-		AccessKeySecret: tea.String(cfg.accessKeySecret),
+		Type:            dara.String("access_key"),
+		AccessKeyId:     dara.String(cfg.accessKeyID),
+		AccessKeySecret: dara.String(cfg.accessKeySecret),
 	}
 	cred, err := credentials.NewCredential(credConfig)
 	if err != nil {
@@ -39,7 +39,7 @@ func NewRAClient(opts ...RAClientOption) (*RAClient, error) {
 
 	apiConfig := &openapi.Config{
 		Credential: cred,
-		Endpoint:   tea.String(cfg.endpoint),
+		Endpoint:   dara.String(cfg.endpoint),
 	}
 	client, err := openapi.NewClient(apiConfig)
 	if err != nil {
@@ -52,26 +52,26 @@ func NewRAClient(opts ...RAClientOption) (*RAClient, error) {
 // GetAgent retrieves agent information by agent ID.
 func (c *RAClient) GetAgent(ctx context.Context, agentID string) (*RAAgentInfo, error) {
 	params := &openapi.Params{
-		Action:      tea.String("GetAgent"),
-		Version:     tea.String("2024-01-01"),
-		Protocol:    tea.String("HTTPS"),
-		Method:      tea.String("GET"),
-		AuthType:    tea.String("AK"),
-		Style:       tea.String("ROA"),
-		ReqBodyType: tea.String("json"),
-		BodyType:    tea.String("json"),
-		Pathname:    tea.String("/agents/" + agentID),
+		Action:      dara.String("GetAgent"),
+		Version:     dara.String("2024-01-01"),
+		Protocol:    dara.String("HTTPS"),
+		Method:      dara.String("GET"),
+		AuthType:    dara.String("AK"),
+		Style:       dara.String("ROA"),
+		ReqBodyType: dara.String("json"),
+		BodyType:    dara.String("json"),
+		Pathname:    dara.String("/agents/" + agentID),
 	}
 
 	request := &openapi.OpenApiRequest{
 		Headers: map[string]*string{
-			"Accept": tea.String("application/json"),
+			"Accept": dara.String("application/json"),
 		},
 	}
 
-	runtime := &tea.RuntimeObject{
-		ConnectTimeout: tea.Int(defaultConnectTimeoutMs),
-		ReadTimeout:    tea.Int(defaultReadTimeoutMs),
+	runtime := &dara.RuntimeOptions{
+		ConnectTimeout: dara.Int(defaultConnectTimeoutMs),
+		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
 	resp, err := c.client.CallApi(params, request, runtime)
@@ -80,7 +80,7 @@ func (c *RAClient) GetAgent(ctx context.Context, agentID string) (*RAAgentInfo, 
 	}
 
 	var info RAAgentInfo
-	if err := tea.Convert(resp["body"], &info); err != nil {
+	if err := dara.Convert(resp["body"], &info); err != nil {
 		return nil, fmt.Errorf("failed to parse GetAgent response: %w", err)
 	}
 
@@ -90,29 +90,29 @@ func (c *RAClient) GetAgent(ctx context.Context, agentID string) (*RAAgentInfo, 
 // GetAgentByFQDN retrieves agent information by FQDN.
 func (c *RAClient) GetAgentByFQDN(ctx context.Context, fqdn string) (*RAAgentInfo, error) {
 	params := &openapi.Params{
-		Action:      tea.String("GetAgentByFQDN"),
-		Version:     tea.String("2024-01-01"),
-		Protocol:    tea.String("HTTPS"),
-		Method:      tea.String("GET"),
-		AuthType:    tea.String("AK"),
-		Style:       tea.String("ROA"),
-		ReqBodyType: tea.String("json"),
-		BodyType:    tea.String("json"),
-		Pathname:    tea.String("/agents/lookup"),
+		Action:      dara.String("GetAgentByFQDN"),
+		Version:     dara.String("2024-01-01"),
+		Protocol:    dara.String("HTTPS"),
+		Method:      dara.String("GET"),
+		AuthType:    dara.String("AK"),
+		Style:       dara.String("ROA"),
+		ReqBodyType: dara.String("json"),
+		BodyType:    dara.String("json"),
+		Pathname:    dara.String("/agents/lookup"),
 	}
 
 	request := &openapi.OpenApiRequest{
 		Headers: map[string]*string{
-			"Accept": tea.String("application/json"),
+			"Accept": dara.String("application/json"),
 		},
 		Query: openapiutil.Query(map[string]interface{}{
 			"host": fqdn,
 		}),
 	}
 
-	runtime := &tea.RuntimeObject{
-		ConnectTimeout: tea.Int(defaultConnectTimeoutMs),
-		ReadTimeout:    tea.Int(defaultReadTimeoutMs),
+	runtime := &dara.RuntimeOptions{
+		ConnectTimeout: dara.Int(defaultConnectTimeoutMs),
+		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
 	resp, err := c.client.CallApi(params, request, runtime)
@@ -121,7 +121,7 @@ func (c *RAClient) GetAgentByFQDN(ctx context.Context, fqdn string) (*RAAgentInf
 	}
 
 	var info RAAgentInfo
-	if err := tea.Convert(resp["body"], &info); err != nil {
+	if err := dara.Convert(resp["body"], &info); err != nil {
 		return nil, fmt.Errorf("failed to parse GetAgentByFQDN response: %w", err)
 	}
 
@@ -131,26 +131,26 @@ func (c *RAClient) GetAgentByFQDN(ctx context.Context, fqdn string) (*RAAgentInf
 // GetAgentBadge retrieves badge information for an agent.
 func (c *RAClient) GetAgentBadge(ctx context.Context, agentID string) (*BadgeResponse, error) {
 	params := &openapi.Params{
-		Action:      tea.String("GetAgentBadge"),
-		Version:     tea.String("2024-01-01"),
-		Protocol:    tea.String("HTTPS"),
-		Method:      tea.String("GET"),
-		AuthType:    tea.String("AK"),
-		Style:       tea.String("ROA"),
-		ReqBodyType: tea.String("json"),
-		BodyType:    tea.String("json"),
-		Pathname:    tea.String("/agents/" + agentID + "/badge"),
+		Action:      dara.String("GetAgentBadge"),
+		Version:     dara.String("2024-01-01"),
+		Protocol:    dara.String("HTTPS"),
+		Method:      dara.String("GET"),
+		AuthType:    dara.String("AK"),
+		Style:       dara.String("ROA"),
+		ReqBodyType: dara.String("json"),
+		BodyType:    dara.String("json"),
+		Pathname:    dara.String("/agents/" + agentID + "/badge"),
 	}
 
 	request := &openapi.OpenApiRequest{
 		Headers: map[string]*string{
-			"Accept": tea.String("application/json"),
+			"Accept": dara.String("application/json"),
 		},
 	}
 
-	runtime := &tea.RuntimeObject{
-		ConnectTimeout: tea.Int(defaultConnectTimeoutMs),
-		ReadTimeout:    tea.Int(defaultReadTimeoutMs),
+	runtime := &dara.RuntimeOptions{
+		ConnectTimeout: dara.Int(defaultConnectTimeoutMs),
+		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
 	resp, err := c.client.CallApi(params, request, runtime)
@@ -159,7 +159,7 @@ func (c *RAClient) GetAgentBadge(ctx context.Context, agentID string) (*BadgeRes
 	}
 
 	var badge BadgeResponse
-	if err := tea.Convert(resp["body"], &badge); err != nil {
+	if err := dara.Convert(resp["body"], &badge); err != nil {
 		return nil, fmt.Errorf("failed to parse GetAgentBadge response: %w", err)
 	}
 
@@ -169,33 +169,30 @@ func (c *RAClient) GetAgentBadge(ctx context.Context, agentID string) (*BadgeRes
 // RegisterAgent registers a new agent via the RA API.
 func (c *RAClient) RegisterAgent(ctx context.Context, req *AgentRegistrationRequest) (*AgentRegistrationResponse, error) {
 	params := &openapi.Params{
-		Action:      tea.String("RegisterAgent"),
-		Version:     tea.String("2024-01-01"),
-		Protocol:    tea.String("HTTPS"),
-		Method:      tea.String("POST"),
-		AuthType:    tea.String("AK"),
-		Style:       tea.String("ROA"),
-		ReqBodyType: tea.String("json"),
-		BodyType:    tea.String("json"),
-		Pathname:    tea.String("/agents"),
+		Action:      dara.String("RegisterAgent"),
+		Version:     dara.String("2024-01-01"),
+		Protocol:    dara.String("HTTPS"),
+		Method:      dara.String("POST"),
+		AuthType:    dara.String("AK"),
+		Style:       dara.String("ROA"),
+		ReqBodyType: dara.String("json"),
+		BodyType:    dara.String("json"),
+		Pathname:    dara.String("/agents"),
 	}
 
-	body, err := tea.ToMap(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize registration request: %w", err)
-	}
+	body := dara.ToMap(req)
 
 	request := &openapi.OpenApiRequest{
 		Headers: map[string]*string{
-			"Content-Type": tea.String("application/json"),
-			"Accept":       tea.String("application/json"),
+			"Content-Type": dara.String("application/json"),
+			"Accept":       dara.String("application/json"),
 		},
 		Body: body,
 	}
 
-	runtime := &tea.RuntimeObject{
-		ConnectTimeout: tea.Int(defaultConnectTimeoutMs),
-		ReadTimeout:    tea.Int(defaultReadTimeoutMs),
+	runtime := &dara.RuntimeOptions{
+		ConnectTimeout: dara.Int(defaultConnectTimeoutMs),
+		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
 	resp, err := c.client.CallApi(params, request, runtime)
@@ -204,7 +201,7 @@ func (c *RAClient) RegisterAgent(ctx context.Context, req *AgentRegistrationRequ
 	}
 
 	var result AgentRegistrationResponse
-	if err := tea.Convert(resp["body"], &result); err != nil {
+	if err := dara.Convert(resp["body"], &result); err != nil {
 		return nil, fmt.Errorf("failed to parse RegisterAgent response: %w", err)
 	}
 
@@ -237,27 +234,27 @@ func (c *RAClient) ListAgents(ctx context.Context, opts ...ListOption) ([]*RAAge
 	}
 
 	params := &openapi.Params{
-		Action:      tea.String("ListAgents"),
-		Version:     tea.String("2024-01-01"),
-		Protocol:    tea.String("HTTPS"),
-		Method:      tea.String("GET"),
-		AuthType:    tea.String("AK"),
-		Style:       tea.String("ROA"),
-		ReqBodyType: tea.String("json"),
-		BodyType:    tea.String("json"),
-		Pathname:    tea.String("/agents"),
+		Action:      dara.String("ListAgents"),
+		Version:     dara.String("2024-01-01"),
+		Protocol:    dara.String("HTTPS"),
+		Method:      dara.String("GET"),
+		AuthType:    dara.String("AK"),
+		Style:       dara.String("ROA"),
+		ReqBodyType: dara.String("json"),
+		BodyType:    dara.String("json"),
+		Pathname:    dara.String("/agents"),
 	}
 
 	request := &openapi.OpenApiRequest{
 		Headers: map[string]*string{
-			"Accept": tea.String("application/json"),
+			"Accept": dara.String("application/json"),
 		},
 		Query: openapiutil.Query(query),
 	}
 
-	runtime := &tea.RuntimeObject{
-		ConnectTimeout: tea.Int(defaultConnectTimeoutMs),
-		ReadTimeout:    tea.Int(defaultReadTimeoutMs),
+	runtime := &dara.RuntimeOptions{
+		ConnectTimeout: dara.Int(defaultConnectTimeoutMs),
+		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
 	resp, err := c.client.CallApi(params, request, runtime)
@@ -266,7 +263,7 @@ func (c *RAClient) ListAgents(ctx context.Context, opts ...ListOption) ([]*RAAge
 	}
 
 	var agents []*RAAgentInfo
-	if err := tea.Convert(resp["body"], &agents); err != nil {
+	if err := dara.Convert(resp["body"], &agents); err != nil {
 		return nil, fmt.Errorf("failed to parse ListAgents response: %w", err)
 	}
 
@@ -281,20 +278,20 @@ func (c *RAClient) GetAuditTrail(ctx context.Context, agentID string, opts ...Au
 	}
 
 	params := &openapi.Params{
-		Action:      tea.String("GetAuditTrail"),
-		Version:     tea.String("2024-01-01"),
-		Protocol:    tea.String("HTTPS"),
-		Method:      tea.String("GET"),
-		AuthType:    tea.String("AK"),
-		Style:       tea.String("ROA"),
-		ReqBodyType: tea.String("json"),
-		BodyType:    tea.String("json"),
-		Pathname:    tea.String("/agents/" + agentID + "/audit"),
+		Action:      dara.String("GetAuditTrail"),
+		Version:     dara.String("2024-01-01"),
+		Protocol:    dara.String("HTTPS"),
+		Method:      dara.String("GET"),
+		AuthType:    dara.String("AK"),
+		Style:       dara.String("ROA"),
+		ReqBodyType: dara.String("json"),
+		BodyType:    dara.String("json"),
+		Pathname:    dara.String("/agents/" + agentID + "/audit"),
 	}
 
 	request := &openapi.OpenApiRequest{
 		Headers: map[string]*string{
-			"Accept": tea.String("application/json"),
+			"Accept": dara.String("application/json"),
 		},
 		Query: openapiutil.Query(map[string]interface{}{
 			"limit":  cfg.limit,
@@ -302,9 +299,9 @@ func (c *RAClient) GetAuditTrail(ctx context.Context, agentID string, opts ...Au
 		}),
 	}
 
-	runtime := &tea.RuntimeObject{
-		ConnectTimeout: tea.Int(defaultConnectTimeoutMs),
-		ReadTimeout:    tea.Int(defaultReadTimeoutMs),
+	runtime := &dara.RuntimeOptions{
+		ConnectTimeout: dara.Int(defaultConnectTimeoutMs),
+		ReadTimeout:    dara.Int(defaultReadTimeoutMs),
 	}
 
 	resp, err := c.client.CallApi(params, request, runtime)
@@ -313,7 +310,7 @@ func (c *RAClient) GetAuditTrail(ctx context.Context, agentID string, opts ...Au
 	}
 
 	var trail AuditTrailResponse
-	if err := tea.Convert(resp["body"], &trail); err != nil {
+	if err := dara.Convert(resp["body"], &trail); err != nil {
 		return nil, fmt.Errorf("failed to parse GetAuditTrail response: %w", err)
 	}
 

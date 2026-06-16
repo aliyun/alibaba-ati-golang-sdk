@@ -34,12 +34,14 @@ type TLCertificates struct {
 
 // TLPayload represents the payload section of a TL response.
 type TLPayload struct {
-	LogID        string         `json:"logId"`
-	AgentName    string         `json:"agentName"`
-	AgentHost    string         `json:"agentHost"`
-	AgentStatus  string         `json:"agentStatus"`
-	Version      string         `json:"version"`
-	Certificates TLCertificates `json:"certificates"`
+	LogID            string         `json:"logId"`
+	AgentID          string         `json:"agentId"`
+	AgentName        string         `json:"agentName"`
+	AgentDisplayName string         `json:"agentDisplayName"`
+	AgentHost        string         `json:"agentHost"`
+	AgentStatus      string         `json:"agentStatus"`
+	Version          string         `json:"version"`
+	Certificates     TLCertificates `json:"certificates"`
 }
 
 // ServerCertFingerprint returns the server certificate fingerprint.
