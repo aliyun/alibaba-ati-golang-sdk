@@ -132,3 +132,15 @@ func (v *URLValidator) Validate(rawURL string) error {
 func (v *URLValidator) isDomainTrusted(hostname string) bool {
 	return slices.Contains(v.trustedDomains, hostname)
 }
+
+// RewriteBadgeURLHost replaces the hostname (and port) in a badge URL with
+// the trusted TL host. This prevents DNS poisoning from redirecting badge
+// fetches to a rogue server. The scheme and path are preserved.
+func RewriteBadgeURLHost(rawURL, trustedHost string) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid badge URL: %w", err)
+	}
+	parsed.Host = trustedHost
+	return parsed.String(), nil
+}

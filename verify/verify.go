@@ -42,7 +42,7 @@ func applyFailurePolicy(config *verifierConfig, fqdn models.Fqdn, version *model
 	return errorOutcome
 }
 
-// applyFailOpenWithCache attempts to use a stale cached badge for fail-open-with-cache policy.
+// applyFailOpenWithCache attempts to use a stale cached TL response for fail-open-with-cache policy.
 func applyFailOpenWithCache(config *verifierConfig, fqdn models.Fqdn, version *models.Version, errorOutcome *VerificationOutcome) *VerificationOutcome {
 	if config.cache == nil {
 		return errorOutcome
@@ -51,11 +51,11 @@ func applyFailOpenWithCache(config *verifierConfig, fqdn models.Fqdn, version *m
 	maxStale := config.failurePolicyConfig.MaxStaleness
 	if version != nil {
 		if cached, ok := config.cache.GetStaleByFqdnVersion(fqdn, *version, maxStale); ok {
-			return &VerificationOutcome{Type: OutcomeFailOpen, Badge: cached.Badge}
+			return &VerificationOutcome{Type: OutcomeFailOpen, TLResponse: cached.TLResponse}
 		}
 	} else {
 		if cached, ok := config.cache.GetStaleByFqdn(fqdn, maxStale); ok {
-			return &VerificationOutcome{Type: OutcomeFailOpen, Badge: cached.Badge}
+			return &VerificationOutcome{Type: OutcomeFailOpen, TLResponse: cached.TLResponse}
 		}
 	}
 	return errorOutcome
@@ -76,7 +76,7 @@ func verifyDANE(ctx context.Context, config *verifierConfig, fqdn models.Fqdn, c
 	daneOutcome := daneVerifier.Verify(ctx, fqdn, defaultDANEPort, cert)
 
 	if daneOutcome.IsReject() {
-		return NewDANERejectionOutcome(outcome.Badge, daneOutcome)
+		return NewDANERejectionOutcome(outcome.TLResponse, daneOutcome)
 	}
 
 	// DANE passed, skipped, no records, or lookup error — add info to outcome
@@ -85,6 +85,21 @@ func verifyDANE(ctx context.Context, config *verifierConfig, fqdn models.Fqdn, c
 	}
 
 	return nil
+}
+
+// rewriteTLHost replaces the hostname in a badge URL with the configured
+// trusted TL host. If rewriting fails, the original URL is returned unchanged.
+func rewriteTLHost(config *verifierConfig, rawURL string, log *slog.Logger) string {
+	if config.trustedTLHost == "" {
+		return rawURL
+	}
+	rewritten, err := RewriteBadgeURLHost(rawURL, config.trustedTLHost)
+	if err != nil {
+		log.Warn("rewriteTLHost: failed to rewrite badge URL, using original",
+			slog.String("url", rawURL), slog.String("error", err.Error()))
+		return rawURL
+	}
+	return rewritten
 }
 
 // validateBadgeURL validates a badge URL against the configured URL validator.
@@ -121,34 +136,31 @@ func (v *ServerVerifier) Verify(ctx context.Context, fqdn models.Fqdn, cert *Cer
 	// 1. Check cache first
 	if v.config.cache != nil {
 		if cached, ok := v.config.cache.GetByFqdn(fqdn); ok {
-			log.DebugContext(ctx, "badge verification: cache check",
+			log.DebugContext(ctx, "TL verification: cache check",
 				slog.String("fqdn", fqdn.String()), slog.Bool("cache_hit", true))
-			result := v.verifyWithBadge(cached.Badge, cert, fqdn)
+			result := v.verifyWithTLResponse(cached.TLResponse, cert, fqdn)
 			if result.Type != OutcomeFingerprintMismatch {
-				// Cache hit: either success or non-fingerprint failure (hostname, status)
 				return result
 			}
-			// Fingerprint mismatch from cache — may be stale after cert renewal.
-			// Fall through to fetch fresh badge.
 		} else {
-			log.DebugContext(ctx, "badge verification: cache check",
+			log.DebugContext(ctx, "TL verification: cache check",
 				slog.String("fqdn", fqdn.String()), slog.Bool("cache_hit", false))
 		}
 	}
 
-	// 2. Fetch badge from DNS + TLog
-	badge, outcome := v.fetchBadge(ctx, fqdn)
+	// 2. Fetch TL response from DNS + TLog
+	tlResp, outcome := v.fetchTLResponse(ctx, fqdn)
 	if outcome != nil {
 		return outcome
 	}
 
-	// 3. Cache the badge
+	// 3. Cache the TL response
 	if v.config.cache != nil {
-		v.config.cache.Insert(fqdn, badge)
+		v.config.cache.Insert(fqdn, tlResp)
 	}
 
-	// 4. Verify against badge
-	outcome = v.verifyWithBadge(badge, cert, fqdn)
+	// 4. Verify against TL response
+	outcome = v.verifyWithTLResponse(tlResp, cert, fqdn)
 	if !outcome.IsSuccess() {
 		return outcome
 	}
@@ -161,26 +173,25 @@ func (v *ServerVerifier) Verify(ctx context.Context, fqdn models.Fqdn, cert *Cer
 	return outcome
 }
 
-// Prefetch fetches and caches a badge for an FQDN.
+// Prefetch fetches and caches a TL response for an FQDN.
 // Returns immediately if a fresh cached entry exists.
-func (v *ServerVerifier) Prefetch(ctx context.Context, fqdn models.Fqdn) (*models.Badge, error) {
-	// Return cached badge if available and not expired
+func (v *ServerVerifier) Prefetch(ctx context.Context, fqdn models.Fqdn) (*models.TLResponse, error) {
 	if v.config.cache != nil {
 		if cached, ok := v.config.cache.GetByFqdn(fqdn); ok {
-			return cached.Badge, nil
+			return cached.TLResponse, nil
 		}
 	}
 
-	badge, outcome := v.fetchBadge(ctx, fqdn)
+	tlResp, outcome := v.fetchTLResponse(ctx, fqdn)
 	if outcome != nil {
 		return nil, outcome.ToError()
 	}
 
 	if v.config.cache != nil {
-		v.config.cache.Insert(fqdn, badge)
+		v.config.cache.Insert(fqdn, tlResp)
 	}
 
-	return badge, nil
+	return tlResp, nil
 }
 
 // VerifyWithScitt verifies a server certificate using SCITT receipts and status tokens.
@@ -209,19 +220,17 @@ func (v *ServerVerifier) VerifyWithScitt(ctx context.Context, fqdn models.Fqdn, 
 		func() *VerificationOutcome { return v.Verify(ctx, fqdn, cert) })
 }
 
-// fetchBadge fetches a badge from DNS and TLog.
-func (v *ServerVerifier) fetchBadge(ctx context.Context, fqdn models.Fqdn) (*models.Badge, *VerificationOutcome) {
+// fetchTLResponse fetches a TL response from DNS and TLog.
+func (v *ServerVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn) (*models.TLResponse, *VerificationOutcome) {
 	log := configLogger(v.config)
 
-	// DNS lookup
-	log.DebugContext(ctx, "fetchBadge: DNS lookup", slog.String("fqdn", fqdn.String()))
+	log.DebugContext(ctx, "fetchTLResponse: DNS lookup", slog.String("fqdn", fqdn.String()))
 	record, err := v.config.dnsResolver.FindPreferredBadge(ctx, fqdn)
 	if err != nil {
-		// ErrRecordNotFound means not an ANS agent — never apply failure policy
 		if errors.Is(err, ErrRecordNotFound) {
 			return nil, NewNotATIAgentOutcome(fqdn.String())
 		}
-		log.WarnContext(ctx, "fetchBadge: DNS error",
+		log.WarnContext(ctx, "fetchTLResponse: DNS error",
 			slog.String("fqdn", fqdn.String()), slog.String("error", err.Error()))
 		outcome := NewDNSErrorOutcome(err)
 		return nil, applyFailurePolicy(v.config, fqdn, nil, outcome)
@@ -230,52 +239,50 @@ func (v *ServerVerifier) fetchBadge(ctx context.Context, fqdn models.Fqdn) (*mod
 		return nil, NewNotATIAgentOutcome(fqdn.String())
 	}
 
-	// Validate badge URL before fetching
-	if outcome := validateBadgeURL(v.config, record.URL); outcome != nil {
+	tlURL := rewriteTLHost(v.config, record.URL, log)
+
+	if outcome := validateBadgeURL(v.config, tlURL); outcome != nil {
 		return nil, outcome
 	}
 
-	// Fetch badge from transparency log
-	log.DebugContext(ctx, "fetchBadge: fetching badge", slog.String("url", record.URL))
-	badge, err := v.config.tlogClient.FetchBadge(ctx, record.URL)
+	log.DebugContext(ctx, "fetchTLResponse: fetching", slog.String("url", tlURL))
+	tlResp, err := v.config.tlogClient.FetchTLResponse(ctx, tlURL)
 	if err != nil {
-		log.WarnContext(ctx, "fetchBadge: TLog error",
-			slog.String("url", record.URL), slog.String("error", err.Error()))
+		log.WarnContext(ctx, "fetchTLResponse: TLog error",
+			slog.String("url", tlURL), slog.String("error", err.Error()))
 		outcome := NewTlogErrorOutcome(err)
 		return nil, applyFailurePolicy(v.config, fqdn, nil, outcome)
 	}
 
-	return badge, nil
+	return tlResp, nil
 }
 
-// verifyWithBadge verifies a certificate against a badge.
-func (v *ServerVerifier) verifyWithBadge(badge *models.Badge, cert *CertIdentity, fqdn models.Fqdn) *VerificationOutcome {
-	// Check badge status
-	if !badge.Status.IsValidForConnection() {
-		return NewInvalidStatusOutcome(badge, badge.Status)
+// verifyWithTLResponse verifies a certificate against a TL response.
+func (v *ServerVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *CertIdentity, fqdn models.Fqdn) *VerificationOutcome {
+	status := models.TLAgentStatus(tlResp.Payload.AgentStatus)
+	if !status.IsValidForConnection() {
+		return NewInvalidStatusOutcome(tlResp, status)
 	}
 
-	// Compare server certificate fingerprint
-	expectedFP := badge.ServerCertFingerprint()
+	expectedFP := tlResp.Payload.ServerCertFingerprint()
 	if !cert.Fingerprint.Matches(expectedFP) {
-		return NewFingerprintMismatchOutcome(badge, expectedFP, cert.Fingerprint.String())
+		return NewFingerprintMismatchOutcome(tlResp, expectedFP, cert.Fingerprint.String())
 	}
 
-	// Compare hostname
-	badgeHost := badge.AgentHost()
+	tlHost := tlResp.Payload.AgentHost
 	certFqdn := cert.FQDN()
 
-	if !strings.EqualFold(badgeHost, fqdn.String()) {
-		return NewHostnameMismatchOutcome(badge, fqdn.String(), badgeHost)
+	if !strings.EqualFold(tlHost, fqdn.String()) {
+		return NewHostnameMismatchOutcome(tlResp, fqdn.String(), tlHost)
 	}
 
-	if certFqdn != nil && !strings.EqualFold(*certFqdn, badgeHost) {
-		return NewHostnameMismatchOutcome(badge, badgeHost, *certFqdn)
+	if certFqdn != nil && !strings.EqualFold(*certFqdn, tlHost) {
+		return NewHostnameMismatchOutcome(tlResp, tlHost, *certFqdn)
 	}
 
-	outcome := NewVerifiedOutcome(badge, cert.Fingerprint)
-	if badge.Status == models.BadgeStatusDeprecated {
-		outcome.Warnings = append(outcome.Warnings, "badge status is DEPRECATED")
+	outcome := NewVerifiedOutcome(tlResp, cert.Fingerprint)
+	if status == models.TLStatusDeprecated {
+		outcome.Warnings = append(outcome.Warnings, "agent status is DEPRECATED")
 	}
 	return outcome
 }
@@ -320,23 +327,23 @@ func (v *ClientVerifier) Verify(ctx context.Context, cert *CertIdentity) *Verifi
 	// 4. Check cache first (by FQDN + version)
 	if v.config.cache != nil {
 		if cached, ok := v.config.cache.GetByFqdnVersion(fqdn, version); ok {
-			return v.verifyWithBadge(cached.Badge, cert, fqdn, atiName)
+			return v.verifyWithTLResponse(cached.TLResponse, cert, fqdn, atiName)
 		}
 	}
 
-	// 5. Fetch badge from DNS + TLog (matching version)
-	badge, outcome := v.fetchBadge(ctx, fqdn, version)
+	// 5. Fetch TL response from DNS + TLog (matching version)
+	tlResp, outcome := v.fetchTLResponse(ctx, fqdn, version)
 	if outcome != nil {
 		return outcome
 	}
 
-	// 6. Cache the badge
+	// 6. Cache the TL response
 	if v.config.cache != nil {
-		v.config.cache.InsertForVersion(fqdn, version, badge)
+		v.config.cache.InsertForVersion(fqdn, version, tlResp)
 	}
 
-	// 7. Verify against badge
-	outcome = v.verifyWithBadge(badge, cert, fqdn, atiName)
+	// 7. Verify against TL response
+	outcome = v.verifyWithTLResponse(tlResp, cert, fqdn, atiName)
 	if !outcome.IsSuccess() {
 		return outcome
 	}
@@ -387,19 +394,17 @@ func (v *ClientVerifier) VerifyWithScitt(ctx context.Context, cert *CertIdentity
 		func() *VerificationOutcome { return v.Verify(ctx, cert) })
 }
 
-// fetchBadge fetches a badge from DNS and TLog for a specific version.
-func (v *ClientVerifier) fetchBadge(ctx context.Context, fqdn models.Fqdn, version models.Version) (*models.Badge, *VerificationOutcome) {
+// fetchTLResponse fetches a TL response from DNS and TLog for a specific version.
+func (v *ClientVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn, version models.Version) (*models.TLResponse, *VerificationOutcome) {
 	log := configLogger(v.config)
 
-	// DNS lookup for specific version
-	log.DebugContext(ctx, "fetchBadge: DNS lookup", slog.String("fqdn", fqdn.String()))
+	log.DebugContext(ctx, "fetchTLResponse: DNS lookup", slog.String("fqdn", fqdn.String()))
 	record, err := v.config.dnsResolver.FindBadgeForVersion(ctx, fqdn, version)
 	if err != nil {
-		// ErrRecordNotFound means not an ANS agent — never apply failure policy
 		if errors.Is(err, ErrRecordNotFound) {
 			return nil, NewNotATIAgentOutcome(fqdn.String())
 		}
-		log.WarnContext(ctx, "fetchBadge: DNS error",
+		log.WarnContext(ctx, "fetchTLResponse: DNS error",
 			slog.String("fqdn", fqdn.String()), slog.String("error", err.Error()))
 		outcome := NewDNSErrorOutcome(err)
 		return nil, applyFailurePolicy(v.config, fqdn, &version, outcome)
@@ -408,52 +413,49 @@ func (v *ClientVerifier) fetchBadge(ctx context.Context, fqdn models.Fqdn, versi
 		return nil, NewNotATIAgentOutcome(fqdn.String())
 	}
 
-	// Validate badge URL before fetching
-	if outcome := validateBadgeURL(v.config, record.URL); outcome != nil {
+	tlURL := rewriteTLHost(v.config, record.URL, log)
+
+	if outcome := validateBadgeURL(v.config, tlURL); outcome != nil {
 		return nil, outcome
 	}
 
-	// Fetch badge from transparency log
-	log.DebugContext(ctx, "fetchBadge: fetching badge", slog.String("url", record.URL))
-	badge, err := v.config.tlogClient.FetchBadge(ctx, record.URL)
+	log.DebugContext(ctx, "fetchTLResponse: fetching", slog.String("url", tlURL))
+	tlResp, err := v.config.tlogClient.FetchTLResponse(ctx, tlURL)
 	if err != nil {
-		log.WarnContext(ctx, "fetchBadge: TLog error",
-			slog.String("url", record.URL), slog.String("error", err.Error()))
+		log.WarnContext(ctx, "fetchTLResponse: TLog error",
+			slog.String("url", tlURL), slog.String("error", err.Error()))
 		outcome := NewTlogErrorOutcome(err)
 		return nil, applyFailurePolicy(v.config, fqdn, &version, outcome)
 	}
 
-	return badge, nil
+	return tlResp, nil
 }
 
-// verifyWithBadge verifies a client certificate against a badge.
-func (v *ClientVerifier) verifyWithBadge(badge *models.Badge, cert *CertIdentity, fqdn models.Fqdn, atiName *ATIName) *VerificationOutcome {
-	// Check badge status
-	if !badge.Status.IsValidForConnection() {
-		return NewInvalidStatusOutcome(badge, badge.Status)
+// verifyWithTLResponse verifies a client certificate against a TL response.
+func (v *ClientVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *CertIdentity, fqdn models.Fqdn, atiName *ATIName) *VerificationOutcome {
+	status := models.TLAgentStatus(tlResp.Payload.AgentStatus)
+	if !status.IsValidForConnection() {
+		return NewInvalidStatusOutcome(tlResp, status)
 	}
 
-	// Compare identity certificate fingerprint
-	expectedFP := badge.IdentityCertFingerprint()
+	expectedFP := tlResp.Payload.IdentityCertFingerprint()
 	if !cert.Fingerprint.Matches(expectedFP) {
-		return NewFingerprintMismatchOutcome(badge, expectedFP, cert.Fingerprint.String())
+		return NewFingerprintMismatchOutcome(tlResp, expectedFP, cert.Fingerprint.String())
 	}
 
-	// Compare hostname
-	badgeHost := badge.AgentHost()
-	if !strings.EqualFold(badgeHost, fqdn.String()) {
-		return NewHostnameMismatchOutcome(badge, fqdn.String(), badgeHost)
+	tlHost := tlResp.Payload.AgentHost
+	if !strings.EqualFold(tlHost, fqdn.String()) {
+		return NewHostnameMismatchOutcome(tlResp, fqdn.String(), tlHost)
 	}
 
-	// Compare ANS name
-	badgeATIName := badge.AgentName()
-	if !strings.EqualFold(badgeATIName, atiName.String()) {
-		return NewATINameMismatchOutcome(badge, badgeATIName, atiName.String())
+	tlATIName := tlResp.Payload.AgentName
+	if !strings.EqualFold(tlATIName, atiName.String()) {
+		return NewATINameMismatchOutcome(tlResp, tlATIName, atiName.String())
 	}
 
-	outcome := NewVerifiedOutcome(badge, cert.Fingerprint)
-	if badge.Status == models.BadgeStatusDeprecated {
-		outcome.Warnings = append(outcome.Warnings, "badge status is DEPRECATED")
+	outcome := NewVerifiedOutcome(tlResp, cert.Fingerprint)
+	if status == models.TLStatusDeprecated {
+		outcome.Warnings = append(outcome.Warnings, "agent status is DEPRECATED")
 	}
 	return outcome
 }
@@ -505,8 +507,8 @@ func (v *AnsVerifier) VerifyClientWithScitt(ctx context.Context, cert *CertIdent
 	return v.client.VerifyWithScitt(ctx, cert, headers)
 }
 
-// Prefetch fetches and caches a badge for an FQDN string.
-func (v *AnsVerifier) Prefetch(ctx context.Context, fqdnStr string) (*models.Badge, error) {
+// Prefetch fetches and caches a TL response for an FQDN string.
+func (v *AnsVerifier) Prefetch(ctx context.Context, fqdnStr string) (*models.TLResponse, error) {
 	fqdn, err := models.NewFqdn(fqdnStr)
 	if err != nil {
 		return nil, err

@@ -18,6 +18,7 @@ type verifierConfig struct {
 	failurePolicy       FailurePolicy
 	failurePolicyConfig FailurePolicyConfig
 	urlValidator        *URLValidator
+	trustedTLHost       string
 	daneResolver        DANEResolver
 	scittKeyLookup      scitt.KeyLookup
 	clockSkewTolerance  time.Duration
@@ -36,6 +37,11 @@ type verifierConfig struct {
 // defaultClockSkewTolerance is the default maximum allowed clock skew (120 seconds).
 const defaultClockSkewTolerance = 120 * time.Second
 
+// DefaultTrustedTLHost is the trusted Transparency Log hostname used as
+// the trust anchor for badge URL rewriting. Badge TXT records may contain
+// arbitrary hostnames; the SDK replaces them with this value before fetching.
+const DefaultTrustedTLHost = "tl.ansagent.cn:8180"
+
 // defaultConfig returns the default verifier configuration.
 func defaultConfig() *verifierConfig {
 	return &verifierConfig{
@@ -45,6 +51,7 @@ func defaultConfig() *verifierConfig {
 		failurePolicy:       FailClosed,
 		failurePolicyConfig: DefaultFailurePolicyConfig(),
 		urlValidator:        NewDefaultURLValidator(),
+		trustedTLHost:       "",
 		clockSkewTolerance:  defaultClockSkewTolerance,
 	}
 }
@@ -107,6 +114,14 @@ func WithTrustedRADomains(domains []string) Option {
 func WithoutURLValidation() Option {
 	return func(c *verifierConfig) {
 		c.urlValidator = nil
+	}
+}
+
+// WithTrustedTLHost overrides the trusted Transparency Log hostname used for
+// badge URL rewriting. The default is DefaultTrustedTLHost.
+func WithTrustedTLHost(host string) Option {
+	return func(c *verifierConfig) {
+		c.trustedTLHost = host
 	}
 }
 

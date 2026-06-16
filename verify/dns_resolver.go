@@ -5,22 +5,33 @@ import (
 	"errors"
 	"net"
 	"sort"
+	"sync"
 	"time"
 
 	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
 // Default DNS configuration values.
-const defaultDNSTimeoutSeconds = 10
+const (
+	defaultDNSTimeoutSeconds = 10
+	defaultDNSCacheTTL       = 5 * time.Minute
+)
 
 // ErrRecordNotFound is returned when no matching badge record is found.
 // This is not an error condition - it means the FQDN is not an ATI agent.
 var ErrRecordNotFound = errors.New("no matching badge record found")
 
+type dnsCacheEntry struct {
+	result    interface{}
+	createdAt time.Time
+}
+
 // StandardDNSResolver implements DNSResolver using Go's net.Resolver.
 type StandardDNSResolver struct {
 	resolver *net.Resolver
 	timeout  time.Duration
+	cache    sync.Map
+	cacheTTL time.Duration
 }
 
 // NewStandardDNSResolver creates a new StandardDNSResolver with default settings.
@@ -28,6 +39,7 @@ func NewStandardDNSResolver() *StandardDNSResolver {
 	return &StandardDNSResolver{
 		resolver: net.DefaultResolver,
 		timeout:  defaultDNSTimeoutSeconds * time.Second,
+		cacheTTL: defaultDNSCacheTTL,
 	}
 }
 
@@ -43,22 +55,62 @@ func (r *StandardDNSResolver) WithTimeout(timeout time.Duration) *StandardDNSRes
 	return r
 }
 
+// WithCacheTTL sets the DNS cache TTL. Default is 5 minutes.
+func (r *StandardDNSResolver) WithCacheTTL(ttl time.Duration) *StandardDNSResolver {
+	r.cacheTTL = ttl
+	return r
+}
+
+// ClearCache clears all cached DNS results.
+func (r *StandardDNSResolver) ClearCache() {
+	r.cache.Range(func(key, _ interface{}) bool {
+		r.cache.Delete(key)
+		return true
+	})
+}
+
+func (r *StandardDNSResolver) getCached(key string) (interface{}, bool) {
+	v, ok := r.cache.Load(key)
+	if !ok {
+		return nil, false
+	}
+	entry := v.(*dnsCacheEntry)
+	if time.Since(entry.createdAt) > r.cacheTTL {
+		r.cache.Delete(key)
+		return nil, false
+	}
+	return entry.result, true
+}
+
+func (r *StandardDNSResolver) setCache(key string, result interface{}) {
+	r.cache.Store(key, &dnsCacheEntry{result: result, createdAt: time.Now()})
+}
+
 // LookupATIBadge queries _ati-badge TXT records for an FQDN.
 // If _ati-badge returns NXDOMAIN/NotFound, falls back to _ra-badge.
 // On hard errors (SERVFAIL/timeout), does NOT fallback.
 func (r *StandardDNSResolver) LookupATIBadge(ctx context.Context, fqdn models.Fqdn) (DNSLookupResult, error) {
+	cacheKey := "badge:" + fqdn.String()
+	if cached, ok := r.getCached(cacheKey); ok {
+		return cached.(DNSLookupResult), nil
+	}
+
 	// Try _ati-badge first
 	result, err := r.lookupBadgeRecords(ctx, fqdn.ATIBadgeName(), BadgeRecordSourceATIBadge)
 	if err != nil {
-		// Hard error — do NOT fallback
 		return result, err
 	}
 	if result.Found {
+		r.setCache(cacheKey, result)
 		return result, nil
 	}
 
 	// Fallback to _ra-badge
-	return r.lookupBadgeRecords(ctx, fqdn.RaBadgeName(), BadgeRecordSourceRaBadge)
+	result, err = r.lookupBadgeRecords(ctx, fqdn.RaBadgeName(), BadgeRecordSourceRaBadge)
+	if err == nil {
+		r.setCache(cacheKey, result)
+	}
+	return result, err
 }
 
 // lookupBadgeRecords queries a specific DNS name for badge TXT records.
@@ -181,6 +233,11 @@ func (r *StandardDNSResolver) FindPreferredBadge(ctx context.Context, fqdn model
 
 // LookupATIDiscovery queries _ati TXT records for DNS discovery.
 func (r *StandardDNSResolver) LookupATIDiscovery(ctx context.Context, fqdn models.Fqdn) (ATIDiscoveryResult, error) {
+	cacheKey := "discovery:" + fqdn.String()
+	if cached, ok := r.getCached(cacheKey); ok {
+		return cached.(ATIDiscoveryResult), nil
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -189,7 +246,9 @@ func (r *StandardDNSResolver) LookupATIDiscovery(ctx context.Context, fqdn model
 	if err != nil {
 		var dnsErr *net.DNSError
 		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
-			return ATIDiscoveryResult{Found: false}, nil
+			result := ATIDiscoveryResult{Found: false}
+			r.setCache(cacheKey, result)
+			return result, nil
 		}
 		return ATIDiscoveryResult{}, &DNSError{
 			Type:   DNSErrorLookupFailed,
@@ -205,11 +264,9 @@ func (r *StandardDNSResolver) LookupATIDiscovery(ctx context.Context, fqdn model
 		}
 	}
 
-	if len(records) == 0 {
-		return ATIDiscoveryResult{Found: false}, nil
-	}
-
-	return ATIDiscoveryResult{Found: true, Records: records}, nil
+	result := ATIDiscoveryResult{Found: len(records) > 0, Records: records}
+	r.setCache(cacheKey, result)
+	return result, nil
 }
 
 // isNotFoundError checks if the error indicates record not found.

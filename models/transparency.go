@@ -48,14 +48,14 @@ type TransparencyLogAudit struct {
 	Records []TransparencyLog `json:"records"`
 }
 
-// MerkleProof contains the cryptographic proof of inclusion in the Merkle tree
+// MerkleProof contains the cryptographic proof of inclusion in the Merkle tree.
 type MerkleProof struct {
 	LeafHash      string   `json:"leafHash,omitempty"`
 	RootHash      string   `json:"rootHash,omitempty"`
 	RootSignature string   `json:"rootSignature,omitempty"`
 	TreeSize      int64    `json:"treeSize,omitempty"`
 	TreeVersion   int64    `json:"treeVersion,omitempty"`
-	LeafIndex     *int64   `json:"leafIndex,omitempty"`
+	LeafIndex     int64    `json:"leafIndex,omitempty"`
 	Path          []string `json:"path,omitempty"`
 }
 

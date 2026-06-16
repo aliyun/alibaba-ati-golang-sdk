@@ -8,8 +8,10 @@ import (
 )
 
 func TestOutcomeConstructors(t *testing.T) {
-	badge := &models.Badge{
-		Status: models.BadgeStatusActive,
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			AgentStatus: string(models.TLStatusActive),
+		},
 	}
 	fp := CertFingerprintFromBytes([32]byte{1, 2, 3})
 
@@ -21,7 +23,7 @@ func TestOutcomeConstructors(t *testing.T) {
 	}{
 		{
 			name:      "verified outcome",
-			outcome:   NewVerifiedOutcome(badge, fp),
+			outcome:   NewVerifiedOutcome(tlResp, fp),
 			wantType:  OutcomeVerified,
 			isSuccess: true,
 		},
@@ -33,25 +35,25 @@ func TestOutcomeConstructors(t *testing.T) {
 		},
 		{
 			name:      "invalid status",
-			outcome:   NewInvalidStatusOutcome(badge, models.BadgeStatusRevoked),
+			outcome:   NewInvalidStatusOutcome(tlResp, models.TLStatusRevoked),
 			wantType:  OutcomeInvalidStatus,
 			isSuccess: false,
 		},
 		{
 			name:      "fingerprint mismatch",
-			outcome:   NewFingerprintMismatchOutcome(badge, "SHA256:expected", "SHA256:actual"),
+			outcome:   NewFingerprintMismatchOutcome(tlResp, "SHA256:expected", "SHA256:actual"),
 			wantType:  OutcomeFingerprintMismatch,
 			isSuccess: false,
 		},
 		{
 			name:      "hostname mismatch",
-			outcome:   NewHostnameMismatchOutcome(badge, "foo.com", "bar.com"),
+			outcome:   NewHostnameMismatchOutcome(tlResp, "foo.com", "bar.com"),
 			wantType:  OutcomeHostnameMismatch,
 			isSuccess: false,
 		},
 		{
 			name:      "ATI name mismatch",
-			outcome:   NewATINameMismatchOutcome(badge, "ati://v1.0.0.foo.com", "ati://v2.0.0.foo.com"),
+			outcome:   NewATINameMismatchOutcome(tlResp, "ati://v1.0.0.foo.com", "ati://v2.0.0.foo.com"),
 			wantType:  OutcomeATINameMismatch,
 			isSuccess: false,
 		},
@@ -87,7 +89,7 @@ func TestOutcomeConstructors(t *testing.T) {
 		},
 		{
 			name: "DANE rejection",
-			outcome: NewDANERejectionOutcome(badge, &DANEOutcome{
+			outcome: NewDANERejectionOutcome(tlResp, &DANEOutcome{
 				Type:  DANEMismatch,
 				Error: errors.New("DANE mismatch"),
 			}),
@@ -175,7 +177,7 @@ func TestOutcome_ToError(t *testing.T) {
 		},
 		{
 			name:        "invalid status",
-			outcome:     NewInvalidStatusOutcome(nil, models.BadgeStatusRevoked),
+			outcome:     NewInvalidStatusOutcome(nil, models.TLStatusRevoked),
 			errContains: "invalid badge status",
 		},
 		{

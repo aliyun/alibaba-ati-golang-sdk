@@ -424,7 +424,7 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	fpHex := "e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -437,7 +437,7 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 		dnsResolver := NewMockDNSResolver().
 			WithRecords(host, []ATIBadgeRecord{dnsRecord})
 		tlogClient := NewMockTransparencyLogClient().
-			WithBadge(badgeURL, badge)
+			WithTLResponse(badgeURL, badge)
 		daneResolver := NewMockDANEResolver().WithTLSA(host, 443, TLSALookupResult{
 			Found:       true,
 			DNSSECValid: true,
@@ -467,7 +467,7 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 		dnsResolver := NewMockDNSResolver().
 			WithRecords(host, []ATIBadgeRecord{dnsRecord})
 		tlogClient := NewMockTransparencyLogClient().
-			WithBadge(badgeURL, badge)
+			WithTLResponse(badgeURL, badge)
 		daneResolver := NewMockDANEResolver().WithTLSA(host, 443, TLSALookupResult{
 			Found:       true,
 			DNSSECValid: true,
@@ -497,7 +497,7 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 		dnsResolver := NewMockDNSResolver().
 			WithRecords(host, []ATIBadgeRecord{dnsRecord})
 		tlogClient := NewMockTransparencyLogClient().
-			WithBadge(badgeURL, badge)
+			WithTLResponse(badgeURL, badge)
 		daneResolver := NewMockDANEResolver().WithTLSA(host, 443, TLSALookupResult{
 			Found:       true,
 			DNSSECValid: false,
@@ -524,7 +524,7 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 		dnsResolver := NewMockDNSResolver().
 			WithRecords(host, []ATIBadgeRecord{dnsRecord})
 		tlogClient := NewMockTransparencyLogClient().
-			WithBadge(badgeURL, badge)
+			WithTLResponse(badgeURL, badge)
 
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),

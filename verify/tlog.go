@@ -15,14 +15,12 @@ import (
 const (
 	defaultHTTPTimeoutSeconds = 30
 	maxErrorResponseBodyBytes = 1024
-	maxBadgeResponseBodyBytes = 1 << 20 // 1 MB
+	maxTLResponseBodyBytes = 1 << 20 // 1 MB
 )
 
-// TransparencyLogClient is the interface for fetching badges from the transparency log.
+// TransparencyLogClient is the interface for fetching TL responses from the transparency log.
 type TransparencyLogClient interface {
-	// FetchBadge fetches a badge from the given URL.
-	FetchBadge(ctx context.Context, url string) (*models.Badge, error)
-	// FetchTLResponse fetches a three-layer nested TL response from the given URL.
+	// FetchTLResponse fetches a TL response from the given URL.
 	FetchTLResponse(ctx context.Context, url string) (*models.TLResponse, error)
 }
 
@@ -52,75 +50,7 @@ func (c *HTTPTransparencyLogClient) WithTimeout(timeout time.Duration) *HTTPTran
 	return c
 }
 
-// FetchBadge fetches a badge from the given URL.
-func (c *HTTPTransparencyLogClient) FetchBadge(ctx context.Context, url string) (*models.Badge, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, &TlogError{
-			Type:   TlogErrorInvalidResponse,
-			URL:    url,
-			Reason: fmt.Sprintf("failed to create request: %v", err),
-		}
-	}
-
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(req) //nolint:gosec // G704 - badge URL from ANS transparency log
-	if err != nil {
-		return nil, &TlogError{
-			Type:   TlogErrorServiceUnavailable,
-			URL:    url,
-			Reason: err.Error(),
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		// Drain response body to enable HTTP connection reuse
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, &TlogError{
-			Type:     TlogErrorNotFound,
-			URL:      url,
-			HTTPCode: resp.StatusCode,
-		}
-	}
-
-	if resp.StatusCode >= http.StatusInternalServerError {
-		// Drain response body to enable HTTP connection reuse
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, &TlogError{
-			Type:     TlogErrorServiceUnavailable,
-			URL:      url,
-			HTTPCode: resp.StatusCode,
-		}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBodyBytes))
-		// Drain remaining body to enable HTTP connection reuse
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, &TlogError{
-			Type:     TlogErrorInvalidResponse,
-			URL:      url,
-			HTTPCode: resp.StatusCode,
-			Reason:   fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(body)),
-		}
-	}
-
-	var badge models.Badge
-	limitedReader := io.LimitReader(resp.Body, maxBadgeResponseBodyBytes)
-	if err := json.NewDecoder(limitedReader).Decode(&badge); err != nil {
-		return nil, &TlogError{
-			Type:   TlogErrorInvalidResponse,
-			URL:    url,
-			Reason: fmt.Sprintf("failed to decode response: %v", err),
-		}
-	}
-
-	return &badge, nil
-}
-
-// FetchTLResponse fetches a three-layer nested TL response from the given URL.
+// FetchTLResponse fetches a TL response from the given URL.
 func (c *HTTPTransparencyLogClient) FetchTLResponse(ctx context.Context, url string) (*models.TLResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -173,7 +103,7 @@ func (c *HTTPTransparencyLogClient) FetchTLResponse(ctx context.Context, url str
 	}
 
 	var tlResp models.TLResponse
-	limitedReader := io.LimitReader(resp.Body, maxBadgeResponseBodyBytes)
+	limitedReader := io.LimitReader(resp.Body, maxTLResponseBodyBytes)
 	if err := json.NewDecoder(limitedReader).Decode(&tlResp); err != nil {
 		return nil, &TlogError{
 			Type:   TlogErrorInvalidResponse,

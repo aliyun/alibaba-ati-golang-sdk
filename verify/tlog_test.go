@@ -13,65 +13,47 @@ import (
 )
 
 func TestMockTransparencyLogClient(t *testing.T) {
-	badge := &models.Badge{
-		Status:        models.BadgeStatusActive,
+	tlResp := &models.TLResponse{
+		Status:        string(models.TLStatusActive),
 		SchemaVersion: "V1",
-		Payload: models.BadgePayload{
-			LogID: "test-log-id",
-			Producer: models.Producer{
-				KeyID:     "test-key",
-				Signature: "test-sig",
-				Event: models.AgentEvent{
-					ATIID:   "test-ati-id",
-					ATIName: "ati://v1.0.0.agent.example.com",
-					Agent: models.AgentInfo{
-						Host:    "agent.example.com",
-						Name:    "Test Agent",
-						Version: "v1.0.0",
-					},
-					Attestations: models.Attestations{
-						DomainValidation: "ACME-DNS-01",
-						ServerCert: &models.CertAttestationV1{
-							Fingerprint: "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904",
-							Type:        "X509-DV-SERVER",
-						},
-						IdentityCert: &models.CertAttestationV1{
-							Fingerprint: "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496",
-							Type:        "X509-OV-CLIENT",
-						},
-					},
-					IssuedAt:  time.Now(),
-					Timestamp: time.Now(),
-				},
+		Payload: models.TLPayload{
+			LogID:       "test-log-id",
+			AgentName:   "ati://v1.0.0.agent.example.com",
+			AgentHost:   "agent.example.com",
+			AgentStatus: string(models.TLStatusActive),
+			Version:     "v1.0.0",
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint:   "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904",
+				IdentityCertFingerprint: "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496",
 			},
 		},
 	}
 
-	t.Run("FetchBadge success", func(t *testing.T) {
+	t.Run("FetchTLResponse success", func(t *testing.T) {
 		client := NewMockTransparencyLogClient().
-			WithBadge("https://tlog.example.com/badge", badge)
+			WithTLResponse("https://tlog.example.com/badge", tlResp)
 
-		result, err := client.FetchBadge(context.Background(), "https://tlog.example.com/badge")
+		result, err := client.FetchTLResponse(context.Background(), "https://tlog.example.com/badge")
 		if err != nil {
-			t.Fatalf("FetchBadge() error = %v", err)
+			t.Fatalf("FetchTLResponse() error = %v", err)
 		}
 		if result == nil {
-			t.Fatal("FetchBadge() returned nil")
+			t.Fatal("FetchTLResponse() returned nil")
 		}
-		if result.Status != models.BadgeStatusActive {
-			t.Errorf("Status = %v, want ACTIVE", result.Status)
+		if result.Payload.AgentStatus != string(models.TLStatusActive) {
+			t.Errorf("AgentStatus = %v, want ACTIVE", result.Payload.AgentStatus)
 		}
-		if result.AgentHost() != "agent.example.com" {
-			t.Errorf("AgentHost() = %q, want agent.example.com", result.AgentHost())
+		if result.Payload.AgentHost != "agent.example.com" {
+			t.Errorf("AgentHost = %q, want agent.example.com", result.Payload.AgentHost)
 		}
 	})
 
-	t.Run("FetchBadge not found", func(t *testing.T) {
+	t.Run("FetchTLResponse not found", func(t *testing.T) {
 		client := NewMockTransparencyLogClient()
 
-		_, err := client.FetchBadge(context.Background(), "https://tlog.example.com/unknown")
+		_, err := client.FetchTLResponse(context.Background(), "https://tlog.example.com/unknown")
 		if err == nil {
-			t.Fatal("FetchBadge() expected error, got nil")
+			t.Fatal("FetchTLResponse() expected error, got nil")
 		}
 		var tlogErr *TlogError
 		if !errors.As(err, &tlogErr) {
@@ -82,16 +64,16 @@ func TestMockTransparencyLogClient(t *testing.T) {
 		}
 	})
 
-	t.Run("FetchBadge error", func(t *testing.T) {
+	t.Run("FetchTLResponse error", func(t *testing.T) {
 		client := NewMockTransparencyLogClient().
 			WithError("https://tlog.example.com/error", &TlogError{
 				Type: TlogErrorServiceUnavailable,
 				URL:  "https://tlog.example.com/error",
 			})
 
-		_, err := client.FetchBadge(context.Background(), "https://tlog.example.com/error")
+		_, err := client.FetchTLResponse(context.Background(), "https://tlog.example.com/error")
 		if err == nil {
-			t.Fatal("FetchBadge() expected error, got nil")
+			t.Fatal("FetchTLResponse() expected error, got nil")
 		}
 		var tlogErr *TlogError
 		if !errors.As(err, &tlogErr) {
@@ -103,40 +85,40 @@ func TestMockTransparencyLogClient(t *testing.T) {
 	})
 }
 
-func TestHTTPTransparencyLogClient_FetchBadge_Success(t *testing.T) {
-	badge := &models.Badge{
-		Status: models.BadgeStatusActive,
-		Payload: models.BadgePayload{
-			LogID: "test-log",
+func TestHTTPTransparencyLogClient_FetchTLResponse_Success(t *testing.T) {
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			LogID:       "test-log",
+			AgentStatus: string(models.TLStatusActive),
 		},
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(badge)
+		json.NewEncoder(w).Encode(tlResp)
 	}))
 	defer server.Close()
 
 	client := NewHTTPTransparencyLogClient()
-	result, err := client.FetchBadge(context.Background(), server.URL+"/badge/123")
+	result, err := client.FetchTLResponse(context.Background(), server.URL+"/badge/123")
 	if err != nil {
-		t.Fatalf("FetchBadge() error = %v", err)
+		t.Fatalf("FetchTLResponse() error = %v", err)
 	}
-	if result.Status != models.BadgeStatusActive {
-		t.Errorf("Status = %v, want %v", result.Status, models.BadgeStatusActive)
+	if result.Payload.AgentStatus != string(models.TLStatusActive) {
+		t.Errorf("AgentStatus = %v, want %v", result.Payload.AgentStatus, models.TLStatusActive)
 	}
 }
 
-func TestHTTPTransparencyLogClient_FetchBadge_NotFound(t *testing.T) {
+func TestHTTPTransparencyLogClient_FetchTLResponse_NotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
 
 	client := NewHTTPTransparencyLogClient()
-	_, err := client.FetchBadge(context.Background(), server.URL+"/badge/missing")
+	_, err := client.FetchTLResponse(context.Background(), server.URL+"/badge/missing")
 	if err == nil {
-		t.Fatal("FetchBadge() expected error for 404")
+		t.Fatal("FetchTLResponse() expected error for 404")
 	}
 
 	var tlogErr *TlogError
@@ -148,16 +130,16 @@ func TestHTTPTransparencyLogClient_FetchBadge_NotFound(t *testing.T) {
 	}
 }
 
-func TestHTTPTransparencyLogClient_FetchBadge_ServerError(t *testing.T) {
+func TestHTTPTransparencyLogClient_FetchTLResponse_ServerError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
 
 	client := NewHTTPTransparencyLogClient()
-	_, err := client.FetchBadge(context.Background(), server.URL+"/badge/123")
+	_, err := client.FetchTLResponse(context.Background(), server.URL+"/badge/123")
 	if err == nil {
-		t.Fatal("FetchBadge() expected error for 500")
+		t.Fatal("FetchTLResponse() expected error for 500")
 	}
 
 	var tlogErr *TlogError
@@ -169,7 +151,7 @@ func TestHTTPTransparencyLogClient_FetchBadge_ServerError(t *testing.T) {
 	}
 }
 
-func TestHTTPTransparencyLogClient_FetchBadge_BadStatus(t *testing.T) {
+func TestHTTPTransparencyLogClient_FetchTLResponse_BadStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("bad request"))
@@ -177,9 +159,9 @@ func TestHTTPTransparencyLogClient_FetchBadge_BadStatus(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPTransparencyLogClient()
-	_, err := client.FetchBadge(context.Background(), server.URL+"/badge/123")
+	_, err := client.FetchTLResponse(context.Background(), server.URL+"/badge/123")
 	if err == nil {
-		t.Fatal("FetchBadge() expected error for 400")
+		t.Fatal("FetchTLResponse() expected error for 400")
 	}
 
 	var tlogErr *TlogError
@@ -191,7 +173,7 @@ func TestHTTPTransparencyLogClient_FetchBadge_BadStatus(t *testing.T) {
 	}
 }
 
-func TestHTTPTransparencyLogClient_FetchBadge_InvalidJSON(t *testing.T) {
+func TestHTTPTransparencyLogClient_FetchTLResponse_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte("not json"))
@@ -199,9 +181,9 @@ func TestHTTPTransparencyLogClient_FetchBadge_InvalidJSON(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPTransparencyLogClient()
-	_, err := client.FetchBadge(context.Background(), server.URL+"/badge/123")
+	_, err := client.FetchTLResponse(context.Background(), server.URL+"/badge/123")
 	if err == nil {
-		t.Fatal("FetchBadge() expected error for invalid JSON")
+		t.Fatal("FetchTLResponse() expected error for invalid JSON")
 	}
 
 	var tlogErr *TlogError
@@ -213,11 +195,11 @@ func TestHTTPTransparencyLogClient_FetchBadge_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestHTTPTransparencyLogClient_FetchBadge_ConnectionError(t *testing.T) {
+func TestHTTPTransparencyLogClient_FetchTLResponse_ConnectionError(t *testing.T) {
 	client := NewHTTPTransparencyLogClient()
-	_, err := client.FetchBadge(context.Background(), "http://localhost:1/badge/123")
+	_, err := client.FetchTLResponse(context.Background(), "http://localhost:1/badge/123")
 	if err == nil {
-		t.Fatal("FetchBadge() expected error for connection refused")
+		t.Fatal("FetchTLResponse() expected error for connection refused")
 	}
 
 	var tlogErr *TlogError

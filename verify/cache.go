@@ -9,8 +9,8 @@ import (
 )
 
 // RefreshFunc is called during background refresh for each expiring entry.
-// It receives the FQDN key and should return a fresh badge, or an error.
-type RefreshFunc func(ctx context.Context, fqdn string) (*models.Badge, error)
+// It receives the FQDN key and should return a fresh TL response, or an error.
+type RefreshFunc func(ctx context.Context, fqdn string) (*models.TLResponse, error)
 
 // Default cache configuration values.
 const (
@@ -42,11 +42,11 @@ func DefaultCacheConfig() CacheConfig {
 	}
 }
 
-// CachedBadge holds a cached badge with metadata.
+// CachedBadge holds a cached TL response with metadata.
 type CachedBadge struct {
-	// Badge is the cached badge.
-	Badge *models.Badge
-	// FetchedAt is when the badge was fetched.
+	// TLResponse is the cached TL response.
+	TLResponse *models.TLResponse
+	// FetchedAt is when the response was fetched.
 	FetchedAt time.Time
 	// ExpiresAt is when the cache entry expires.
 	ExpiresAt time.Time
@@ -136,8 +136,8 @@ func (c *BadgeCache) GetByFqdnVersion(fqdn models.Fqdn, version models.Version) 
 	return entry.badge, true
 }
 
-// Insert adds a badge to the cache by FQDN.
-func (c *BadgeCache) Insert(fqdn models.Fqdn, badge *models.Badge) {
+// Insert adds a TL response to the cache by FQDN.
+func (c *BadgeCache) Insert(fqdn models.Fqdn, tlResp *models.TLResponse) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -145,9 +145,9 @@ func (c *BadgeCache) Insert(fqdn models.Fqdn, badge *models.Badge) {
 	expiresAt := now.Add(c.config.DefaultTTL)
 
 	cached := &CachedBadge{
-		Badge:     badge,
-		FetchedAt: now,
-		ExpiresAt: expiresAt,
+		TLResponse: tlResp,
+		FetchedAt:  now,
+		ExpiresAt:  expiresAt,
 	}
 
 	c.byFqdn[fqdnKey(fqdn)] = &cacheEntry{
@@ -159,8 +159,8 @@ func (c *BadgeCache) Insert(fqdn models.Fqdn, badge *models.Badge) {
 	c.cleanupLocked()
 }
 
-// InsertForVersion adds a badge to the cache by FQDN and version.
-func (c *BadgeCache) InsertForVersion(fqdn models.Fqdn, version models.Version, badge *models.Badge) {
+// InsertForVersion adds a TL response to the cache by FQDN and version.
+func (c *BadgeCache) InsertForVersion(fqdn models.Fqdn, version models.Version, tlResp *models.TLResponse) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -168,9 +168,9 @@ func (c *BadgeCache) InsertForVersion(fqdn models.Fqdn, version models.Version, 
 	expiresAt := now.Add(c.config.DefaultTTL)
 
 	cached := &CachedBadge{
-		Badge:     badge,
-		FetchedAt: now,
-		ExpiresAt: expiresAt,
+		TLResponse: tlResp,
+		FetchedAt:  now,
+		ExpiresAt:  expiresAt,
 	}
 
 	c.byFqdnVer[fqdnVersionKey(fqdn, version)] = &cacheEntry{
@@ -262,16 +262,15 @@ func (c *BadgeCache) refreshExpiring(ctx context.Context, refreshFn RefreshFunc)
 	c.mu.RUnlock()
 
 	for _, key := range keysToRefresh {
-		badge, err := refreshFn(ctx, key)
+		tlResp, err := refreshFn(ctx, key)
 		if err != nil {
-			// Refresh errors don't evict entries — keep the old one
 			continue
 		}
 		fqdn, fqdnErr := models.NewFqdn(key)
 		if fqdnErr != nil {
 			continue
 		}
-		c.Insert(fqdn, badge)
+		c.Insert(fqdn, tlResp)
 	}
 }
 

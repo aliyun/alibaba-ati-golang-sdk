@@ -140,18 +140,12 @@ func TestServerVerifier_TlogError(t *testing.T) {
 }
 
 func TestServerVerifier_InvalidBadgeStatus(t *testing.T) {
-	badge := &models.Badge{
-		Status: models.BadgeStatusRevoked,
-		Payload: models.BadgePayload{
-			Producer: models.Producer{
-				Event: models.AgentEvent{
-					Agent: models.AgentInfo{Host: "test.example.com"},
-					Attestations: models.Attestations{
-						ServerCert: &models.CertAttestationV1{
-							Fingerprint: "SHA256:0000000000000000000000000000000000000000000000000000000000000000",
-						},
-					},
-				},
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			AgentStatus: string(models.TLStatusRevoked),
+			AgentHost:   "test.example.com",
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint: "SHA256:0000000000000000000000000000000000000000000000000000000000000000",
 			},
 		},
 	}
@@ -161,7 +155,7 @@ func TestServerVerifier_InvalidBadgeStatus(t *testing.T) {
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
-		WithBadge("https://tlog.example.com/badge/123", badge)
+		WithTLResponse("https://tlog.example.com/badge/123", tlResp)
 
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
@@ -179,18 +173,12 @@ func TestServerVerifier_InvalidBadgeStatus(t *testing.T) {
 }
 
 func TestServerVerifier_SuccessfulVerification(t *testing.T) {
-	badge := &models.Badge{
-		Status: models.BadgeStatusActive,
-		Payload: models.BadgePayload{
-			Producer: models.Producer{
-				Event: models.AgentEvent{
-					Agent: models.AgentInfo{Host: "test.example.com"},
-					Attestations: models.Attestations{
-						ServerCert: &models.CertAttestationV1{
-							Fingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
-						},
-					},
-				},
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			AgentStatus: string(models.TLStatusActive),
+			AgentHost:   "test.example.com",
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
 			},
 		},
 	}
@@ -200,7 +188,7 @@ func TestServerVerifier_SuccessfulVerification(t *testing.T) {
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
-		WithBadge("https://tlog.example.com/badge/123", badge)
+		WithTLResponse("https://tlog.example.com/badge/123", tlResp)
 
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
@@ -218,18 +206,12 @@ func TestServerVerifier_SuccessfulVerification(t *testing.T) {
 }
 
 func TestServerVerifier_CachedBadge(t *testing.T) {
-	badge := &models.Badge{
-		Status: models.BadgeStatusActive,
-		Payload: models.BadgePayload{
-			Producer: models.Producer{
-				Event: models.AgentEvent{
-					Agent: models.AgentInfo{Host: "test.example.com"},
-					Attestations: models.Attestations{
-						ServerCert: &models.CertAttestationV1{
-							Fingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
-						},
-					},
-				},
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			AgentStatus: string(models.TLStatusActive),
+			AgentHost:   "test.example.com",
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
 			},
 		},
 	}
@@ -239,7 +221,7 @@ func TestServerVerifier_CachedBadge(t *testing.T) {
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
-		WithBadge("https://tlog.example.com/badge/123", badge)
+		WithTLResponse("https://tlog.example.com/badge/123", tlResp)
 
 	cache := NewBadgeCache(CacheConfig{MaxEntries: 100, DefaultTTL: 5 * time.Minute})
 	v := NewServerVerifier(
@@ -267,14 +249,18 @@ func TestServerVerifier_CachedBadge(t *testing.T) {
 }
 
 func TestServerVerifier_Prefetch_WithCache(t *testing.T) {
-	badge := &models.Badge{Status: models.BadgeStatusActive}
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			AgentStatus: string(models.TLStatusActive),
+		},
+	}
 
 	mockDNS := NewMockDNSResolver().
 		WithRecords("test.example.com", []ATIBadgeRecord{
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
-		WithBadge("https://tlog.example.com/badge/123", badge)
+		WithTLResponse("https://tlog.example.com/badge/123", tlResp)
 
 	cache := NewBadgeCache(DefaultCacheConfig())
 	v := NewServerVerifier(
@@ -307,18 +293,12 @@ func TestServerVerifier_Prefetch_Error(t *testing.T) {
 }
 
 func TestServerVerifier_HostnameMismatch_BadgeHost(t *testing.T) {
-	badge := &models.Badge{
-		Status: models.BadgeStatusActive,
-		Payload: models.BadgePayload{
-			Producer: models.Producer{
-				Event: models.AgentEvent{
-					Agent: models.AgentInfo{Host: "other.example.com"},
-					Attestations: models.Attestations{
-						ServerCert: &models.CertAttestationV1{
-							Fingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
-						},
-					},
-				},
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			AgentStatus: string(models.TLStatusActive),
+			AgentHost:   "other.example.com",
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
 			},
 		},
 	}
@@ -328,7 +308,7 @@ func TestServerVerifier_HostnameMismatch_BadgeHost(t *testing.T) {
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
-		WithBadge("https://tlog.example.com/badge/123", badge)
+		WithTLResponse("https://tlog.example.com/badge/123", tlResp)
 
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
@@ -346,18 +326,12 @@ func TestServerVerifier_HostnameMismatch_BadgeHost(t *testing.T) {
 }
 
 func TestServerVerifier_FingerprintMismatch_BadgeCert(t *testing.T) {
-	badge := &models.Badge{
-		Status: models.BadgeStatusActive,
-		Payload: models.BadgePayload{
-			Producer: models.Producer{
-				Event: models.AgentEvent{
-					Agent: models.AgentInfo{Host: "test.example.com"},
-					Attestations: models.Attestations{
-						ServerCert: &models.CertAttestationV1{
-							Fingerprint: "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-						},
-					},
-				},
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			AgentStatus: string(models.TLStatusActive),
+			AgentHost:   "test.example.com",
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint: "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
 		},
 	}
@@ -367,7 +341,7 @@ func TestServerVerifier_FingerprintMismatch_BadgeCert(t *testing.T) {
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
-		WithBadge("https://tlog.example.com/badge/123", badge)
+		WithTLResponse("https://tlog.example.com/badge/123", tlResp)
 
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
@@ -385,18 +359,12 @@ func TestServerVerifier_FingerprintMismatch_BadgeCert(t *testing.T) {
 }
 
 func TestServerVerifier_DeprecatedBadge(t *testing.T) {
-	badge := &models.Badge{
-		Status: models.BadgeStatusDeprecated,
-		Payload: models.BadgePayload{
-			Producer: models.Producer{
-				Event: models.AgentEvent{
-					Agent: models.AgentInfo{Host: "test.example.com"},
-					Attestations: models.Attestations{
-						ServerCert: &models.CertAttestationV1{
-							Fingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
-						},
-					},
-				},
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			AgentStatus: string(models.TLStatusDeprecated),
+			AgentHost:   "test.example.com",
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
 			},
 		},
 	}
@@ -406,7 +374,7 @@ func TestServerVerifier_DeprecatedBadge(t *testing.T) {
 			{URL: "https://tlog.example.com/badge/123"},
 		})
 	mockTlog := NewMockTransparencyLogClient().
-		WithBadge("https://tlog.example.com/badge/123", badge)
+		WithTLResponse("https://tlog.example.com/badge/123", tlResp)
 
 	v := NewServerVerifier(
 		WithDNSResolver(mockDNS),
@@ -446,19 +414,13 @@ func TestServerVerifier_URLValidation(t *testing.T) {
 
 func TestClientVerifier_SuccessfulVerification(t *testing.T) {
 	version, _ := models.ParseVersion("v1.0.0")
-	badge := &models.Badge{
-		Status: models.BadgeStatusActive,
-		Payload: models.BadgePayload{
-			Producer: models.Producer{
-				Event: models.AgentEvent{
-					ATIName: "ati://v1.0.0.test.example.com",
-					Agent:   models.AgentInfo{Host: "test.example.com"},
-					Attestations: models.Attestations{
-						IdentityCert: &models.CertAttestationV1{
-							Fingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
-						},
-					},
-				},
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			AgentStatus: string(models.TLStatusActive),
+			AgentName:   "ati://v1.0.0.test.example.com",
+			AgentHost:   "test.example.com",
+			Certificates: models.TLCertificates{
+				IdentityCertFingerprint: "SHA256:0102030000000000000000000000000000000000000000000000000000000000",
 			},
 		},
 	}
@@ -468,7 +430,7 @@ func TestClientVerifier_SuccessfulVerification(t *testing.T) {
 			{URL: "https://tlog.example.com/badge/123", Version: &version},
 		})
 	mockTlog := NewMockTransparencyLogClient().
-		WithBadge("https://tlog.example.com/badge/123", badge)
+		WithTLResponse("https://tlog.example.com/badge/123", tlResp)
 
 	v := NewClientVerifier(
 		WithDNSResolver(mockDNS),
@@ -493,19 +455,13 @@ func TestClientVerifier_SuccessfulVerification(t *testing.T) {
 
 func TestClientVerifier_IdentityFingerprintMismatch(t *testing.T) {
 	version, _ := models.ParseVersion("v1.0.0")
-	badge := &models.Badge{
-		Status: models.BadgeStatusActive,
-		Payload: models.BadgePayload{
-			Producer: models.Producer{
-				Event: models.AgentEvent{
-					ATIName: "ati://v1.0.0.test.example.com",
-					Agent:   models.AgentInfo{Host: "test.example.com"},
-					Attestations: models.Attestations{
-						IdentityCert: &models.CertAttestationV1{
-							Fingerprint: "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-						},
-					},
-				},
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			AgentStatus: string(models.TLStatusActive),
+			AgentName:   "ati://v1.0.0.test.example.com",
+			AgentHost:   "test.example.com",
+			Certificates: models.TLCertificates{
+				IdentityCertFingerprint: "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
 		},
 	}
@@ -515,7 +471,7 @@ func TestClientVerifier_IdentityFingerprintMismatch(t *testing.T) {
 			{URL: "https://tlog.example.com/badge/123", Version: &version},
 		})
 	mockTlog := NewMockTransparencyLogClient().
-		WithBadge("https://tlog.example.com/badge/123", badge)
+		WithTLResponse("https://tlog.example.com/badge/123", tlResp)
 
 	v := NewClientVerifier(
 		WithDNSResolver(mockDNS),

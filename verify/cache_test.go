@@ -10,29 +10,14 @@ import (
 )
 
 func TestBadgeCache(t *testing.T) {
-	badge := &models.Badge{
-		Status:        models.BadgeStatusActive,
+	badge := &models.TLResponse{
+		Status:        string(models.TLStatusActive),
 		SchemaVersion: "V1",
-		Payload: models.BadgePayload{
-			LogID: "test-log-id",
-			Producer: models.Producer{
-				KeyID:     "test-key",
-				Signature: "test-sig",
-				Event: models.AgentEvent{
-					ATIID:   "test-ati-id",
-					ATIName: "ati://v1.0.0.agent.example.com",
-					Agent: models.AgentInfo{
-						Host:    "agent.example.com",
-						Name:    "Test Agent",
-						Version: "v1.0.0",
-					},
-					Attestations: models.Attestations{
-						DomainValidation: "ACME-DNS-01",
-					},
-					IssuedAt:  time.Now(),
-					Timestamp: time.Now(),
-				},
-			},
+		Payload: models.TLPayload{
+			LogID:     "test-log-id",
+			AgentHost: "agent.example.com",
+			AgentName: "Test Agent",
+			Version:   "v1.0.0",
 		},
 	}
 
@@ -59,8 +44,8 @@ func TestBadgeCache(t *testing.T) {
 		if cached == nil {
 			t.Fatal("GetByFqdn() returned nil after Insert")
 		}
-		if cached.Badge.AgentHost() != "agent.example.com" {
-			t.Errorf("Badge.AgentHost() = %q, want agent.example.com", cached.Badge.AgentHost())
+		if cached.TLResponse.Payload.AgentHost != "agent.example.com" {
+			t.Errorf("TLResponse.Payload.AgentHost = %q, want agent.example.com", cached.TLResponse.Payload.AgentHost)
 		}
 	})
 
@@ -157,29 +142,14 @@ func TestBadgeCache(t *testing.T) {
 }
 
 func TestBadgeCache_GetStaleByFqdn(t *testing.T) {
-	badge := &models.Badge{
-		Status:        models.BadgeStatusActive,
+	badge := &models.TLResponse{
+		Status:        string(models.TLStatusActive),
 		SchemaVersion: "V1",
-		Payload: models.BadgePayload{
-			LogID: "test-log-id",
-			Producer: models.Producer{
-				KeyID:     "test-key",
-				Signature: "test-sig",
-				Event: models.AgentEvent{
-					ATIID:   "test-ati-id",
-					ATIName: "ati://v1.0.0.agent.example.com",
-					Agent: models.AgentInfo{
-						Host:    "agent.example.com",
-						Name:    "Test Agent",
-						Version: "v1.0.0",
-					},
-					Attestations: models.Attestations{
-						DomainValidation: "ACME-DNS-01",
-					},
-					IssuedAt:  time.Now(),
-					Timestamp: time.Now(),
-				},
-			},
+		Payload: models.TLPayload{
+			LogID:     "test-log-id",
+			AgentHost: "agent.example.com",
+			AgentName: "Test Agent",
+			Version:   "v1.0.0",
 		},
 	}
 
@@ -206,8 +176,8 @@ func TestBadgeCache_GetStaleByFqdn(t *testing.T) {
 		if !ok {
 			t.Fatal("GetStaleByFqdn() returned false, want true")
 		}
-		if cached.Badge.AgentHost() != "agent.example.com" {
-			t.Errorf("Badge.AgentHost() = %q, want agent.example.com", cached.Badge.AgentHost())
+		if cached.TLResponse.Payload.AgentHost != "agent.example.com" {
+			t.Errorf("TLResponse.Payload.AgentHost = %q, want agent.example.com", cached.TLResponse.Payload.AgentHost)
 		}
 	})
 
@@ -245,8 +215,8 @@ func TestBadgeCache_GetStaleByFqdn(t *testing.T) {
 		if !ok {
 			t.Fatal("GetStaleByFqdnVersion() returned false, want true")
 		}
-		if cached.Badge.AgentHost() != "agent.example.com" {
-			t.Errorf("Badge.AgentHost() = %q, want agent.example.com", cached.Badge.AgentHost())
+		if cached.TLResponse.Payload.AgentHost != "agent.example.com" {
+			t.Errorf("TLResponse.Payload.AgentHost = %q, want agent.example.com", cached.TLResponse.Payload.AgentHost)
 		}
 	})
 }
@@ -261,57 +231,31 @@ func TestBadgeCache_BackgroundRefresh(t *testing.T) {
 		cache := NewBadgeCache(config)
 
 		fqdn, _ := models.NewFqdn("agent.example.com")
-		oldBadge := &models.Badge{
-			Status:        models.BadgeStatusActive,
+		oldBadge := &models.TLResponse{
+			Status:        string(models.TLStatusActive),
 			SchemaVersion: "V1",
-			Payload: models.BadgePayload{
-				LogID: "old-log-id",
-				Producer: models.Producer{
-					KeyID:     "test-key",
-					Signature: "test-sig",
-					Event: models.AgentEvent{
-						ATIID:   "test-ati-id",
-						ATIName: "ati://v1.0.0.agent.example.com",
-						Agent: models.AgentInfo{
-							Host:    "agent.example.com",
-							Name:    "Old Agent",
-							Version: "v1.0.0",
-						},
-						Attestations: models.Attestations{DomainValidation: "ACME-DNS-01"},
-						IssuedAt:     time.Now(),
-						Timestamp:    time.Now(),
-					},
-				},
+			Payload: models.TLPayload{
+				LogID:     "old-log-id",
+				AgentHost: "agent.example.com",
+				AgentName: "Old Agent",
+				Version:   "v1.0.0",
 			},
 		}
 		cache.Insert(fqdn, oldBadge)
 
-		newBadge := &models.Badge{
-			Status:        models.BadgeStatusActive,
+		newBadge := &models.TLResponse{
+			Status:        string(models.TLStatusActive),
 			SchemaVersion: "V1",
-			Payload: models.BadgePayload{
-				LogID: "new-log-id",
-				Producer: models.Producer{
-					KeyID:     "test-key",
-					Signature: "test-sig",
-					Event: models.AgentEvent{
-						ATIID:   "test-ati-id",
-						ATIName: "ati://v1.0.0.agent.example.com",
-						Agent: models.AgentInfo{
-							Host:    "agent.example.com",
-							Name:    "New Agent",
-							Version: "v1.0.0",
-						},
-						Attestations: models.Attestations{DomainValidation: "ACME-DNS-01"},
-						IssuedAt:     time.Now(),
-						Timestamp:    time.Now(),
-					},
-				},
+			Payload: models.TLPayload{
+				LogID:     "new-log-id",
+				AgentHost: "agent.example.com",
+				AgentName: "New Agent",
+				Version:   "v1.0.0",
 			},
 		}
 
 		refreshCalled := make(chan struct{}, 1)
-		refreshFn := func(_ context.Context, _ string) (*models.Badge, error) {
+		refreshFn := func(_ context.Context, _ string) (*models.TLResponse, error) {
 			select {
 			case refreshCalled <- struct{}{}:
 			default:
@@ -349,9 +293,9 @@ func TestBadgeCache_BackgroundRefresh(t *testing.T) {
 		cache := NewBadgeCache(config)
 
 		var callCount atomic.Int32
-		refreshFn := func(_ context.Context, _ string) (*models.Badge, error) {
+		refreshFn := func(_ context.Context, _ string) (*models.TLResponse, error) {
 			callCount.Add(1)
-			return &models.Badge{}, nil
+			return &models.TLResponse{}, nil
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -379,33 +323,20 @@ func TestBadgeCache_BackgroundRefresh(t *testing.T) {
 		cache := NewBadgeCache(config)
 
 		fqdn, _ := models.NewFqdn("agent.example.com")
-		badge := &models.Badge{
-			Status:        models.BadgeStatusActive,
+		badge := &models.TLResponse{
+			Status:        string(models.TLStatusActive),
 			SchemaVersion: "V1",
-			Payload: models.BadgePayload{
-				LogID: "test-log-id",
-				Producer: models.Producer{
-					KeyID:     "test-key",
-					Signature: "test-sig",
-					Event: models.AgentEvent{
-						ATIID:   "test-ati-id",
-						ATIName: "ati://v1.0.0.agent.example.com",
-						Agent: models.AgentInfo{
-							Host:    "agent.example.com",
-							Name:    "Test Agent",
-							Version: "v1.0.0",
-						},
-						Attestations: models.Attestations{DomainValidation: "ACME-DNS-01"},
-						IssuedAt:     time.Now(),
-						Timestamp:    time.Now(),
-					},
-				},
+			Payload: models.TLPayload{
+				LogID:     "test-log-id",
+				AgentHost: "agent.example.com",
+				AgentName: "Test Agent",
+				Version:   "v1.0.0",
 			},
 		}
 		cache.Insert(fqdn, badge)
 
 		// Refresh function that always errors
-		refreshFn := func(_ context.Context, _ string) (*models.Badge, error) {
+		refreshFn := func(_ context.Context, _ string) (*models.TLResponse, error) {
 			return nil, &TlogError{Type: TlogErrorServiceUnavailable, URL: "test"}
 		}
 
@@ -423,7 +354,7 @@ func TestBadgeCache_BackgroundRefresh(t *testing.T) {
 		if !ok {
 			t.Error("Entry was evicted despite refresh error")
 		}
-		if cached.Badge.Payload.LogID != "test-log-id" {
+		if cached.TLResponse.Payload.LogID != "test-log-id" {
 			t.Error("Entry was modified despite refresh error")
 		}
 	})
@@ -506,7 +437,7 @@ func TestBadgeCache_GetByFqdnVersion_Additional(t *testing.T) {
 
 	fqdn, _ := models.NewFqdn("test.example.com")
 	version := models.NewVersion(1, 0, 0)
-	badge := &models.Badge{Status: models.BadgeStatusActive}
+	badge := &models.TLResponse{Status: string(models.TLStatusActive)}
 
 	// Should return nil before insertion
 	if _, ok := cache.GetByFqdnVersion(fqdn, version); ok {
@@ -519,7 +450,7 @@ func TestBadgeCache_GetByFqdnVersion_Additional(t *testing.T) {
 	if !ok {
 		t.Fatal("GetByFqdnVersion() should return true after insert")
 	}
-	if cached.Badge != badge {
+	if cached.TLResponse != badge {
 		t.Error("GetByFqdnVersion() returned different badge")
 	}
 
@@ -537,7 +468,7 @@ func TestBadgeCache_GetByFqdn_Expired(t *testing.T) {
 	})
 
 	fqdn, _ := models.NewFqdn("test.example.com")
-	badge := &models.Badge{Status: models.BadgeStatusActive}
+	badge := &models.TLResponse{Status: string(models.TLStatusActive)}
 
 	cache.Insert(fqdn, badge)
 
@@ -557,7 +488,7 @@ func TestBadgeCache_GetByFqdnVersion_Expired(t *testing.T) {
 
 	fqdn, _ := models.NewFqdn("test.example.com")
 	version := models.NewVersion(1, 0, 0)
-	badge := &models.Badge{Status: models.BadgeStatusActive}
+	badge := &models.TLResponse{Status: string(models.TLStatusActive)}
 
 	cache.InsertForVersion(fqdn, version, badge)
 
@@ -576,7 +507,7 @@ func TestBadgeCache_GetStaleByFqdn_Additional(t *testing.T) {
 	})
 
 	fqdn, _ := models.NewFqdn("stale.example.com")
-	badge := &models.Badge{Status: models.BadgeStatusActive}
+	badge := &models.TLResponse{Status: string(models.TLStatusActive)}
 
 	cache.Insert(fqdn, badge)
 	time.Sleep(5 * time.Millisecond)
@@ -591,7 +522,7 @@ func TestBadgeCache_GetStaleByFqdn_Additional(t *testing.T) {
 	if !ok {
 		t.Fatal("GetStaleByFqdn() should return true for stale entry within window")
 	}
-	if cached.Badge != badge {
+	if cached.TLResponse != badge {
 		t.Error("GetStaleByFqdn() returned different badge")
 	}
 
@@ -616,7 +547,7 @@ func TestBadgeCache_GetStaleByFqdnVersion_Additional(t *testing.T) {
 
 	fqdn, _ := models.NewFqdn("test.example.com")
 	version := models.NewVersion(1, 0, 0)
-	badge := &models.Badge{Status: models.BadgeStatusActive}
+	badge := &models.TLResponse{Status: string(models.TLStatusActive)}
 
 	cache.InsertForVersion(fqdn, version, badge)
 	time.Sleep(5 * time.Millisecond)
@@ -626,7 +557,7 @@ func TestBadgeCache_GetStaleByFqdnVersion_Additional(t *testing.T) {
 	if !ok {
 		t.Fatal("GetStaleByFqdnVersion() should return true for stale entry within window")
 	}
-	if cached.Badge != badge {
+	if cached.TLResponse != badge {
 		t.Error("GetStaleByFqdnVersion() returned different badge")
 	}
 
@@ -649,7 +580,7 @@ func TestBadgeCache_Clear_Additional(t *testing.T) {
 	})
 
 	fqdn, _ := models.NewFqdn("test.example.com")
-	badge := &models.Badge{Status: models.BadgeStatusActive}
+	badge := &models.TLResponse{Status: string(models.TLStatusActive)}
 	version := models.NewVersion(1, 0, 0)
 
 	cache.Insert(fqdn, badge)
@@ -675,7 +606,7 @@ func TestBadgeCache_CleanupOverMaxEntries(t *testing.T) {
 	// Insert more than max entries
 	for i := range 5 {
 		fqdn, _ := models.NewFqdn("test" + string(rune('a'+i)) + ".example.com")
-		cache.Insert(fqdn, &models.Badge{Status: models.BadgeStatusActive})
+		cache.Insert(fqdn, &models.TLResponse{Status: string(models.TLStatusActive)})
 	}
 
 	// After cleanup, total should be <= MaxEntries
@@ -694,13 +625,13 @@ func TestBadgeCache_BackgroundRefresh_Additional(t *testing.T) {
 	})
 
 	fqdn, _ := models.NewFqdn("test.example.com")
-	badge := &models.Badge{Status: models.BadgeStatusActive}
+	badge := &models.TLResponse{Status: string(models.TLStatusActive)}
 	cache.Insert(fqdn, badge)
 
 	var refreshed atomic.Bool
-	refreshFn := func(_ context.Context, _ string) (*models.Badge, error) {
+	refreshFn := func(_ context.Context, _ string) (*models.TLResponse, error) {
 		refreshed.Store(true)
-		return &models.Badge{Status: models.BadgeStatusActive}, nil
+		return &models.TLResponse{Status: string(models.TLStatusActive)}, nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -760,26 +691,14 @@ func TestBadgeCache_CleanupLocked_StaleRetention(t *testing.T) {
 	}
 	cache := NewBadgeCache(config)
 	fqdn, _ := models.NewFqdn("cleanup.example.com")
-	badge := &models.Badge{
-		Status:        models.BadgeStatusActive,
+	badge := &models.TLResponse{
+		Status:        string(models.TLStatusActive),
 		SchemaVersion: "V1",
-		Payload: models.BadgePayload{
-			LogID: "test-log",
-			Producer: models.Producer{
-				KeyID:     "k",
-				Signature: "s",
-				Event: models.AgentEvent{
-					ATIID:   "id",
-					ATIName: "ati://v1.0.0.cleanup.example.com",
-					Agent: models.AgentInfo{
-						Host:    "cleanup.example.com",
-						Name:    "Test",
-						Version: "v1.0.0",
-					},
-					IssuedAt:  time.Now(),
-					Timestamp: time.Now(),
-				},
-			},
+		Payload: models.TLPayload{
+			LogID:     "test-log",
+			AgentHost: "cleanup.example.com",
+			AgentName: "Test",
+			Version:   "v1.0.0",
 		},
 	}
 
@@ -799,7 +718,7 @@ func TestBadgeCache_CleanupLocked_StaleRetention(t *testing.T) {
 	if !ok {
 		t.Fatal("GetStaleByFqdn() should return true within stale retention")
 	}
-	if cached.Badge.Payload.LogID != "test-log" {
+	if cached.TLResponse.Payload.LogID != "test-log" {
 		t.Error("Stale entry badge should be intact")
 	}
 
@@ -825,26 +744,14 @@ func TestBadgeCache_CleanupLocked_MaxEntriesEviction(t *testing.T) {
 	}
 	cache := NewBadgeCache(config)
 
-	badge := &models.Badge{
-		Status:        models.BadgeStatusActive,
+	badge := &models.TLResponse{
+		Status:        string(models.TLStatusActive),
 		SchemaVersion: "V1",
-		Payload: models.BadgePayload{
-			LogID: "test",
-			Producer: models.Producer{
-				KeyID:     "k",
-				Signature: "s",
-				Event: models.AgentEvent{
-					ATIID:   "id",
-					ATIName: "ati://v1.0.0.test.example.com",
-					Agent: models.AgentInfo{
-						Host:    "test.example.com",
-						Name:    "Test",
-						Version: "v1.0.0",
-					},
-					IssuedAt:  time.Now(),
-					Timestamp: time.Now(),
-				},
-			},
+		Payload: models.TLPayload{
+			LogID:     "test",
+			AgentHost: "test.example.com",
+			AgentName: "Test",
+			Version:   "v1.0.0",
 		},
 	}
 
@@ -872,26 +779,14 @@ func TestBadgeCache_CleanupLocked_VersionedEntries(t *testing.T) {
 	}
 	cache := NewBadgeCache(config)
 
-	badge := &models.Badge{
-		Status:        models.BadgeStatusActive,
+	badge := &models.TLResponse{
+		Status:        string(models.TLStatusActive),
 		SchemaVersion: "V1",
-		Payload: models.BadgePayload{
-			LogID: "test",
-			Producer: models.Producer{
-				KeyID:     "k",
-				Signature: "s",
-				Event: models.AgentEvent{
-					ATIID:   "id",
-					ATIName: "ati://v1.0.0.ver.example.com",
-					Agent: models.AgentInfo{
-						Host:    "ver.example.com",
-						Name:    "Test",
-						Version: "v1.0.0",
-					},
-					IssuedAt:  time.Now(),
-					Timestamp: time.Now(),
-				},
-			},
+		Payload: models.TLPayload{
+			LogID:     "test",
+			AgentHost: "ver.example.com",
+			AgentName: "Test",
+			Version:   "v1.0.0",
 		},
 	}
 
@@ -922,26 +817,14 @@ func TestBadgeCache_CleanupLocked_MaxEntriesEviction_VersionedOverflow(t *testin
 	}
 	cache := NewBadgeCache(config)
 
-	badge := &models.Badge{
-		Status:        models.BadgeStatusActive,
+	badge := &models.TLResponse{
+		Status:        string(models.TLStatusActive),
 		SchemaVersion: "V1",
-		Payload: models.BadgePayload{
-			LogID: "test",
-			Producer: models.Producer{
-				KeyID:     "k",
-				Signature: "s",
-				Event: models.AgentEvent{
-					ATIID:   "id",
-					ATIName: "ati://v1.0.0.test.example.com",
-					Agent: models.AgentInfo{
-						Host:    "test.example.com",
-						Name:    "Test",
-						Version: "v1.0.0",
-					},
-					IssuedAt:  time.Now(),
-					Timestamp: time.Now(),
-				},
-			},
+		Payload: models.TLPayload{
+			LogID:     "test",
+			AgentHost: "test.example.com",
+			AgentName: "Test",
+			Version:   "v1.0.0",
 		},
 	}
 

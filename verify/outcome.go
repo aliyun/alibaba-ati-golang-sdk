@@ -72,16 +72,16 @@ type VerificationOutcome struct {
 	Type OutcomeType
 	// Tier indicates the SCITT verification level achieved (defaults to TierBadgeOnly).
 	Tier VerificationTier
-	// Badge is the badge if verification partially completed (may be nil).
-	Badge *models.Badge
+	// TLResponse is the TL response if verification partially completed (may be nil).
+	TLResponse *models.TLResponse
 	// MatchedFingerprint is the fingerprint that matched (for successful verification).
 	MatchedFingerprint *CertFingerprint
 	// Expected is the expected value for mismatch errors.
 	Expected string
 	// Actual is the actual value for mismatch errors.
 	Actual string
-	// Status is the badge status for invalid status errors.
-	Status models.BadgeStatus
+	// Status is the agent status for invalid status errors.
+	Status models.TLAgentStatus
 	// Host is the hostname being verified (for error context).
 	Host string
 	// Error is the underlying error if any.
@@ -93,10 +93,10 @@ type VerificationOutcome struct {
 }
 
 // NewVerifiedOutcome creates a successful verification outcome.
-func NewVerifiedOutcome(badge *models.Badge, fingerprint CertFingerprint) *VerificationOutcome {
+func NewVerifiedOutcome(tlResp *models.TLResponse, fingerprint CertFingerprint) *VerificationOutcome {
 	return &VerificationOutcome{
 		Type:               OutcomeVerified,
-		Badge:              badge,
+		TLResponse:         tlResp,
 		MatchedFingerprint: &fingerprint,
 	}
 }
@@ -110,41 +110,41 @@ func NewNotATIAgentOutcome(host string) *VerificationOutcome {
 }
 
 // NewInvalidStatusOutcome creates an invalid status outcome.
-func NewInvalidStatusOutcome(badge *models.Badge, status models.BadgeStatus) *VerificationOutcome {
+func NewInvalidStatusOutcome(tlResp *models.TLResponse, status models.TLAgentStatus) *VerificationOutcome {
 	return &VerificationOutcome{
-		Type:   OutcomeInvalidStatus,
-		Badge:  badge,
-		Status: status,
+		Type:       OutcomeInvalidStatus,
+		TLResponse: tlResp,
+		Status:     status,
 	}
 }
 
 // NewFingerprintMismatchOutcome creates a fingerprint mismatch outcome.
-func NewFingerprintMismatchOutcome(badge *models.Badge, expected, actual string) *VerificationOutcome {
+func NewFingerprintMismatchOutcome(tlResp *models.TLResponse, expected, actual string) *VerificationOutcome {
 	return &VerificationOutcome{
-		Type:     OutcomeFingerprintMismatch,
-		Badge:    badge,
-		Expected: expected,
-		Actual:   actual,
+		Type:       OutcomeFingerprintMismatch,
+		TLResponse: tlResp,
+		Expected:   expected,
+		Actual:     actual,
 	}
 }
 
 // NewHostnameMismatchOutcome creates a hostname mismatch outcome.
-func NewHostnameMismatchOutcome(badge *models.Badge, expected, actual string) *VerificationOutcome {
+func NewHostnameMismatchOutcome(tlResp *models.TLResponse, expected, actual string) *VerificationOutcome {
 	return &VerificationOutcome{
-		Type:     OutcomeHostnameMismatch,
-		Badge:    badge,
-		Expected: expected,
-		Actual:   actual,
+		Type:       OutcomeHostnameMismatch,
+		TLResponse: tlResp,
+		Expected:   expected,
+		Actual:     actual,
 	}
 }
 
 // NewATINameMismatchOutcome creates an ANS name mismatch outcome.
-func NewATINameMismatchOutcome(badge *models.Badge, expected, actual string) *VerificationOutcome {
+func NewATINameMismatchOutcome(tlResp *models.TLResponse, expected, actual string) *VerificationOutcome {
 	return &VerificationOutcome{
-		Type:     OutcomeATINameMismatch,
-		Badge:    badge,
-		Expected: expected,
-		Actual:   actual,
+		Type:       OutcomeATINameMismatch,
+		TLResponse: tlResp,
+		Expected:   expected,
+		Actual:     actual,
 	}
 }
 
@@ -181,10 +181,10 @@ func NewFailOpenOutcome(err error) *VerificationOutcome {
 }
 
 // NewDANERejectionOutcome creates a DANE rejection outcome.
-func NewDANERejectionOutcome(badge *models.Badge, daneOutcome *DANEOutcome) *VerificationOutcome {
+func NewDANERejectionOutcome(tlResp *models.TLResponse, daneOutcome *DANEOutcome) *VerificationOutcome {
 	return &VerificationOutcome{
 		Type:        OutcomeDANERejection,
-		Badge:       badge,
+		TLResponse:  tlResp,
 		Error:       daneOutcome.Error,
 		DANEOutcome: daneOutcome,
 	}

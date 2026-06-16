@@ -13,37 +13,21 @@ import (
 	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify/scitt"
 )
 
-func createTestBadge(host, version, serverFP, identityFP string) *models.Badge {
-	return &models.Badge{
-		Status:        models.BadgeStatusActive,
+func createTestTLResponse(host, version, serverFP, identityFP string) *models.TLResponse {
+	return &models.TLResponse{
+		Status:        string(models.TLStatusActive),
 		SchemaVersion: "V1",
-		Payload: models.BadgePayload{
-			LogID: "test-log-id",
-			Producer: models.Producer{
-				KeyID:     "test-key",
-				Signature: "test-sig",
-				Event: models.AgentEvent{
-					ATIID:   "test-ati-id",
-					ATIName: "ati://" + version + "." + host,
-					Agent: models.AgentInfo{
-						Host:    host,
-						Name:    "Test Agent",
-						Version: version,
-					},
-					Attestations: models.Attestations{
-						DomainValidation: "ACME-DNS-01",
-						ServerCert: &models.CertAttestationV1{
-							Fingerprint: serverFP,
-							Type:        "X509-DV-SERVER",
-						},
-						IdentityCert: &models.CertAttestationV1{
-							Fingerprint: identityFP,
-							Type:        "X509-OV-CLIENT",
-						},
-					},
-					IssuedAt:  time.Now(),
-					Timestamp: time.Now(),
-				},
+		Payload: models.TLPayload{
+			LogID:            "test-log-id",
+			AgentID:          "test-ati-id",
+			AgentName:        "ati://" + version + "." + host,
+			AgentDisplayName: "Test Agent",
+			AgentHost:        host,
+			Version:          version,
+			AgentStatus:      string(models.TLStatusActive),
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint:   serverFP,
+				IdentityCertFingerprint: identityFP,
 			},
 		},
 	}
@@ -68,7 +52,7 @@ func TestServerVerifier_Success(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -81,7 +65,7 @@ func TestServerVerifier_Success(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
@@ -97,8 +81,8 @@ func TestServerVerifier_Success(t *testing.T) {
 	if !outcome.IsSuccess() {
 		t.Errorf("Verify() failed: %v", outcome.Type)
 	}
-	if outcome.Badge == nil {
-		t.Error("Verify() Badge is nil")
+	if outcome.TLResponse == nil {
+		t.Error("Verify() TLResponse is nil")
 	}
 	if outcome.MatchedFingerprint == nil {
 		t.Error("Verify() MatchedFingerprint is nil")
@@ -130,7 +114,7 @@ func TestServerVerifier_FingerprintMismatch(t *testing.T) {
 	badgeFP := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	certFP := "SHA256:0000000000000000000000000000000000000000000000000000000000000000"
 
-	badge := createTestBadge(host, "v1.0.0", badgeFP, "SHA256:aaa")
+	badge := createTestTLResponse(host, "v1.0.0", badgeFP, "SHA256:aaa")
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -143,7 +127,7 @@ func TestServerVerifier_FingerprintMismatch(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
@@ -159,8 +143,8 @@ func TestServerVerifier_FingerprintMismatch(t *testing.T) {
 	if outcome.Type != OutcomeFingerprintMismatch {
 		t.Errorf("Verify() expected FingerprintMismatch, got %v", outcome.Type)
 	}
-	if outcome.Badge == nil {
-		t.Error("Verify() Badge should not be nil for FingerprintMismatch")
+	if outcome.TLResponse == nil {
+		t.Error("Verify() TLResponse should not be nil for FingerprintMismatch")
 	}
 }
 
@@ -168,8 +152,8 @@ func TestServerVerifier_InvalidStatus(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Status = models.BadgeStatusRevoked
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge.Payload.AgentStatus = string(models.TLStatusRevoked)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -182,7 +166,7 @@ func TestServerVerifier_InvalidStatus(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
@@ -198,7 +182,7 @@ func TestServerVerifier_InvalidStatus(t *testing.T) {
 	if outcome.Type != OutcomeInvalidStatus {
 		t.Errorf("Verify() expected InvalidStatus, got %v", outcome.Type)
 	}
-	if outcome.Status != models.BadgeStatusRevoked {
+	if outcome.Status != models.TLStatusRevoked {
 		t.Errorf("Verify() Status = %v, want Revoked", outcome.Status)
 	}
 }
@@ -207,8 +191,8 @@ func TestServerVerifier_WarningStatus(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Status = models.BadgeStatusWarning
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge.Payload.AgentStatus = string(models.TLStatusWarning)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -220,7 +204,7 @@ func TestServerVerifier_WarningStatus(t *testing.T) {
 	dnsResolver := NewMockDNSResolver().
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
@@ -236,8 +220,8 @@ func TestServerVerifier_WarningStatus(t *testing.T) {
 	if !outcome.IsSuccess() {
 		t.Errorf("Verify() with WARNING badge failed: %v", outcome.Type)
 	}
-	if outcome.Badge == nil {
-		t.Error("Verify() Badge is nil")
+	if outcome.TLResponse == nil {
+		t.Error("Verify() TLResponse is nil")
 	}
 	if outcome.MatchedFingerprint == nil {
 		t.Error("Verify() MatchedFingerprint is nil")
@@ -248,8 +232,8 @@ func TestServerVerifier_ExpiredStatus(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Status = models.BadgeStatusExpired
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge.Payload.AgentStatus = string(models.TLStatusExpired)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -261,7 +245,7 @@ func TestServerVerifier_ExpiredStatus(t *testing.T) {
 	dnsResolver := NewMockDNSResolver().
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
@@ -277,7 +261,7 @@ func TestServerVerifier_ExpiredStatus(t *testing.T) {
 	if outcome.Type != OutcomeInvalidStatus {
 		t.Errorf("Verify() expected InvalidStatus, got %v", outcome.Type)
 	}
-	if outcome.Status != models.BadgeStatusExpired {
+	if outcome.Status != models.TLStatusExpired {
 		t.Errorf("Verify() Status = %v, want Expired", outcome.Status)
 	}
 }
@@ -287,7 +271,7 @@ func TestServerVerifier_HostnameMismatch(t *testing.T) {
 	certHost := "different.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
-	badge := createTestBadge(badgeHost, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge := createTestTLResponse(badgeHost, "v1.0.0", fingerprint, "SHA256:aaa")
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -300,7 +284,7 @@ func TestServerVerifier_HostnameMismatch(t *testing.T) {
 		WithRecords(certHost, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
@@ -322,7 +306,7 @@ func TestServerVerifier_WithCache(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 
 	// Pre-populate cache
 	cache := NewBadgeCache(DefaultCacheConfig())
@@ -352,7 +336,7 @@ func TestServerVerifier_Prefetch(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -365,7 +349,7 @@ func TestServerVerifier_Prefetch(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	cache := NewBadgeCache(DefaultCacheConfig())
 
@@ -377,25 +361,25 @@ func TestServerVerifier_Prefetch(t *testing.T) {
 	)
 
 	fqdn, _ := models.NewFqdn(host)
-	fetchedBadge, err := verifier.Prefetch(context.Background(), fqdn)
+	fetchedTLResp, err := verifier.Prefetch(context.Background(), fqdn)
 
 	if err != nil {
 		t.Fatalf("Prefetch() error = %v", err)
 	}
-	if fetchedBadge == nil {
-		t.Fatal("Prefetch() returned nil badge")
+	if fetchedTLResp == nil {
+		t.Fatal("Prefetch() returned nil TLResponse")
 	}
-	if fetchedBadge.AgentHost() != host {
-		t.Errorf("Prefetch() AgentHost() = %q, want %q", fetchedBadge.AgentHost(), host)
+	if fetchedTLResp.Payload.AgentHost != host {
+		t.Errorf("Prefetch() AgentHost = %q, want %q", fetchedTLResp.Payload.AgentHost, host)
 	}
 
-	// Badge should now be in cache
+	// TLResponse should now be in cache
 	cached, ok := cache.GetByFqdn(fqdn)
 	if !ok {
-		t.Error("Badge not in cache after Prefetch")
+		t.Error("TLResponse not in cache after Prefetch")
 	}
-	if cached.Badge.AgentHost() != host {
-		t.Errorf("Cached badge AgentHost() = %q, want %q", cached.Badge.AgentHost(), host)
+	if cached.TLResponse.Payload.AgentHost != host {
+		t.Errorf("Cached TLResponse AgentHost = %q, want %q", cached.TLResponse.Payload.AgentHost, host)
 	}
 }
 
@@ -404,7 +388,7 @@ func TestClientVerifier_Success(t *testing.T) {
 	version := "v1.0.0"
 	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
-	badge := createTestBadge(host, version, "SHA256:server", identityFP)
+	badge := createTestTLResponse(host, version, "SHA256:server", identityFP)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -417,7 +401,7 @@ func TestClientVerifier_Success(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
@@ -484,7 +468,7 @@ func TestClientVerifier_ATINameMismatch(t *testing.T) {
 	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
 	// Badge has v1.0.0, cert has v2.0.0
-	badge := createTestBadge(host, badgeVersion, "SHA256:server", identityFP)
+	badge := createTestTLResponse(host, badgeVersion, "SHA256:server", identityFP)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -497,7 +481,7 @@ func TestClientVerifier_ATINameMismatch(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
@@ -520,7 +504,7 @@ func TestClientVerifier_FingerprintMismatch(t *testing.T) {
 	badgeFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 	certFP := "SHA256:0000000000000000000000000000000000000000000000000000000000000000"
 
-	badge := createTestBadge(host, version, "SHA256:server", badgeFP)
+	badge := createTestTLResponse(host, version, "SHA256:server", badgeFP)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -533,7 +517,7 @@ func TestClientVerifier_FingerprintMismatch(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
@@ -556,7 +540,7 @@ func TestClientVerifier_HostnameMismatch(t *testing.T) {
 	version := "v1.0.0"
 	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
-	badge := createTestBadge(badgeHost, version, "SHA256:server", identityFP)
+	badge := createTestTLResponse(badgeHost, version, "SHA256:server", identityFP)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -569,7 +553,7 @@ func TestClientVerifier_HostnameMismatch(t *testing.T) {
 		WithRecords(certHost, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
@@ -591,8 +575,8 @@ func TestClientVerifier_ExpiredStatus(t *testing.T) {
 	version := "v1.0.0"
 	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
-	badge := createTestBadge(host, version, "SHA256:server", identityFP)
-	badge.Status = models.BadgeStatusExpired
+	badge := createTestTLResponse(host, version, "SHA256:server", identityFP)
+	badge.Payload.AgentStatus = string(models.TLStatusExpired)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -605,7 +589,7 @@ func TestClientVerifier_ExpiredStatus(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
@@ -620,7 +604,7 @@ func TestClientVerifier_ExpiredStatus(t *testing.T) {
 	if outcome.Type != OutcomeInvalidStatus {
 		t.Errorf("Verify() expected InvalidStatus, got %v", outcome.Type)
 	}
-	if outcome.Status != models.BadgeStatusExpired {
+	if outcome.Status != models.TLStatusExpired {
 		t.Errorf("Verify() Status = %v, want Expired", outcome.Status)
 	}
 }
@@ -630,7 +614,7 @@ func TestAnsVerifier(t *testing.T) {
 	serverFP := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
-	badge := createTestBadge(host, "v1.0.0", serverFP, identityFP)
+	badge := createTestTLResponse(host, "v1.0.0", serverFP, identityFP)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -643,7 +627,7 @@ func TestAnsVerifier(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewAnsVerifier(
 		WithDNSResolver(dnsResolver),
@@ -678,14 +662,14 @@ func TestServerVerifier_RefreshOnMismatch(t *testing.T) {
 
 	t.Run("fingerprint mismatch from cache triggers refresh", func(t *testing.T) {
 		// Old badge in cache has oldFP
-		oldBadge := createTestBadge(host, "v1.0.0", oldFP, "SHA256:aaa")
+		oldBadge := createTestTLResponse(host, "v1.0.0", oldFP, "SHA256:aaa")
 
 		cache := NewBadgeCache(DefaultCacheConfig())
 		fqdn, _ := models.NewFqdn(host)
 		cache.Insert(fqdn, oldBadge)
 
 		// DNS + TLog serve new badge with newFP
-		newBadge := createTestBadge(host, "v1.0.0", newFP, "SHA256:aaa")
+		newBadge := createTestTLResponse(host, "v1.0.0", newFP, "SHA256:aaa")
 		dnsRecord := ATIBadgeRecord{
 			FormatVersion: "ati-badge1",
 			Version:       ptr(models.NewVersion(1, 0, 0)),
@@ -695,7 +679,7 @@ func TestServerVerifier_RefreshOnMismatch(t *testing.T) {
 		dnsResolver := NewMockDNSResolver().
 			WithRecords(host, []ATIBadgeRecord{dnsRecord})
 		tlogClient := NewMockTransparencyLogClient().
-			WithBadge(badgeURL, newBadge)
+			WithTLResponse(badgeURL, newBadge)
 
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
@@ -715,7 +699,7 @@ func TestServerVerifier_RefreshOnMismatch(t *testing.T) {
 
 	t.Run("hostname mismatch from cache does not trigger refresh", func(t *testing.T) {
 		badgeHost := "other.example.com"
-		badge := createTestBadge(badgeHost, "v1.0.0", newFP, "SHA256:aaa")
+		badge := createTestTLResponse(badgeHost, "v1.0.0", newFP, "SHA256:aaa")
 
 		cache := NewBadgeCache(DefaultCacheConfig())
 		fqdn, _ := models.NewFqdn(host)
@@ -767,7 +751,7 @@ func TestServerVerifier_FailurePolicy_DNSError(t *testing.T) {
 					DefaultTTL: 1 * time.Millisecond,
 				})
 				fqdn, _ := models.NewFqdn(host)
-				c.Insert(fqdn, createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa"))
+				c.Insert(fqdn, createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa"))
 				time.Sleep(5 * time.Millisecond) // Let it expire
 				return c
 			}(),
@@ -902,8 +886,8 @@ func TestServerVerifier_DeprecatedWarning(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Status = models.BadgeStatusDeprecated
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge.Payload.AgentStatus = string(models.TLStatusDeprecated)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -916,7 +900,7 @@ func TestServerVerifier_DeprecatedWarning(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
@@ -935,8 +919,8 @@ func TestServerVerifier_DeprecatedWarning(t *testing.T) {
 	if len(outcome.Warnings) == 0 {
 		t.Error("Verify() expected warnings for DEPRECATED badge")
 	}
-	if len(outcome.Warnings) > 0 && outcome.Warnings[0] != "badge status is DEPRECATED" {
-		t.Errorf("Warnings[0] = %q, want 'badge status is DEPRECATED'", outcome.Warnings[0])
+	if len(outcome.Warnings) > 0 && outcome.Warnings[0] != "agent status is DEPRECATED" {
+		t.Errorf("Warnings[0] = %q, want 'agent status is DEPRECATED'", outcome.Warnings[0])
 	}
 }
 
@@ -945,8 +929,8 @@ func TestClientVerifier_DeprecatedWarning(t *testing.T) {
 	version := "v1.0.0"
 	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
-	badge := createTestBadge(host, version, "SHA256:server", identityFP)
-	badge.Status = models.BadgeStatusDeprecated
+	badge := createTestTLResponse(host, version, "SHA256:server", identityFP)
+	badge.Payload.AgentStatus = string(models.TLStatusDeprecated)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -959,7 +943,7 @@ func TestClientVerifier_DeprecatedWarning(t *testing.T) {
 		WithRecords(host, []ATIBadgeRecord{dnsRecord})
 
 	tlogClient := NewMockTransparencyLogClient().
-		WithBadge(badgeURL, badge)
+		WithTLResponse(badgeURL, badge)
 
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
@@ -984,10 +968,10 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 
 	t.Run("6.1: two ACTIVE versions, client presents v1.0.0, correct badge selected", func(t *testing.T) {
 		// v1.0.0 ACTIVE, v1.0.1 ACTIVE — client presents v1.0.0
-		badge100 := createTestBadge(host, "v1.0.0", "SHA256:server1", identityFP)
+		badge100 := createTestTLResponse(host, "v1.0.0", "SHA256:server1", identityFP)
 		url100 := "https://tlog.example.com/v1/agents/v100-id"
 
-		badge101 := createTestBadge(host, "v1.0.1", "SHA256:server2", "SHA256:identity2")
+		badge101 := createTestTLResponse(host, "v1.0.1", "SHA256:server2", "SHA256:identity2")
 		url101 := "https://tlog.example.com/v1/agents/v101-id"
 
 		dnsResolver := NewMockDNSResolver().
@@ -997,8 +981,8 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 			})
 
 		tlogClient := NewMockTransparencyLogClient().
-			WithBadge(url100, badge100).
-			WithBadge(url101, badge101)
+			WithTLResponse(url100, badge100).
+			WithTLResponse(url101, badge101)
 
 		verifier := NewClientVerifier(
 			WithDNSResolver(dnsResolver),
@@ -1012,22 +996,22 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		if !outcome.IsSuccess() {
 			t.Errorf("Verify() failed: type=%v, error=%v", outcome.Type, outcome.Error)
 		}
-		// Verify the correct badge was selected (v1.0.0, not v1.0.1)
-		if outcome.Badge == nil {
-			t.Fatal("Verify() Badge is nil")
+		// Verify the correct TLResponse was selected (v1.0.0, not v1.0.1)
+		if outcome.TLResponse == nil {
+			t.Fatal("Verify() TLResponse is nil")
 		}
-		if outcome.Badge.AgentVersion() != "v1.0.0" {
-			t.Errorf("Badge version = %q, want v1.0.0", outcome.Badge.AgentVersion())
+		if outcome.TLResponse.Payload.Version != "v1.0.0" {
+			t.Errorf("TLResponse version = %q, want v1.0.0", outcome.TLResponse.Payload.Version)
 		}
 	})
 
 	t.Run("6.2: old version DEPRECATED, new ACTIVE, client presents old version", func(t *testing.T) {
 		// v1.0.0 DEPRECATED, v1.0.1 ACTIVE — client presents v1.0.0
-		deprecatedBadge := createTestBadge(host, "v1.0.0", "SHA256:server", identityFP)
-		deprecatedBadge.Status = models.BadgeStatusDeprecated
+		deprecatedBadge := createTestTLResponse(host, "v1.0.0", "SHA256:server", identityFP)
+		deprecatedBadge.Payload.AgentStatus = string(models.TLStatusDeprecated)
 		deprecatedURL := "https://tlog.example.com/v1/agents/deprecated-id"
 
-		activeBadge := createTestBadge(host, "v1.0.1", "SHA256:server2", "SHA256:identity2")
+		activeBadge := createTestTLResponse(host, "v1.0.1", "SHA256:server2", "SHA256:identity2")
 		activeURL := "https://tlog.example.com/v1/agents/active-id"
 
 		dnsResolver := NewMockDNSResolver().
@@ -1037,8 +1021,8 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 			})
 
 		tlogClient := NewMockTransparencyLogClient().
-			WithBadge(deprecatedURL, deprecatedBadge).
-			WithBadge(activeURL, activeBadge)
+			WithTLResponse(deprecatedURL, deprecatedBadge).
+			WithTLResponse(activeURL, activeBadge)
 
 		verifier := NewClientVerifier(
 			WithDNSResolver(dnsResolver),
@@ -1060,11 +1044,11 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 	t.Run("6.4: server verification, no version in cert, ACTIVE badge preferred", func(t *testing.T) {
 		serverFP := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
-		activeBadge := createTestBadge(host, "v1.0.1", serverFP, "SHA256:identity2")
+		activeBadge := createTestTLResponse(host, "v1.0.1", serverFP, "SHA256:identity2")
 		activeURL := "https://tlog.example.com/v1/agents/active-id"
 
-		deprecatedBadge := createTestBadge(host, "v1.0.0", "SHA256:old-fp", "SHA256:old-id")
-		deprecatedBadge.Status = models.BadgeStatusDeprecated
+		deprecatedBadge := createTestTLResponse(host, "v1.0.0", "SHA256:old-fp", "SHA256:old-id")
+		deprecatedBadge.Payload.AgentStatus = string(models.TLStatusDeprecated)
 		deprecatedURL := "https://tlog.example.com/v1/agents/deprecated-id"
 
 		dnsResolver := NewMockDNSResolver().
@@ -1074,8 +1058,8 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 			})
 
 		tlogClient := NewMockTransparencyLogClient().
-			WithBadge(activeURL, activeBadge).
-			WithBadge(deprecatedURL, deprecatedBadge)
+			WithTLResponse(activeURL, activeBadge).
+			WithTLResponse(deprecatedURL, deprecatedBadge)
 
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
@@ -1097,7 +1081,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 
 	t.Run("6.5: multiple records, one TLog URL fails, other matches", func(t *testing.T) {
 		// Two DNS records, v1.0.0 TLog fails, v1.0.1 returns matching badge
-		activeBadge := createTestBadge(host, "v1.0.1", "SHA256:server", identityFP)
+		activeBadge := createTestTLResponse(host, "v1.0.1", "SHA256:server", identityFP)
 		activeURL := "https://tlog.example.com/v1/agents/active-id"
 		failURL := "https://tlog.example.com/v1/agents/fail-id"
 
@@ -1110,7 +1094,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 
 		tlogClient := NewMockTransparencyLogClient().
 			WithError(failURL, &TlogError{Type: TlogErrorServiceUnavailable, URL: failURL, HTTPCode: 500}).
-			WithBadge(activeURL, activeBadge)
+			WithTLResponse(activeURL, activeBadge)
 
 		verifier := NewClientVerifier(
 			WithDNSResolver(dnsResolver),
@@ -1129,7 +1113,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 }
 
 func TestVerificationOutcome(t *testing.T) {
-	badge := createTestBadge("test.example.com", "v1.0.0", "SHA256:server", "SHA256:identity")
+	badge := createTestTLResponse("test.example.com", "v1.0.0", "SHA256:server", "SHA256:identity")
 
 	t.Run("IsSuccess", func(t *testing.T) {
 		fp, _ := ParseCertFingerprint("SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
@@ -1167,7 +1151,7 @@ func TestVerificationOutcome(t *testing.T) {
 		}
 
 		// InvalidStatus returns error
-		outcome = NewInvalidStatusOutcome(badge, models.BadgeStatusRevoked)
+		outcome = NewInvalidStatusOutcome(badge, models.TLStatusRevoked)
 		if outcome.ToError() == nil {
 			t.Error("ToError() == nil for InvalidStatus outcome")
 		}
@@ -1185,7 +1169,7 @@ func TestAnsVerifier_Prefetch(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 	dnsRecord := ATIBadgeRecord{
 		FormatVersion: "ati-badge1",
 		Version:       ptr(models.NewVersion(1, 0, 0)),
@@ -1206,7 +1190,7 @@ func TestAnsVerifier_Prefetch(t *testing.T) {
 			dnsResolver: NewMockDNSResolver().
 				WithRecords(host, []ATIBadgeRecord{dnsRecord}),
 			tlogClient: NewMockTransparencyLogClient().
-				WithBadge(badgeURL, badge),
+				WithTLResponse(badgeURL, badge),
 			cache: NewBadgeCache(DefaultCacheConfig()),
 		},
 		{
@@ -1287,30 +1271,30 @@ func TestAnsVerifier_VerifyServer_EmptyFqdn(t *testing.T) {
 func TestServerVerifier_Prefetch_CacheHit(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func() (*ServerVerifier, models.Fqdn, *models.Badge)
+		setup   func() (*ServerVerifier, models.Fqdn, *models.TLResponse)
 		wantErr bool
 	}{
 		{
-			name: "cache hit returns cached badge",
-			setup: func() (*ServerVerifier, models.Fqdn, *models.Badge) {
+			name: "cache hit returns cached TLResponse",
+			setup: func() (*ServerVerifier, models.Fqdn, *models.TLResponse) {
 				host := "test.example.com"
 				fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
-				badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+				tlResp := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 				cache := NewBadgeCache(DefaultCacheConfig())
 				fqdn, _ := models.NewFqdn(host)
-				cache.Insert(fqdn, badge)
+				cache.Insert(fqdn, tlResp)
 
 				verifier := NewServerVerifier(
 					WithDNSResolver(NewMockDNSResolver()),
 					WithTlogClient(NewMockTransparencyLogClient()),
 					WithCache(cache),
 				)
-				return verifier, fqdn, badge
+				return verifier, fqdn, tlResp
 			},
 		},
 		{
 			name: "not found returns error",
-			setup: func() (*ServerVerifier, models.Fqdn, *models.Badge) {
+			setup: func() (*ServerVerifier, models.Fqdn, *models.TLResponse) {
 				verifier := NewServerVerifier(
 					WithDNSResolver(NewMockDNSResolver()),
 					WithTlogClient(NewMockTransparencyLogClient()),
@@ -1325,7 +1309,7 @@ func TestServerVerifier_Prefetch_CacheHit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			verifier, fqdn, wantBadge := tt.setup()
+			verifier, fqdn, wantTLResp := tt.setup()
 			result, err := verifier.Prefetch(context.Background(), fqdn)
 			if tt.wantErr {
 				if err == nil {
@@ -1336,8 +1320,8 @@ func TestServerVerifier_Prefetch_CacheHit(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Prefetch() error = %v", err)
 			}
-			if result != wantBadge {
-				t.Error("Prefetch() returned different badge than expected")
+			if result != wantTLResp {
+				t.Error("Prefetch() returned different TLResponse than expected")
 			}
 		})
 	}
@@ -1409,7 +1393,7 @@ func TestServerVerifier_DANERejection(t *testing.T) {
 			fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 			badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
-			badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+			badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 			dnsRecord := ATIBadgeRecord{
 				FormatVersion: "ati-badge1",
 				Version:       ptr(models.NewVersion(1, 0, 0)),
@@ -1419,7 +1403,7 @@ func TestServerVerifier_DANERejection(t *testing.T) {
 			dnsResolver := NewMockDNSResolver().
 				WithRecords(host, []ATIBadgeRecord{dnsRecord})
 			tlogClient := NewMockTransparencyLogClient().
-				WithBadge(badgeURL, badge)
+				WithTLResponse(badgeURL, badge)
 
 			daneResolver := NewMockDANEResolver().
 				WithTLSA(host, 443, TLSALookupResult{
@@ -1463,7 +1447,7 @@ func TestServerVerifier_DANEVerified(t *testing.T) {
 			fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 			badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
-			badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+			badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 			dnsRecord := ATIBadgeRecord{
 				FormatVersion: "ati-badge1",
 				Version:       ptr(models.NewVersion(1, 0, 0)),
@@ -1473,7 +1457,7 @@ func TestServerVerifier_DANEVerified(t *testing.T) {
 			dnsResolver := NewMockDNSResolver().
 				WithRecords(host, []ATIBadgeRecord{dnsRecord})
 			tlogClient := NewMockTransparencyLogClient().
-				WithBadge(badgeURL, badge)
+				WithTLResponse(badgeURL, badge)
 
 			fp, _ := ParseCertFingerprint(fingerprint)
 			daneResolver := NewMockDANEResolver().
@@ -1539,7 +1523,7 @@ func TestClientVerifier_FailurePolicy_DNSError(t *testing.T) {
 					DefaultTTL: 1 * time.Millisecond,
 				})
 				fqdn, _ := models.NewFqdn(host)
-				badge := createTestBadge(host, version, "SHA256:server", identityFP)
+				badge := createTestTLResponse(host, version, "SHA256:server", identityFP)
 				v := models.NewVersion(1, 0, 0)
 				c.InsertForVersion(fqdn, v, badge)
 				time.Sleep(5 * time.Millisecond)
@@ -1651,7 +1635,7 @@ func TestClientVerifier_WithCache(t *testing.T) {
 			version := "v1.0.0"
 			identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
-			badge := createTestBadge(host, version, "SHA256:server", identityFP)
+			badge := createTestTLResponse(host, version, "SHA256:server", identityFP)
 			cache := NewBadgeCache(DefaultCacheConfig())
 			fqdn, _ := models.NewFqdn(host)
 			v := models.NewVersion(1, 0, 0)
@@ -1739,7 +1723,7 @@ func TestClientVerifier_DANERejection(t *testing.T) {
 			identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 			badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
-			badge := createTestBadge(host, version, "SHA256:server", identityFP)
+			badge := createTestTLResponse(host, version, "SHA256:server", identityFP)
 			dnsRecord := ATIBadgeRecord{
 				FormatVersion: "ati-badge1",
 				Version:       ptr(models.NewVersion(1, 0, 0)),
@@ -1749,7 +1733,7 @@ func TestClientVerifier_DANERejection(t *testing.T) {
 			dnsResolver := NewMockDNSResolver().
 				WithRecords(host, []ATIBadgeRecord{dnsRecord})
 			tlogClient := NewMockTransparencyLogClient().
-				WithBadge(badgeURL, badge)
+				WithTLResponse(badgeURL, badge)
 
 			daneResolver := NewMockDANEResolver().
 				WithError(host, 443, &DANEError{
@@ -1939,7 +1923,7 @@ func TestServerVerifier_VerifyWithScitt_NilHeaders(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 	dnsRecord := ATIBadgeRecord{
 		FormatVersion: "ati-badge1",
 		Version:       ptr(models.NewVersion(1, 0, 0)),
@@ -1948,7 +1932,7 @@ func TestServerVerifier_VerifyWithScitt_NilHeaders(t *testing.T) {
 
 	verifier := NewServerVerifier(
 		WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
-		WithTlogClient(NewMockTransparencyLogClient().WithBadge(badgeURL, badge)),
+		WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
 		WithoutURLValidation(),
 	)
 
@@ -2030,7 +2014,7 @@ func TestClientVerifier_VerifyWithScitt_NilHeaders(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
-	badge := createTestBadge(host, version, "SHA256:aaa", fingerprint)
+	badge := createTestTLResponse(host, version, "SHA256:aaa", fingerprint)
 	dnsRecord := ATIBadgeRecord{
 		FormatVersion: "ati-badge1",
 		Version:       ptr(models.NewVersion(1, 0, 0)),
@@ -2039,7 +2023,7 @@ func TestClientVerifier_VerifyWithScitt_NilHeaders(t *testing.T) {
 
 	verifier := NewClientVerifier(
 		WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
-		WithTlogClient(NewMockTransparencyLogClient().WithBadge(badgeURL, badge)),
+		WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
 		WithoutURLValidation(),
 	)
 
@@ -2128,7 +2112,7 @@ func TestClientVerifier_VerifyWithScitt_EmptyHeaders(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
-	badge := createTestBadge(host, version, "SHA256:aaa", fingerprint)
+	badge := createTestTLResponse(host, version, "SHA256:aaa", fingerprint)
 	dnsRecord := ATIBadgeRecord{
 		FormatVersion: "ati-badge1",
 		Version:       ptr(models.NewVersion(1, 0, 0)),
@@ -2137,7 +2121,7 @@ func TestClientVerifier_VerifyWithScitt_EmptyHeaders(t *testing.T) {
 
 	verifier := NewClientVerifier(
 		WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
-		WithTlogClient(NewMockTransparencyLogClient().WithBadge(badgeURL, badge)),
+		WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
 		WithoutURLValidation(),
 	)
 
@@ -2152,7 +2136,7 @@ func TestVerifyWithScitt_PolicyEnforcement(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 
 	dnsRecord := ATIBadgeRecord{
 		FormatVersion: "ati-badge1",
@@ -2242,7 +2226,7 @@ func TestVerifyWithScitt_PolicyEnforcement(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
-				WithTlogClient(NewMockTransparencyLogClient().WithBadge(badgeURL, badge)),
+				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
 				WithoutURLValidation(),
 			}
 			if tt.keyLookup != nil {
@@ -2352,7 +2336,7 @@ func TestVerifyWithScitt_TransportErrorFallback(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 
 	dnsRecord := ATIBadgeRecord{
 		FormatVersion: "ati-badge1",
@@ -2389,7 +2373,7 @@ func TestVerifyWithScitt_TransportErrorFallback(t *testing.T) {
 
 			opts := []Option{
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
-				WithTlogClient(NewMockTransparencyLogClient().WithBadge(badgeURL, badge)),
+				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
 				WithoutURLValidation(),
 				WithScittKeyLookup(tt.lookup),
 			}
@@ -2415,7 +2399,7 @@ func TestAnsVerifier_VerifyServerWithScitt(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
-	badge := createTestBadge(host, "v1.0.0", fingerprint, "SHA256:aaa")
+	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
 	dnsRecord := ATIBadgeRecord{
 		FormatVersion: "ati-badge1",
 		Version:       ptr(models.NewVersion(1, 0, 0)),
@@ -2458,7 +2442,7 @@ func TestAnsVerifier_VerifyServerWithScitt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			verifier := NewAnsVerifier(
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
-				WithTlogClient(NewMockTransparencyLogClient().WithBadge(badgeURL, badge)),
+				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
 				WithoutURLValidation(),
 			)
 
@@ -2478,7 +2462,7 @@ func TestAnsVerifier_VerifyClientWithScitt(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
-	badge := createTestBadge(host, version, "SHA256:aaa", fingerprint)
+	badge := createTestTLResponse(host, version, "SHA256:aaa", fingerprint)
 	dnsRecord := ATIBadgeRecord{
 		FormatVersion: "ati-badge1",
 		Version:       ptr(models.NewVersion(1, 0, 0)),
@@ -2516,7 +2500,7 @@ func TestAnsVerifier_VerifyClientWithScitt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			verifier := NewAnsVerifier(
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
-				WithTlogClient(NewMockTransparencyLogClient().WithBadge(badgeURL, badge)),
+				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
 				WithoutURLValidation(),
 			)
 
