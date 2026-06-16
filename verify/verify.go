@@ -90,6 +90,17 @@ func verifyDANE(ctx context.Context, config *verifierConfig, fqdn models.Fqdn, c
 // rewriteTLHost replaces the hostname in a badge URL with the configured
 // trusted TL host. If rewriting fails, the original URL is returned unchanged.
 func rewriteTLHost(config *verifierConfig, rawURL string, log *slog.Logger) string {
+	// Prefer BuildBadgeURL when tlBaseURL is configured
+	if config.tlBaseURL != "" {
+		rewritten, err := BuildBadgeURL(rawURL, config.tlBaseURL)
+		if err != nil {
+			log.Warn("rewriteTLHost: failed to build badge URL, using original",
+				slog.String("url", rawURL), slog.String("error", err.Error()))
+			return rawURL
+		}
+		return rewritten
+	}
+
 	if config.trustedTLHost == "" {
 		return rawURL
 	}

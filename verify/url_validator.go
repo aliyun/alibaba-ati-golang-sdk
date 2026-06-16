@@ -2,6 +2,7 @@ package verify
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"slices"
 	"strings"
@@ -131,6 +132,33 @@ func (v *URLValidator) Validate(rawURL string) error {
 // isDomainTrusted checks if the hostname matches any trusted domain.
 func (v *URLValidator) isDomainTrusted(hostname string) bool {
 	return slices.Contains(v.trustedDomains, hostname)
+}
+
+// BuildBadgeURL extracts path and port from a badge TXT URL and combines them
+// with the configured TL base URL to construct the final query address.
+func BuildBadgeURL(badgeRawURL string, tlBaseURL string) (string, error) {
+	badgeURL, err := url.Parse(badgeRawURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid badge URL: %w", err)
+	}
+
+	baseURL, err := url.Parse(tlBaseURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid TL base URL: %w", err)
+	}
+
+	port := badgeURL.Port()
+	if port == "" {
+		port = "443"
+	}
+
+	host := baseURL.Hostname()
+	result := &url.URL{
+		Scheme: "https",
+		Host:   net.JoinHostPort(host, port),
+		Path:   badgeURL.Path,
+	}
+	return result.String(), nil
 }
 
 // RewriteBadgeURLHost replaces the hostname (and port) in a badge URL with

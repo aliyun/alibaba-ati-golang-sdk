@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"time"
 
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
 	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify/scitt"
 )
 
@@ -32,10 +33,17 @@ type verifierConfig struct {
 	ocspChecker      *OCSPChecker
 	parallelFetch    bool
 	offlineMode      bool
+
+	// ATI verification policy and TL base URL (FR-1)
+	tlBaseURL          string
+	verificationPolicy ati.VerificationPolicy
 }
 
 // defaultClockSkewTolerance is the default maximum allowed clock skew (120 seconds).
 const defaultClockSkewTolerance = 120 * time.Second
+
+// DefaultTLBaseURL is the default base URL for the Transparency Log service.
+const DefaultTLBaseURL = "https://tl.ansagent.cn"
 
 // DefaultTrustedTLHost is the trusted Transparency Log hostname used as
 // the trust anchor for badge URL rewriting. Badge TXT records may contain
@@ -53,6 +61,8 @@ func defaultConfig() *verifierConfig {
 		urlValidator:        NewDefaultURLValidator(),
 		trustedTLHost:       "",
 		clockSkewTolerance:  defaultClockSkewTolerance,
+		tlBaseURL:           DefaultTLBaseURL,
+		verificationPolicy:  ati.PolicyBadgeRequired,
 	}
 }
 
@@ -212,5 +222,19 @@ func WithParallelFetch(enabled bool) Option {
 func WithOfflineMode(enabled bool) Option {
 	return func(c *verifierConfig) {
 		c.offlineMode = enabled
+	}
+}
+
+// WithTLBaseURL sets the base URL for the TL service used in BuildBadgeURL.
+func WithTLBaseURL(url string) Option {
+	return func(c *verifierConfig) {
+		c.tlBaseURL = url
+	}
+}
+
+// WithVerificationPolicy sets the verification policy.
+func WithVerificationPolicy(p ati.VerificationPolicy) Option {
+	return func(c *verifierConfig) {
+		c.verificationPolicy = p
 	}
 }
