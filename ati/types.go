@@ -33,17 +33,23 @@ type discoverConfig struct {
 
 // WithVersion filters discovery results by version.
 func WithVersion(version string) DiscoverOption {
-	return func(c *discoverConfig) { c.version = version }
+	return func(c *discoverConfig) {
+		c.version = version
+	}
 }
 
 // WithProtocol filters discovery results by protocol.
 func WithProtocol(protocol string) DiscoverOption {
-	return func(c *discoverConfig) { c.protocol = protocol }
+	return func(c *discoverConfig) {
+		c.protocol = protocol
+	}
 }
 
 // WithSource restricts discovery to a specific source.
 func WithSource(source DiscoverySource) DiscoverOption {
-	return func(c *discoverConfig) { c.source = &source }
+	return func(c *discoverConfig) {
+		c.source = &source
+	}
 }
 
 // AgentDiscoverer discovers agent information by FQDN.

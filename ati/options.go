@@ -26,32 +26,44 @@ func defaultClientConfig() *clientConfig {
 
 // WithMTLSCerts sets the client identity certificate for mTLS.
 func WithMTLSCerts(cert tls.Certificate) ClientOption {
-	return func(c *clientConfig) { c.identity = cert }
+	return func(c *clientConfig) {
+		c.identity = cert
+	}
 }
 
 // WithClientCAs sets the root CA pool for server certificate verification.
 func WithClientCAs(pool *x509.CertPool) ClientOption {
-	return func(c *clientConfig) { c.caPool = pool }
+	return func(c *clientConfig) {
+		c.caPool = pool
+	}
 }
 
 // WithClientPolicy sets the client verification policy.
 func WithClientPolicy(p VerificationPolicy) ClientOption {
-	return func(c *clientConfig) { c.policy = p }
+	return func(c *clientConfig) {
+		c.policy = p
+	}
 }
 
 // WithClientTLBaseURL sets the TL base URL for badge verification.
 func WithClientTLBaseURL(url string) ClientOption {
-	return func(c *clientConfig) { c.tlBaseURL = url }
+	return func(c *clientConfig) {
+		c.tlBaseURL = url
+	}
 }
 
 // WithDiscoverer sets the agent discoverer for the client.
 func WithDiscoverer(d AgentDiscoverer) ClientOption {
-	return func(c *clientConfig) { c.discoverer = d }
+	return func(c *clientConfig) {
+		c.discoverer = d
+	}
 }
 
 // WithVerifyConnection sets a custom TLS VerifyConnection callback.
 func WithVerifyConnection(fn func(tls.ConnectionState) error) ClientOption {
-	return func(c *clientConfig) { c.verifyConn = fn }
+	return func(c *clientConfig) {
+		c.verifyConn = fn
+	}
 }
 
 // ServerOption configures a server TLS configuration.
@@ -72,20 +84,28 @@ func defaultServerConfig() *serverConfig {
 
 // WithServerCert sets the server certificate.
 func WithServerCert(cert tls.Certificate) ServerOption {
-	return func(c *serverConfig) { c.serverCert = cert }
+	return func(c *serverConfig) {
+		c.serverCert = cert
+	}
 }
 
 // WithClientCA sets the CA pool for client certificate verification.
 func WithClientCA(pool *x509.CertPool) ServerOption {
-	return func(c *serverConfig) { c.clientCAPool = pool }
+	return func(c *serverConfig) {
+		c.clientCAPool = pool
+	}
 }
 
 // WithClientVerificationPolicy sets the server-side client verification policy.
 func WithClientVerificationPolicy(p VerificationPolicy) ServerOption {
-	return func(c *serverConfig) { c.clientPolicy = p }
+	return func(c *serverConfig) {
+		c.clientPolicy = p
+	}
 }
 
 // WithServerVerifyConnection sets a custom TLS VerifyConnection callback for the server.
 func WithServerVerifyConnection(fn func(tls.ConnectionState) error) ServerOption {
-	return func(c *serverConfig) { c.verifyConn = fn }
+	return func(c *serverConfig) {
+		c.verifyConn = fn
+	}
 }

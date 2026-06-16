@@ -56,17 +56,23 @@ type listConfig struct {
 
 // WithListLimit sets the maximum number of results.
 func WithListLimit(limit int) ListOption {
-	return func(c *listConfig) { c.limit = limit }
+	return func(c *listConfig) {
+		c.limit = limit
+	}
 }
 
 // WithListOffset sets the result offset.
 func WithListOffset(offset int) ListOption {
-	return func(c *listConfig) { c.offset = offset }
+	return func(c *listConfig) {
+		c.offset = offset
+	}
 }
 
 // WithListHost filters by agent host.
 func WithListHost(host string) ListOption {
-	return func(c *listConfig) { c.host = host }
+	return func(c *listConfig) {
+		c.host = host
+	}
 }
 
 // AuditOption configures audit trail queries.
@@ -79,10 +85,14 @@ type auditConfig struct {
 
 // WithAuditLimit sets the audit trail result limit.
 func WithAuditLimit(limit int) AuditOption {
-	return func(c *auditConfig) { c.limit = limit }
+	return func(c *auditConfig) {
+		c.limit = limit
+	}
 }
 
 // WithAuditOffset sets the audit trail result offset.
 func WithAuditOffset(offset int) AuditOption {
-	return func(c *auditConfig) { c.offset = offset }
+	return func(c *auditConfig) {
+		c.offset = offset
+	}
 }

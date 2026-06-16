@@ -18,15 +18,21 @@ type RAClientOption func(*raConfig)
 
 // WithAccessKeyID sets the access key ID.
 func WithAccessKeyID(id string) RAClientOption {
-	return func(c *raConfig) { c.accessKeyID = id }
+	return func(c *raConfig) {
+		c.accessKeyID = id
+	}
 }
 
 // WithAccessKeySecret sets the access key secret.
 func WithAccessKeySecret(secret string) RAClientOption {
-	return func(c *raConfig) { c.accessKeySecret = secret }
+	return func(c *raConfig) {
+		c.accessKeySecret = secret
+	}
 }
 
 // WithRAEndpoint sets the RA API endpoint.
 func WithRAEndpoint(endpoint string) RAClientOption {
-	return func(c *raConfig) { c.endpoint = endpoint }
+	return func(c *raConfig) {
+		c.endpoint = endpoint
+	}
 }
