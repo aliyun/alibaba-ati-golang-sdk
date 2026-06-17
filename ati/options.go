@@ -70,10 +70,11 @@ func WithVerifyConnection(fn func(tls.ConnectionState) error) ClientOption {
 type ServerOption func(*serverConfig)
 
 type serverConfig struct {
-	serverCert   tls.Certificate
-	clientPolicy VerificationPolicy
-	clientCAPool *x509.CertPool
-	verifyConn   func(tls.ConnectionState) error
+	serverCert        tls.Certificate
+	clientPolicy      VerificationPolicy
+	clientCAPool      *x509.CertPool
+	verifyConn        func(tls.ConnectionState) error
+	ignoreCheckClient bool
 }
 
 func defaultServerConfig() *serverConfig {
@@ -107,5 +108,14 @@ func WithClientVerificationPolicy(p VerificationPolicy) ServerOption {
 func WithServerVerifyConnection(fn func(tls.ConnectionState) error) ServerOption {
 	return func(c *serverConfig) {
 		c.verifyConn = fn
+	}
+}
+
+// WithIgnoreCheckClient skips server-side client certificate verification.
+// When enabled, the server does not request or verify client certificates,
+// and ca_bundle is not required regardless of the client verification policy.
+func WithIgnoreCheckClient() ServerOption {
+	return func(c *serverConfig) {
+		c.ignoreCheckClient = true
 	}
 }

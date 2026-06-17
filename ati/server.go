@@ -21,6 +21,11 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 		tlsConfig.Certificates = []tls.Certificate{cfg.serverCert}
 	}
 
+	if cfg.ignoreCheckClient {
+		tlsConfig.ClientAuth = tls.NoClientCert
+		return tlsConfig, nil
+	}
+
 	switch cfg.clientPolicy {
 	case PolicyNone:
 		tlsConfig.ClientAuth = tls.NoClientCert
@@ -34,12 +39,11 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 			tlsConfig.VerifyConnection = cfg.verifyConn
 		}
 	case PolicyBadgeRequired, PolicyFull:
-		if cfg.clientCAPool != nil {
-			tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
-			tlsConfig.ClientCAs = cfg.clientCAPool
-		} else {
-			tlsConfig.ClientAuth = tls.RequireAnyClientCert
+		if cfg.clientCAPool == nil {
+			return nil, fmt.Errorf("%s requires ca_bundle (clientCAPool)", cfg.clientPolicy)
 		}
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		tlsConfig.ClientCAs = cfg.clientCAPool
 		if cfg.verifyConn != nil {
 			tlsConfig.VerifyConnection = cfg.verifyConn
 		}

@@ -9,8 +9,8 @@
 
 ### Task 1.1：创建 `ati/policy.go`
 - 定义 `VerificationPolicy` 枚举（PolicyNone / PolicyPKIOnly / PolicyBadgeRequired / PolicyFull）
-- PolicyBadgeRequired：badge 验证（PKI 由 ca_bundle 决定）
-- PolicyFull：badge + DANE（PKI 由 ca_bundle 决定）
+- PolicyBadgeRequired：badge 验证 + PKI（需 ca_bundle）
+- PolicyFull：badge + DANE + PKI（需 ca_bundle）
 - 定义 `String()` 方法
 - 编写单元测试 `ati/policy_test.go`
 
@@ -117,13 +117,13 @@
 ### Task 5.3：创建 `ati/server.go`
 - 实现 `NewServerTLSConfig()` 构造函数
 - 默认 clientPolicy = PolicyNone → tls.NoClientCert
+- 新增 `WithIgnoreCheckClient()` ServerOption：开启后 ClientAuth=NoClientCert，不要求 ca_bundle
 - PolicyPKIOnly：必须有 ca_bundle，否则返回错误 → tls.RequireAndVerifyClientCert
-- PolicyBadgeRequired/PolicyFull + 有 ca_bundle → tls.RequireAndVerifyClientCert（PKI + badge/DANE）
-- PolicyBadgeRequired/PolicyFull + 无 ca_bundle → tls.RequireAnyClientCert（仅 badge/DANE，跳过 PKI 链验证）
+- PolicyBadgeRequired/PolicyFull：必须有 ca_bundle，否则返回错误 → tls.RequireAndVerifyClientCert
 
 ### Task 5.4：编写 `ati/` 包单元测试
 - `client_test.go`：默认策略验证、策略覆盖、TLS 配置检查
-- `server_test.go`：默认不验证客户端、PolicyBadgeRequired/PolicyFull + 有 ca_bundle → RequireAndVerifyClientCert、PolicyBadgeRequired/PolicyFull + 无 ca_bundle → RequireAnyClientCert、PolicyPKIOnly + 无 ca_bundle → 返回错误
+- `server_test.go`：默认不验证客户端、PolicyBadgeRequired/PolicyFull + 有 ca_bundle → RequireAndVerifyClientCert、PolicyBadgeRequired/PolicyFull + 无 ca_bundle → 返回错误、PolicyPKIOnly + 无 ca_bundle → 返回错误、WithIgnoreCheckClient() → NoClientCert（无论 policy/ca_bundle）
 - `discovery_test.go`：组合发现器 primary/fallback 行为
 
 ---

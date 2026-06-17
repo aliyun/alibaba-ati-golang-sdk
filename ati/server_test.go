@@ -84,16 +84,10 @@ func TestNewServerTLSConfig_PolicyBadgeRequired_WithCABundle(t *testing.T) {
 	}
 }
 
-func TestNewServerTLSConfig_PolicyBadgeRequired_NoCABundle(t *testing.T) {
-	cfg, err := NewServerTLSConfig(WithClientVerificationPolicy(PolicyBadgeRequired))
-	if err != nil {
-		t.Fatalf("NewServerTLSConfig() error = %v", err)
-	}
-	if cfg.ClientAuth != tls.RequireAnyClientCert {
-		t.Errorf("ClientAuth = %v, want RequireAnyClientCert", cfg.ClientAuth)
-	}
-	if cfg.ClientCAs != nil {
-		t.Error("ClientCAs should be nil when no ca_bundle")
+func TestNewServerTLSConfig_PolicyBadgeRequired_NoCABundle_Error(t *testing.T) {
+	_, err := NewServerTLSConfig(WithClientVerificationPolicy(PolicyBadgeRequired))
+	if err == nil {
+		t.Fatal("expected error for PolicyBadgeRequired without ca_bundle, got nil")
 	}
 }
 
@@ -124,22 +118,53 @@ func TestNewServerTLSConfig_PolicyFull_WithCABundle(t *testing.T) {
 	_ = called
 }
 
-func TestNewServerTLSConfig_PolicyFull_NoCABundle(t *testing.T) {
-	fn := func(tls.ConnectionState) error { return nil }
+func TestNewServerTLSConfig_PolicyFull_NoCABundle_Error(t *testing.T) {
+	_, err := NewServerTLSConfig(WithClientVerificationPolicy(PolicyFull))
+	if err == nil {
+		t.Fatal("expected error for PolicyFull without ca_bundle, got nil")
+	}
+}
+
+func TestNewServerTLSConfig_IgnoreCheckClient_NoCABundle(t *testing.T) {
 	cfg, err := NewServerTLSConfig(
-		WithClientVerificationPolicy(PolicyFull),
-		WithServerVerifyConnection(fn),
+		WithClientVerificationPolicy(PolicyBadgeRequired),
+		WithIgnoreCheckClient(),
 	)
 	if err != nil {
 		t.Fatalf("NewServerTLSConfig() error = %v", err)
 	}
-	if cfg.ClientAuth != tls.RequireAnyClientCert {
-		t.Errorf("ClientAuth = %v, want RequireAnyClientCert", cfg.ClientAuth)
+	if cfg.ClientAuth != tls.NoClientCert {
+		t.Errorf("ClientAuth = %v, want NoClientCert", cfg.ClientAuth)
 	}
 	if cfg.ClientCAs != nil {
-		t.Error("ClientCAs should be nil when no ca_bundle")
+		t.Error("ClientCAs should be nil when ignoreCheckClient is set")
 	}
-	if cfg.VerifyConnection == nil {
-		t.Error("VerifyConnection not set")
+}
+
+func TestNewServerTLSConfig_IgnoreCheckClient_WithCABundle(t *testing.T) {
+	pool := x509.NewCertPool()
+	cfg, err := NewServerTLSConfig(
+		WithClientVerificationPolicy(PolicyFull),
+		WithClientCA(pool),
+		WithIgnoreCheckClient(),
+	)
+	if err != nil {
+		t.Fatalf("NewServerTLSConfig() error = %v", err)
+	}
+	if cfg.ClientAuth != tls.NoClientCert {
+		t.Errorf("ClientAuth = %v, want NoClientCert (ignoreCheckClient overrides)", cfg.ClientAuth)
+	}
+}
+
+func TestNewServerTLSConfig_IgnoreCheckClient_PolicyPKIOnly(t *testing.T) {
+	cfg, err := NewServerTLSConfig(
+		WithClientVerificationPolicy(PolicyPKIOnly),
+		WithIgnoreCheckClient(),
+	)
+	if err != nil {
+		t.Fatalf("NewServerTLSConfig() error = %v", err)
+	}
+	if cfg.ClientAuth != tls.NoClientCert {
+		t.Errorf("ClientAuth = %v, want NoClientCert (ignoreCheckClient overrides PolicyPKIOnly)", cfg.ClientAuth)
 	}
 }

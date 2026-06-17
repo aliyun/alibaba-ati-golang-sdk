@@ -109,3 +109,14 @@ func TestWithServerVerifyConnection(t *testing.T) {
 		t.Error("verifyConn not set")
 	}
 }
+
+func TestWithIgnoreCheckClient(t *testing.T) {
+	cfg := defaultServerConfig()
+	if cfg.ignoreCheckClient {
+		t.Error("default ignoreCheckClient should be false")
+	}
+	WithIgnoreCheckClient()(cfg)
+	if !cfg.ignoreCheckClient {
+		t.Error("ignoreCheckClient not set to true")
+	}
+}

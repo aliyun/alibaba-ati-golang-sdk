@@ -8,8 +8,8 @@ type VerificationPolicy int
 const (
 	PolicyNone          VerificationPolicy = iota // TLS handshake only
 	PolicyPKIOnly                                 // CA chain + SAN matching (requires ca_bundle)
-	PolicyBadgeRequired                           // badge verification; PKI if ca_bundle present
-	PolicyFull                                    // badge + DANE; PKI if ca_bundle present
+	PolicyBadgeRequired                           // badge verification + PKI (requires ca_bundle)
+	PolicyFull                                    // badge + DANE + PKI (requires ca_bundle)
 )
 
 // String returns a human-readable representation.
