@@ -2,6 +2,7 @@ package ati
 
 import (
 	"crypto/tls"
+	"fmt"
 )
 
 // NewServerTLSConfig creates a TLS configuration for an ATI agent server.
@@ -23,10 +24,21 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 	switch cfg.clientPolicy {
 	case PolicyNone:
 		tlsConfig.ClientAuth = tls.NoClientCert
-	case PolicyPKIOnly, PolicyBadgeRequired, PolicyFull:
+	case PolicyPKIOnly:
+		if cfg.clientCAPool == nil {
+			return nil, fmt.Errorf("PolicyPKIOnly requires ca_bundle (clientCAPool)")
+		}
 		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		tlsConfig.ClientCAs = cfg.clientCAPool
+		if cfg.verifyConn != nil {
+			tlsConfig.VerifyConnection = cfg.verifyConn
+		}
+	case PolicyBadgeRequired, PolicyFull:
 		if cfg.clientCAPool != nil {
+			tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 			tlsConfig.ClientCAs = cfg.clientCAPool
+		} else {
+			tlsConfig.ClientAuth = tls.RequireAnyClientCert
 		}
 		if cfg.verifyConn != nil {
 			tlsConfig.VerifyConnection = cfg.verifyConn
