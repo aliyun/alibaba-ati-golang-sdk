@@ -43,9 +43,9 @@ type VerificationPolicy int
 
 const (
     PolicyNone          VerificationPolicy = iota // 仅 TLS 握手
-    PolicyPKIOnly                                 // CA 链 + SAN 匹配
-    PolicyBadgeRequired                           // PKI + badge 验证（默认）
-    PolicyFull                                    // PKI + badge + DANE
+    PolicyPKIOnly                                 // CA 链 + SAN 匹配（需 ca_bundle）
+    PolicyBadgeRequired                           // badge 透明日志指纹验证（PKI 由 ca_bundle 决定）
+    PolicyFull                                    // badge + DANE（PKI 由 ca_bundle 决定）
 )
 ```
 
@@ -372,11 +372,27 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
     switch cfg.clientPolicy {
     case PolicyNone:
         tlsConfig.ClientAuth = tls.NoClientCert
-    case PolicyPKIOnly, PolicyBadgeRequired, PolicyFull:
+    case PolicyPKIOnly:
+        // PKI 验证必须有 ca_bundle
+        if cfg.clientCAPool == nil {
+            return nil, fmt.Errorf("PolicyPKIOnly requires ca_bundle (clientCAPool)")
+        }
         tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
         tlsConfig.ClientCAs = cfg.clientCAPool
-        tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
-            // 按策略验证客户端证书
+        if cfg.verifyConn != nil {
+            tlsConfig.VerifyConnection = cfg.verifyConn
+        }
+    case PolicyBadgeRequired, PolicyFull:
+        // ca_bundle 降级机制：有 ca_bundle → RequireAndVerifyClientCert（PKI + badge/DANE）
+        //                     无 ca_bundle → RequireAnyClientCert（仅 badge/DANE，跳过 PKI）
+        if cfg.clientCAPool != nil {
+            tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+            tlsConfig.ClientCAs = cfg.clientCAPool
+        } else {
+            tlsConfig.ClientAuth = tls.RequireAnyClientCert
+        }
+        if cfg.verifyConn != nil {
+            tlsConfig.VerifyConnection = cfg.verifyConn
         }
     }
 
@@ -389,7 +405,7 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 ```go
 func defaultClientConfig() *clientConfig {
     return &clientConfig{
-        policy:    PolicyBadgeRequired, // 客户端默认 pki+badge
+        policy:    PolicyBadgeRequired, // 客户端默认 badge 验证
         tlBaseURL: "https://tl.ansagent.cn",
     }
 }
@@ -433,7 +449,7 @@ verify/url_validator.go → verify/options.go (tlBaseURL)
 | `verify/url_validator.go` | 单元测试 | `BuildBadgeURL` 各种输入组合（含 port/无 port、特殊 path） |
 | `verify/verify.go` | 单元测试 | badge URL 构造调用 `BuildBadgeURL` 而非 `RewriteBadgeURLHost` |
 | `ati/client.go` | 单元测试 + Mock | 默认 PolicyBadgeRequired 生效、不同策略的 TLS 配置 |
-| `ati/server.go` | 单元测试 + Mock | 默认 PolicyNone → NoClientCert、开启后 RequireAndVerifyClientCert |
+| `ati/server.go` | 单元测试 + Mock | 默认 PolicyNone → NoClientCert；PolicyBadgeRequired/PolicyFull + 有 ca_bundle → RequireAndVerifyClientCert；PolicyBadgeRequired/PolicyFull + 无 ca_bundle → RequireAnyClientCert；PolicyPKIOnly + 无 ca_bundle → 返回错误 |
 | `ati/discovery.go` | 单元测试 + Mock | DNS 发现、RA API 发现、组合发现器降级 |
 | `internal/registry/client.go` | 单元测试 + Mock | AK/SK 凭证创建、API 调用参数、错误处理 |
 | `verify/dns_discoverer.go` | 单元测试 | 适配器正确转换 DNSResolver 结果到 AgentInfo |

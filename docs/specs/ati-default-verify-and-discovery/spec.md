@@ -20,9 +20,9 @@
 
 1. 定义 `VerificationPolicy` 枚举类型：
    - `PolicyNone`：不做任何验证（仅 TLS 握手）
-   - `PolicyPKIOnly`：仅 PKI 验证（CA 链 + SAN 匹配）
-   - `PolicyBadgeRequired`（默认值）：PKI + badge 验证必须通过
-   - `PolicyFull`：PKI + badge + DANE/TLSA 验证
+   - `PolicyPKIOnly`：仅 PKI 验证（CA 链 + SAN 匹配，需提供 ca_bundle）
+   - `PolicyBadgeRequired`（默认值）：badge 透明日志指纹验证必须通过。若提供 ca_bundle 则额外执行 PKI 链验证；若无 ca_bundle 则跳过 PKI 链验证，仅依赖 badge 验证
+   - `PolicyFull`：badge + DANE/TLSA 验证。若提供 ca_bundle 则额外执行 PKI 链验证；若无 ca_bundle 则跳过 PKI 链验证
 
 2. `PolicyBadgeRequired` 行为：
    - 执行 DNS 查询 `_ati-badge.{host}` TXT 记录
@@ -136,25 +136,29 @@
 
 ### FR-4：客户端/服务端默认验证行为
 
-**描述**：设定合理的默认验证行为——客户端验证服务端默认采用 PKI+badge，服务端验证客户端默认不验证。
+**描述**：设定合理的默认验证行为——客户端验证服务端默认采用 badge 验证，服务端验证客户端默认不验证。PKI 链验证作为正交行为，由 ca_bundle 是否存在决定。
 
 **详细规则**：
 
 1. **客户端验证服务端**（`AgentClient`）：
-   - 默认策略：`PolicyBadgeRequired`（PKI + badge）
-   - 验证流程：TLS 握手 → CA 链验证 → SAN 匹配 → DNS badge 查询 → badge 验证
+   - 默认策略：`PolicyBadgeRequired`（badge 验证）
+   - 验证流程：TLS 握手 → DNS badge 查询 → badge 透明日志指纹验证；若配置了 ca_bundle 则额外执行 CA 链验证 + SAN 匹配
    - 可通过 `WithVerificationPolicy(PolicyNone)` 降级为仅 TLS
-   - 可通过 `WithVerificationPolicy(PolicyFull)` 升级为包含 DANE
+   - 可通过 `WithVerificationPolicy(PolicyFull)` 升级为 badge + DANE
 
 2. **服务端验证客户端**（`ServerTLSConfig`）：
    - 默认策略：`PolicyNone`（不验证客户端证书）
    - TLS 配置：`tls.NoClientCert`（默认不要求客户端证书）
-   - 可通过 `WithClientVerificationPolicy(PolicyBadgeRequired)` 开启客户端验证
-   - 开启后：`tls.RequireAndVerifyClientCert` + badge 验证流程
+   - 可通过 `WithClientVerificationPolicy(PolicyBadgeRequired)` 开启客户端 badge 验证
+   - 可通过 `WithClientVerificationPolicy(PolicyFull)` 开启客户端 badge + DANE 验证
+   - **ca_bundle 降级机制**：开启验证后（PolicyPKIOnly / PolicyBadgeRequired / PolicyFull），根据 `ca_bundle`（clientCAPool）是否存在，决定 TLS ClientAuth 模式：
+     - **有 ca_bundle**：`tls.RequireAndVerifyClientCert`（PKI 链验证 + 策略指定的验证）
+     - **无 ca_bundle**（仅 PolicyBadgeRequired / PolicyFull）：`tls.RequireAnyClientCert`（跳过 PKI 链验证，仅要求客户端提供证书，依赖 badge 透明日志指纹验证）
+     - **无 ca_bundle + PolicyPKIOnly**：返回错误（PKI 验证必须有 ca_bundle）
 
 3. 配置示例：
    ```go
-   // 客户端：默认 pki+badge（无需额外配置）
+   // 客户端：默认 badge 验证（无需额外配置）
    client := ati.NewAgentClient(
        ati.WithMTLSCerts(identityCert, privateKey, serverCert, caBundle),
    )
@@ -164,17 +168,25 @@
        ati.WithServerCert(serverCert, serverKey),
    )
 
-   // 服务端：显式开启客户端验证
+   // 服务端：开启客户端 badge 验证（有 ca_bundle → PKI + badge）
    tlsConfig := ati.NewServerTLSConfig(
        ati.WithServerCert(serverCert, serverKey),
        ati.WithClientCA(caBundle),
        ati.WithClientVerificationPolicy(ati.PolicyBadgeRequired),
    )
+
+   // 服务端：开启客户端 badge 验证（无 ca_bundle → 仅 badge，跳过 PKI）
+   tlsConfig := ati.NewServerTLSConfig(
+       ati.WithServerCert(serverCert, serverKey),
+       ati.WithClientVerificationPolicy(ati.PolicyBadgeRequired),
+   )
    ```
 
 **验收标准**：
-- `NewAgentClient()` 不指定策略时，自动执行 PKI+badge 验证
+- `NewAgentClient()` 不指定策略时，自动执行 badge 验证
 - `NewServerTLSConfig()` 不指定策略时，不要求客户端证书
+- 服务端开启 PolicyBadgeRequired/PolicyFull 但无 ca_bundle 时，使用 `RequireAnyClientCert` 而非 `RequireAndVerifyClientCert`
+- 服务端开启 PolicyPKIOnly 但无 ca_bundle 时，返回错误
 - 两端都支持通过 Option 升级或降级验证级别
 
 ---
