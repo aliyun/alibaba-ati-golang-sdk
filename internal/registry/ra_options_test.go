@@ -6,8 +6,8 @@ import (
 
 func TestDefaultRAConfig(t *testing.T) {
 	cfg := defaultRAConfig()
-	if cfg.endpoint != "https://ra.ansagent.cn:8180/ans/api/v1" {
-		t.Errorf("default endpoint = %q, want https://ra.ansagent.cn:8180/ans/api/v1", cfg.endpoint)
+	if cfg.endpoint != "alidns.aliyuncs.com" {
+		t.Errorf("default endpoint = %q, want alidns.aliyuncs.com", cfg.endpoint)
 	}
 	if cfg.accessKeyID != "" {
 		t.Errorf("default accessKeyID = %q, want empty", cfg.accessKeyID)
@@ -35,48 +35,8 @@ func TestWithAccessKeySecret(t *testing.T) {
 
 func TestWithRAEndpoint(t *testing.T) {
 	cfg := defaultRAConfig()
-	WithRAEndpoint("https://custom.example.com/api")(cfg)
-	if cfg.endpoint != "https://custom.example.com/api" {
-		t.Errorf("endpoint = %q, want https://custom.example.com/api", cfg.endpoint)
-	}
-}
-
-func TestWithListLimit(t *testing.T) {
-	cfg := &listConfig{}
-	WithListLimit(50)(cfg)
-	if cfg.limit != 50 {
-		t.Errorf("limit = %d, want 50", cfg.limit)
-	}
-}
-
-func TestWithListOffset(t *testing.T) {
-	cfg := &listConfig{}
-	WithListOffset(10)(cfg)
-	if cfg.offset != 10 {
-		t.Errorf("offset = %d, want 10", cfg.offset)
-	}
-}
-
-func TestWithListHost(t *testing.T) {
-	cfg := &listConfig{}
-	WithListHost("agent.example.com")(cfg)
-	if cfg.host != "agent.example.com" {
-		t.Errorf("host = %q, want agent.example.com", cfg.host)
-	}
-}
-
-func TestWithAuditLimit(t *testing.T) {
-	cfg := &auditConfig{}
-	WithAuditLimit(100)(cfg)
-	if cfg.limit != 100 {
-		t.Errorf("limit = %d, want 100", cfg.limit)
-	}
-}
-
-func TestWithAuditOffset(t *testing.T) {
-	cfg := &auditConfig{}
-	WithAuditOffset(5)(cfg)
-	if cfg.offset != 5 {
-		t.Errorf("offset = %d, want 5", cfg.offset)
+	WithRAEndpoint("alidns.cn-hangzhou.aliyuncs.com")(cfg)
+	if cfg.endpoint != "alidns.cn-hangzhou.aliyuncs.com" {
+		t.Errorf("endpoint = %q, want alidns.cn-hangzhou.aliyuncs.com", cfg.endpoint)
 	}
 }

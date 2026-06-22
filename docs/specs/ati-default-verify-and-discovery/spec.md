@@ -65,14 +65,23 @@
 
 2. `AgentInfo` 返回结构：
    ```go
+   type AgentEndpoint struct {
+       Host     string
+       Port     int
+       Protocol string
+   }
+
    type AgentInfo struct {
        FQDN          string
        AgentID       string
-       BadgeURL      string       // 从 _ati-badge TXT 获取
-       RAEndpoint    string       // 从 _ati TXT 的 ra 字段获取
-       Version       string       // 从 _ati TXT 的 version 字段获取
-       Protocol      string       // 从 _ati TXT 的 p 字段获取（mcp/a2a/openapi）
-       Mode          string       // 从 _ati TXT 的 mode 字段获取
+       BadgeURL      string          // 从 _ati-badge TXT 获取
+       RAEndpoint    string          // 从 _ati TXT 的 ra 字段获取（DNS 发现）
+       Endpoints     []AgentEndpoint // 从 DescribeAgentMarketPopResult 获取（RA API 发现）
+       TrustLevel    string          // 从 DescribeAgentMarketPopResult 获取
+       Categories    []string        // 从 DescribeAgentMarketPopResult 获取
+       Version       string          // 从 _ati TXT 的 version 字段获取
+       Protocol      string          // 从 _ati TXT 的 p 字段获取（mcp/a2a/openapi）
+       Mode          string          // 从 _ati TXT 的 mode 字段获取
        Source        DiscoverySource // DNS / RAAPI
    }
    ```
@@ -97,7 +106,7 @@
 
 ### FR-3：集成阿里云 OpenAPI SDK（子账号 AK/SK）
 
-**描述**：使用阿里云 OpenAPI SDK（`darabonba-openapi`）实现 RA API 客户端，认证方式为 RAM 子账号 AccessKey ID / AccessKey Secret。
+**描述**：使用阿里云 OpenAPI SDK（`darabonba-openapi`）实现 Agent 发现客户端，认证方式为 RAM 子账号 AccessKey ID / AccessKey Secret，通过 POP RPC 泛化调用 `DescribeAgentRegisterInfoMarket` 接口。
 
 **详细规则**：
 
@@ -112,24 +121,37 @@
    - 使用 `github.com/alibabacloud-go/darabonba-openapi/v2` SDK
    - 凭证类型：`access_key`（RAM 子账号 AK/SK）
    - 通过 `github.com/aliyun/credentials-go` 管理凭证
-   - 配置项：`WithAccessKeyID(id)`, `WithAccessKeySecret(secret)`, `WithEndpoint(endpoint)`
+   - 配置项：`WithAccessKeyID(id)`, `WithAccessKeySecret(secret)`, `WithRAEndpoint(endpoint)`
 
-3. RA API 能力（基于已有 examples 推断）：
-   - Agent 注册：`RegisterAgent(ctx, req *AgentRegistrationRequest) (*AgentRegistrationResponse, error)`
-   - Agent 查询：`GetAgent(ctx, agentID string) (*AgentInfo, error)`
-   - Badge/TL 查询：`GetAgentBadge(ctx, agentID string) (*BadgeResponse, error)`
-   - Agent 列表：`ListAgents(ctx, opts ...ListOption) ([]*AgentInfo, error)`
-   - 审计日志：`GetAuditTrail(ctx, agentID string, opts ...AuditOption) (*AuditTrailResponse, error)`
+3. API 调用方式：POP RPC 泛化调用
+   - Action：`DescribeAgentRegisterInfoMarket`
+   - Version：`2015-01-09`
+   - Style：`RPC`
+   - Method：`POST`
+   - 请求参数：
+     - `AgentHost`（string，必填）：目标 Agent 主机名
+     - `AgentVersion`（string，可选）：SemVer 版本范围过滤
+   - 响应模型：`DescribeAgentMarketPopResult`
+     - `RequestId`（string）
+     - `AgentHost`（string）
+     - `AgentId`（string）
+     - `Version`（string）
+     - `TrustLevel`（string）：信任等级
+     - `Categories`（[]string）：Agent 类别
+     - `Endpoints`（[]MarketAgentEndpoint）：服务端点列表
+     - `BadgeUrl`（string）
+     - `Mode`（string）
+     - `Status`（string）
 
-4. 默认 RA endpoint：`https://ra.ansagent.cn:8180/ans/api/v1`
+4. 默认 endpoint：`alidns.aliyuncs.com`
 
 5. 错误处理：
    - AK/SK 无效 → 返回认证错误，不降级
    - API 调用失败 → 包装为 SDK 标准错误类型，保留原始错误链
 
 **验收标准**：
-- 可通过 RAM 子账号 AK/SK 成功调用 RA API
-- 依赖项 `darabonba-openapi` 和 `credentials-go` 被正确使用（当前为 indirect，需改为 direct）
+- 可通过 RAM 子账号 AK/SK 成功调用 DescribeAgentRegisterInfoMarket
+- 依赖项 `darabonba-openapi` 和 `credentials-go` 被正确使用
 - 错误信息清晰，包含 API 调用上下文
 
 ---

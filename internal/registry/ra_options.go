@@ -9,7 +9,7 @@ type raConfig struct {
 
 func defaultRAConfig() *raConfig {
 	return &raConfig{
-		endpoint: "https://ra.ansagent.cn:8180/ans/api/v1",
+		endpoint: "alidns.aliyuncs.com",
 	}
 }
 

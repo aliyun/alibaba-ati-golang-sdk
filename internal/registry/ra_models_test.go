@@ -3,162 +3,131 @@ package registry
 import (
 	"encoding/json"
 	"testing"
-	"time"
 )
 
-func TestRAAgentInfo_JSON(t *testing.T) {
-	now := time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)
-	info := &RAAgentInfo{
-		AgentID:      "agent-001",
-		ATIName:      "test-agent",
-		AgentHost:    "agent.example.com",
-		Version:      "1.0.0",
-		Protocol:     "HTTPS",
-		Mode:         "standard",
-		Status:       "ACTIVE",
-		RAEndpoint:   "https://ra.example.com",
-		BadgeURL:     "https://tl.example.com/badge/001",
-		RegisteredAt: now,
-	}
-
-	data, err := json.Marshal(info)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-
-	var got RAAgentInfo
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("Unmarshal error: %v", err)
-	}
-
-	if got.AgentID != info.AgentID {
-		t.Errorf("AgentID = %q, want %q", got.AgentID, info.AgentID)
-	}
-	if got.ATIName != info.ATIName {
-		t.Errorf("ATIName = %q, want %q", got.ATIName, info.ATIName)
-	}
-	if got.AgentHost != info.AgentHost {
-		t.Errorf("AgentHost = %q, want %q", got.AgentHost, info.AgentHost)
-	}
-	if got.Status != info.Status {
-		t.Errorf("Status = %q, want %q", got.Status, info.Status)
-	}
-}
-
-func TestBadgeResponse_JSON(t *testing.T) {
-	badge := &BadgeResponse{
-		BadgeURL:    "https://tl.example.com/badge/001",
-		BadgeStatus: "VALID",
-		AgentStatus: "ACTIVE",
-	}
-
-	data, err := json.Marshal(badge)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-
-	var got BadgeResponse
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("Unmarshal error: %v", err)
-	}
-
-	if got.BadgeURL != badge.BadgeURL {
-		t.Errorf("BadgeURL = %q, want %q", got.BadgeURL, badge.BadgeURL)
-	}
-	if got.BadgeStatus != badge.BadgeStatus {
-		t.Errorf("BadgeStatus = %q, want %q", got.BadgeStatus, badge.BadgeStatus)
-	}
-	if got.AgentStatus != badge.AgentStatus {
-		t.Errorf("AgentStatus = %q, want %q", got.AgentStatus, badge.AgentStatus)
-	}
-}
-
-func TestAuditTrailResponse_JSON(t *testing.T) {
-	now := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
-	trail := &AuditTrailResponse{
-		Records: []AuditRecord{
-			{EventType: "REGISTER", Timestamp: now, Details: "Agent registered"},
-			{EventType: "RENEW", Timestamp: now.Add(time.Hour)},
+func TestDescribeAgentMarketPopResult_JSON(t *testing.T) {
+	result := &DescribeAgentMarketPopResult{
+		RequestId:  "req-001",
+		AgentHost:  "agent.example.com",
+		AgentId:    "agent-001",
+		Version:    "1.0.0",
+		TrustLevel: "HIGH",
+		Categories: []string{"dns", "security"},
+		Endpoints: []MarketAgentEndpoint{
+			{Host: "ep1.example.com", Port: 443, Protocol: "HTTPS", Weight: 100},
+			{Host: "ep2.example.com", Port: 8443, Protocol: "HTTPS", Weight: 50},
 		},
-		Total: 2,
+		BadgeUrl: "https://tl.example.com/badge/001",
+		Mode:     "standard",
+		Status:   "ACTIVE",
 	}
 
-	data, err := json.Marshal(trail)
+	data, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
 
-	var got AuditTrailResponse
+	var got DescribeAgentMarketPopResult
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 
-	if got.Total != 2 {
-		t.Errorf("Total = %d, want 2", got.Total)
+	if got.RequestId != result.RequestId {
+		t.Errorf("RequestId = %q, want %q", got.RequestId, result.RequestId)
 	}
-	if len(got.Records) != 2 {
-		t.Fatalf("Records length = %d, want 2", len(got.Records))
+	if got.AgentHost != result.AgentHost {
+		t.Errorf("AgentHost = %q, want %q", got.AgentHost, result.AgentHost)
 	}
-	if got.Records[0].EventType != "REGISTER" {
-		t.Errorf("Records[0].EventType = %q, want REGISTER", got.Records[0].EventType)
+	if got.AgentId != result.AgentId {
+		t.Errorf("AgentId = %q, want %q", got.AgentId, result.AgentId)
 	}
-	if got.Records[0].Details != "Agent registered" {
-		t.Errorf("Records[0].Details = %q, want 'Agent registered'", got.Records[0].Details)
+	if got.TrustLevel != result.TrustLevel {
+		t.Errorf("TrustLevel = %q, want %q", got.TrustLevel, result.TrustLevel)
 	}
-	if got.Records[1].EventType != "RENEW" {
-		t.Errorf("Records[1].EventType = %q, want RENEW", got.Records[1].EventType)
+	if got.Status != result.Status {
+		t.Errorf("Status = %q, want %q", got.Status, result.Status)
+	}
+	if len(got.Categories) != 2 {
+		t.Fatalf("Categories length = %d, want 2", len(got.Categories))
+	}
+	if got.Categories[0] != "dns" || got.Categories[1] != "security" {
+		t.Errorf("Categories = %v, want [dns security]", got.Categories)
+	}
+	if len(got.Endpoints) != 2 {
+		t.Fatalf("Endpoints length = %d, want 2", len(got.Endpoints))
+	}
+	if got.Endpoints[0].Host != "ep1.example.com" {
+		t.Errorf("Endpoints[0].Host = %q", got.Endpoints[0].Host)
+	}
+	if got.Endpoints[0].Port != 443 {
+		t.Errorf("Endpoints[0].Port = %d, want 443", got.Endpoints[0].Port)
+	}
+	if got.Endpoints[1].Weight != 50 {
+		t.Errorf("Endpoints[1].Weight = %d, want 50", got.Endpoints[1].Weight)
+	}
+	if got.BadgeUrl != result.BadgeUrl {
+		t.Errorf("BadgeUrl = %q, want %q", got.BadgeUrl, result.BadgeUrl)
 	}
 }
 
-func TestAgentRegistrationResponse_JSON(t *testing.T) {
-	resp := &AgentRegistrationResponse{
-		AgentID:   "agent-002",
-		ATIName:   "new-agent",
-		Status:    "PENDING",
-		BadgeURL:  "https://tl.example.com/badge/002",
-		ExpiresAt: "2026-01-01T00:00:00Z",
+func TestMarketAgentEndpoint_JSON(t *testing.T) {
+	ep := &MarketAgentEndpoint{
+		Host:     "ep.example.com",
+		Port:     8443,
+		Protocol: "HTTPS",
+		Weight:   75,
 	}
 
-	data, err := json.Marshal(resp)
+	data, err := json.Marshal(ep)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
 
-	var got AgentRegistrationResponse
+	var got MarketAgentEndpoint
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 
-	if got.AgentID != resp.AgentID {
-		t.Errorf("AgentID = %q, want %q", got.AgentID, resp.AgentID)
+	if got.Host != ep.Host {
+		t.Errorf("Host = %q, want %q", got.Host, ep.Host)
 	}
-	if got.Status != resp.Status {
-		t.Errorf("Status = %q, want %q", got.Status, resp.Status)
+	if got.Port != ep.Port {
+		t.Errorf("Port = %d, want %d", got.Port, ep.Port)
 	}
-	if got.BadgeURL != resp.BadgeURL {
-		t.Errorf("BadgeURL = %q, want %q", got.BadgeURL, resp.BadgeURL)
+	if got.Protocol != ep.Protocol {
+		t.Errorf("Protocol = %q, want %q", got.Protocol, ep.Protocol)
 	}
-}
-
-func TestListConfig_Defaults(t *testing.T) {
-	cfg := &listConfig{limit: 20, offset: 0}
-	if cfg.limit != 20 {
-		t.Errorf("default limit = %d, want 20", cfg.limit)
-	}
-	if cfg.offset != 0 {
-		t.Errorf("default offset = %d, want 0", cfg.offset)
-	}
-	if cfg.host != "" {
-		t.Errorf("default host = %q, want empty", cfg.host)
+	if got.Weight != ep.Weight {
+		t.Errorf("Weight = %d, want %d", got.Weight, ep.Weight)
 	}
 }
 
-func TestAuditConfig_Defaults(t *testing.T) {
-	cfg := &auditConfig{limit: 20, offset: 0}
-	if cfg.limit != 20 {
-		t.Errorf("default limit = %d, want 20", cfg.limit)
+func TestDescribeAgentMarketPopResult_EmptyFields(t *testing.T) {
+	result := &DescribeAgentMarketPopResult{
+		RequestId: "req-empty",
+		AgentId:   "agent-empty",
 	}
-	if cfg.offset != 0 {
-		t.Errorf("default offset = %d, want 0", cfg.offset)
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var got DescribeAgentMarketPopResult
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if got.AgentId != "agent-empty" {
+		t.Errorf("AgentId = %q, want agent-empty", got.AgentId)
+	}
+	if got.TrustLevel != "" {
+		t.Errorf("TrustLevel = %q, want empty", got.TrustLevel)
+	}
+	if got.Categories != nil {
+		t.Errorf("Categories = %v, want nil", got.Categories)
+	}
+	if got.Endpoints != nil {
+		t.Errorf("Endpoints = %v, want nil", got.Endpoints)
 	}
 }

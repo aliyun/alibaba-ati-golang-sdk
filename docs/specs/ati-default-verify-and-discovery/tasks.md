@@ -15,9 +15,11 @@
 - 编写单元测试 `ati/policy_test.go`
 
 ### Task 1.2：创建 `ati/types.go`
-- 定义 `AgentInfo` 结构体（FQDN, AgentID, BadgeURL, RAEndpoint, Version, Protocol, Mode, Source）
+- 定义 `AgentEndpoint` 结构体（Host, Port, Protocol）
+- 定义 `AgentInfo` 结构体（FQDN, AgentID, BadgeURL, RAEndpoint, Endpoints, TrustLevel, Categories, Version, Protocol, Mode, Source）
 - 定义 `DiscoverySource` 枚举（SourceDNS / SourceRAAPI）
 - 定义 `DiscoverOption` 及相关选项函数（WithVersion, WithProtocol, WithSource）
+- 定义 `ResolveDiscoverOptions()` 辅助函数
 
 ### Task 1.3：补全 `models/` 缺失类型
 - 确认并实现 `ATIRecord` 结构体（`_ati` TXT 记录解析结果）
@@ -66,27 +68,30 @@
 
 ### Task 3.3：创建 `internal/registry/discoverer.go` — RA API 发现器
 - 实现 `RAAPIDiscoverer` 结构体
-- `Discover()` 方法：调用 `RAClient.GetAgent()` 按 FQDN 查询
+- `Discover()` 方法：调用 `RAClient.DescribeAgentRegisterInfoMarket()` 按主机名查询
+- `DiscoverWithOptions()` 方法：传递 version 参数给 `DescribeAgentRegisterInfoMarket`
+- `marketResultToATI()` 转换函数：映射 `DescribeAgentMarketPopResult` → `AgentInfo`
 - 编写单元测试
 
 ---
 
 ## Phase 4：阿里云 OpenAPI SDK 集成
 
-### Task 4.1：创建 `internal/registry/options.go`
+### Task 4.1：创建 `internal/registry/ra_options.go`
 - 定义 `raConfig` 结构体（accessKeyID, accessKeySecret, endpoint）
 - 定义 `RAClientOption` 类型及选项函数
-- 默认 endpoint：`https://ra.ansagent.cn:8180/ans/api/v1`
+- 默认 endpoint：`alidns.aliyuncs.com`
 
-### Task 4.2：创建 `internal/registry/models.go`
-- 定义 RA API 请求/响应模型：`AgentRegistrationRequest/Response`, `BadgeResponse`, `AuditTrailResponse` 等
-- 基于 `examples/` 目录的已有用法推断字段
+### Task 4.2：创建 `internal/registry/ra_models.go`
+- 定义 `DescribeAgentMarketPopResult` 响应模型（RequestId, AgentHost, AgentId, Version, TrustLevel, Categories, Endpoints, BadgeUrl, Mode, Status）
+- 定义 `MarketAgentEndpoint` 结构体（Host, Port, Protocol, Weight）
 
-### Task 4.3：创建 `internal/registry/client.go`
+### Task 4.3：创建 `internal/registry/ra_client.go`
 - 实现 `NewRAClient()` 构造函数
 - 使用 `credentials-go` 创建 access_key 凭证
 - 使用 `darabonba-openapi` 初始化 OpenAPI 客户端
-- 实现 API 方法：RegisterAgent, GetAgent, GetAgentBadge, ListAgents, GetAuditTrail
+- 实现 `DescribeAgentRegisterInfoMarket()` 方法：POP RPC 泛化调用（Action=DescribeAgentRegisterInfoMarket, Version=2015-01-09, Style=RPC）
+- `callApiWithContext()` 传播 context deadline
 - 错误包装：保留原始错误链，添加调用上下文
 
 ### Task 4.4：更新 `go.mod`

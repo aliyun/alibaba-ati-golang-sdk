@@ -20,6 +20,12 @@ func TestAgentInfo_Fields(t *testing.T) {
 		AgentID:    "agent-123",
 		BadgeURL:   "https://tl.example.com/badge/123",
 		RAEndpoint: "https://ra.example.com",
+		Endpoints: []AgentEndpoint{
+			{Host: "ep1.example.com", Port: 443, Protocol: "HTTPS"},
+			{Host: "ep2.example.com", Port: 8443, Protocol: "HTTPS"},
+		},
+		TrustLevel: "HIGH",
+		Categories: []string{"dns", "security"},
 		Version:    "1.0.0",
 		Protocol:   "HTTPS",
 		Mode:       "standard",
@@ -33,6 +39,44 @@ func TestAgentInfo_Fields(t *testing.T) {
 	}
 	if info.Source != SourceRAAPI {
 		t.Errorf("Source = %d, want SourceRAAPI", info.Source)
+	}
+	if info.TrustLevel != "HIGH" {
+		t.Errorf("TrustLevel = %q, want HIGH", info.TrustLevel)
+	}
+	if len(info.Categories) != 2 {
+		t.Fatalf("Categories length = %d, want 2", len(info.Categories))
+	}
+	if info.Categories[0] != "dns" {
+		t.Errorf("Categories[0] = %q, want dns", info.Categories[0])
+	}
+	if len(info.Endpoints) != 2 {
+		t.Fatalf("Endpoints length = %d, want 2", len(info.Endpoints))
+	}
+	if info.Endpoints[0].Host != "ep1.example.com" {
+		t.Errorf("Endpoints[0].Host = %q", info.Endpoints[0].Host)
+	}
+	if info.Endpoints[0].Port != 443 {
+		t.Errorf("Endpoints[0].Port = %d, want 443", info.Endpoints[0].Port)
+	}
+	if info.Endpoints[1].Port != 8443 {
+		t.Errorf("Endpoints[1].Port = %d, want 8443", info.Endpoints[1].Port)
+	}
+}
+
+func TestAgentEndpoint_Fields(t *testing.T) {
+	ep := AgentEndpoint{
+		Host:     "ep.example.com",
+		Port:     8443,
+		Protocol: "HTTPS",
+	}
+	if ep.Host != "ep.example.com" {
+		t.Errorf("Host = %q", ep.Host)
+	}
+	if ep.Port != 8443 {
+		t.Errorf("Port = %d, want 8443", ep.Port)
+	}
+	if ep.Protocol != "HTTPS" {
+		t.Errorf("Protocol = %q, want HTTPS", ep.Protocol)
 	}
 }
 
@@ -60,6 +104,29 @@ func TestDiscoverOption_WithSource(t *testing.T) {
 	}
 	if *cfg.source != SourceDNS {
 		t.Errorf("source = %d, want SourceDNS", *cfg.source)
+	}
+}
+
+func TestResolveDiscoverOptions(t *testing.T) {
+	version, protocol := ResolveDiscoverOptions(
+		WithVersion(">=1.0.0"),
+		WithProtocol("HTTPS"),
+	)
+	if version != ">=1.0.0" {
+		t.Errorf("version = %q, want >=1.0.0", version)
+	}
+	if protocol != "HTTPS" {
+		t.Errorf("protocol = %q, want HTTPS", protocol)
+	}
+}
+
+func TestResolveDiscoverOptions_Empty(t *testing.T) {
+	version, protocol := ResolveDiscoverOptions()
+	if version != "" {
+		t.Errorf("version = %q, want empty", version)
+	}
+	if protocol != "" {
+		t.Errorf("protocol = %q, want empty", protocol)
 	}
 }
 

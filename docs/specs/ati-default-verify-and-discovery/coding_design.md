@@ -136,6 +136,9 @@ type AgentInfo struct {
     AgentID    string
     BadgeURL   string
     RAEndpoint string
+    Endpoints  []AgentEndpoint    // 从 DescribeAgentMarketPopResult 获取
+    TrustLevel string             // 从 DescribeAgentMarketPopResult 获取
+    Categories []string           // 从 DescribeAgentMarketPopResult 获取
     Version    string
     Protocol   string
     Mode       string
@@ -209,13 +212,15 @@ func (c *CompositeDiscoverer) Discover(ctx context.Context, fqdn string) (*Agent
 
 ### 2.3 阿里云 OpenAPI SDK 集成（FR-3）
 
-**文件**：`internal/registry/client.go`
+**文件**：`internal/registry/ra_client.go`
 
 ```go
 package registry
 
 import (
     openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
+    openapiutil "github.com/alibabacloud-go/openapi-util/service"
+    "github.com/alibabacloud-go/tea/dara"
     "github.com/aliyun/credentials-go/credentials"
 )
 
@@ -225,33 +230,44 @@ type RAClient struct {
 }
 
 func NewRAClient(opts ...RAClientOption) (*RAClient, error) {
-    cfg := defaultRAConfig()
-    for _, opt := range opts {
-        opt(cfg)
-    }
-
-    // 使用 credentials-go 创建 access_key 凭证
-    credConfig := &credentials.Config{
-        Type:            tea.String("access_key"),
-        AccessKeyId:     tea.String(cfg.accessKeyID),
-        AccessKeySecret: tea.String(cfg.accessKeySecret),
-    }
-    cred, err := credentials.NewCredential(credConfig)
-    if err != nil { return nil, fmt.Errorf("创建凭证失败: %w", err) }
-
-    // 初始化 OpenAPI 客户端
-    apiConfig := &openapi.Config{
-        Credential: cred,
-        Endpoint:   tea.String(cfg.endpoint),
-    }
-    client, err := openapi.NewClient(apiConfig)
-    if err != nil { return nil, fmt.Errorf("创建 OpenAPI 客户端失败: %w", err) }
-
-    return &RAClient{client: client, endpoint: cfg.endpoint}, nil
+    // ... AK/SK 凭证创建和 OpenAPI 客户端初始化 ...
 }
 ```
 
-**配置选项**：`internal/registry/options.go`
+**API 方法**：POP RPC 泛化调用 `DescribeAgentRegisterInfoMarket`
+
+```go
+func (c *RAClient) DescribeAgentRegisterInfoMarket(ctx context.Context, agentHost string, agentVersion string) (*DescribeAgentMarketPopResult, error) {
+    params := &openapi.Params{
+        Action:      dara.String("DescribeAgentRegisterInfoMarket"),
+        Version:     dara.String("2015-01-09"),
+        Protocol:    dara.String("HTTPS"),
+        Pathname:    dara.String("/"),
+        Method:      dara.String("POST"),
+        AuthType:    dara.String("AK"),
+        Style:       dara.String("RPC"),
+        ReqBodyType: dara.String("formData"),
+        BodyType:    dara.String("json"),
+    }
+
+    queries := map[string]interface{}{
+        "AgentHost": agentHost,
+    }
+    if agentVersion != "" {
+        queries["AgentVersion"] = agentVersion
+    }
+
+    request := &openapi.OpenApiRequest{
+        Query: openapiutil.Query(queries),
+    }
+
+    // callApiWithContext 传播 context deadline
+    resp, err := c.callApiWithContext(ctx, params, request, runtime)
+    // ...
+}
+```
+
+**配置选项**：`internal/registry/ra_options.go`
 
 ```go
 type raConfig struct {
@@ -262,39 +278,38 @@ type raConfig struct {
 
 func defaultRAConfig() *raConfig {
     return &raConfig{
-        endpoint: "https://ra.ansagent.cn:8180/ans/api/v1",
+        endpoint: "alidns.aliyuncs.com",
     }
 }
-
-type RAClientOption func(*raConfig)
-
-func WithAccessKeyID(id string) RAClientOption {
-    return func(c *raConfig) { c.accessKeyID = id }
-}
-
-func WithAccessKeySecret(secret string) RAClientOption {
-    return func(c *raConfig) { c.accessKeySecret = secret }
-}
-
-func WithEndpoint(endpoint string) RAClientOption {
-    return func(c *raConfig) { c.endpoint = endpoint }
-}
 ```
 
-**API 方法**：`internal/registry/client.go`（续）
+**响应模型**：`internal/registry/ra_models.go`
 
 ```go
-func (c *RAClient) RegisterAgent(ctx context.Context, req *AgentRegistrationRequest) (*AgentRegistrationResponse, error) { ... }
-func (c *RAClient) GetAgent(ctx context.Context, agentID string) (*AgentInfo, error) { ... }
-func (c *RAClient) GetAgentBadge(ctx context.Context, agentID string) (*BadgeResponse, error) { ... }
-func (c *RAClient) ListAgents(ctx context.Context, opts ...ListOption) ([]*AgentInfo, error) { ... }
-func (c *RAClient) GetAuditTrail(ctx context.Context, agentID string, opts ...AuditOption) (*AuditTrailResponse, error) { ... }
+type DescribeAgentMarketPopResult struct {
+    RequestId  string                `json:"RequestId"`
+    AgentHost  string                `json:"AgentHost"`
+    AgentId    string                `json:"AgentId"`
+    Version    string                `json:"Version"`
+    TrustLevel string                `json:"TrustLevel"`
+    Categories []string              `json:"Categories"`
+    Endpoints  []MarketAgentEndpoint `json:"Endpoints"`
+    BadgeUrl   string                `json:"BadgeUrl"`
+    Mode       string                `json:"Mode"`
+    Status     string                `json:"Status"`
+}
+
+type MarketAgentEndpoint struct {
+    Host     string `json:"Host"`
+    Port     int    `json:"Port"`
+    Protocol string `json:"Protocol"`
+    Weight   int    `json:"Weight"`
+}
 ```
 
-每个方法通过 `openapi.Client.DoRequest()` 或 `openapi.Client.CallApi()` 发起 HTTP 请求，使用 AK/SK 自动签名。
-
-**go.mod 变更**：将以下依赖从 indirect 改为 direct：
+**go.mod 依赖**（已为 direct）：
 - `github.com/alibabacloud-go/darabonba-openapi/v2`
+- `github.com/alibabacloud-go/openapi-util`
 - `github.com/aliyun/credentials-go`
 
 ---

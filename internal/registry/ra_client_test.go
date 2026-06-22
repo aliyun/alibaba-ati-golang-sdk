@@ -62,7 +62,7 @@ func TestNewRAClient_ValidCredentials(t *testing.T) {
 	client, err := NewRAClient(
 		WithAccessKeyID("test-ak-id"),
 		WithAccessKeySecret("test-ak-secret"),
-		WithRAEndpoint("https://test.example.com/api"),
+		WithRAEndpoint("alidns.cn-hangzhou.aliyuncs.com"),
 	)
 	if err != nil {
 		t.Fatalf("NewRAClient() error = %v", err)
@@ -70,8 +70,8 @@ func TestNewRAClient_ValidCredentials(t *testing.T) {
 	if client == nil {
 		t.Fatal("client is nil")
 	}
-	if client.endpoint != "https://test.example.com/api" {
-		t.Errorf("endpoint = %q, want https://test.example.com/api", client.endpoint)
+	if client.endpoint != "alidns.cn-hangzhou.aliyuncs.com" {
+		t.Errorf("endpoint = %q, want alidns.cn-hangzhou.aliyuncs.com", client.endpoint)
 	}
 	if client.client == nil {
 		t.Error("internal openapi client is nil")
@@ -86,12 +86,12 @@ func TestNewRAClient_DefaultEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRAClient() error = %v", err)
 	}
-	if client.endpoint != "https://ra.ansagent.cn:8180/ans/api/v1" {
-		t.Errorf("endpoint = %q, want default endpoint", client.endpoint)
+	if client.endpoint != "alidns.aliyuncs.com" {
+		t.Errorf("endpoint = %q, want alidns.aliyuncs.com", client.endpoint)
 	}
 }
 
-func TestRAClient_GetAgent_NetworkError(t *testing.T) {
+func TestRAClient_DescribeAgentRegisterInfoMarket_NetworkError(t *testing.T) {
 	client, err := NewRAClient(
 		WithAccessKeyID("test-ak"),
 		WithAccessKeySecret("test-sk"),
@@ -101,245 +101,115 @@ func TestRAClient_GetAgent_NetworkError(t *testing.T) {
 		t.Fatalf("NewRAClient() error = %v", err)
 	}
 
-	_, err = client.GetAgent(context.Background(), "agent-1")
+	_, err = client.DescribeAgentRegisterInfoMarket(context.Background(), "agent.example.com", "")
 	if err == nil {
 		t.Fatal("expected error for network failure")
 	}
-	if !strings.Contains(err.Error(), "GetAgent API call failed") {
-		t.Errorf("error = %q, want to contain 'GetAgent API call failed'", err.Error())
+	if !strings.Contains(err.Error(), "DescribeAgentRegisterInfoMarket API call failed") {
+		t.Errorf("error = %q, want to contain 'DescribeAgentRegisterInfoMarket API call failed'", err.Error())
 	}
 }
 
-func TestRAClient_GetAgent_Success(t *testing.T) {
+func TestRAClient_DescribeAgentRegisterInfoMarket_Success(t *testing.T) {
 	client, srv := newTestRAClientWithHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"agentId":   "agent-001",
-			"ansName":   "test-agent",
-			"agentHost": "agent.example.com",
-			"status":    "ACTIVE",
-			"version":   "1.0.0",
-		})
-	}))
-	defer srv.Close()
-
-	info, err := client.GetAgent(context.Background(), "agent-001")
-	if err != nil {
-		t.Fatalf("GetAgent() error = %v", err)
-	}
-	if info.AgentID != "agent-001" {
-		t.Errorf("AgentID = %q, want agent-001", info.AgentID)
-	}
-	if info.Status != "ACTIVE" {
-		t.Errorf("Status = %q, want ACTIVE", info.Status)
-	}
-}
-
-func TestRAClient_GetAgentByFQDN_NetworkError(t *testing.T) {
-	client, err := NewRAClient(
-		WithAccessKeyID("test-ak"),
-		WithAccessKeySecret("test-sk"),
-		WithRAEndpoint("https://nonexistent.invalid:19999"),
-	)
-	if err != nil {
-		t.Fatalf("NewRAClient() error = %v", err)
-	}
-
-	_, err = client.GetAgentByFQDN(context.Background(), "agent.example.com")
-	if err == nil {
-		t.Fatal("expected error for network failure")
-	}
-	if !strings.Contains(err.Error(), "GetAgentByFQDN API call failed") {
-		t.Errorf("error = %q, want to contain 'GetAgentByFQDN API call failed'", err.Error())
-	}
-}
-
-func TestRAClient_GetAgentByFQDN_Success(t *testing.T) {
-	client, srv := newTestRAClientWithHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"agentId":   "agent-fqdn",
-			"ansName":   "fqdn-agent",
-			"agentHost": "fqdn.example.com",
-			"status":    "ACTIVE",
-		})
-	}))
-	defer srv.Close()
-
-	info, err := client.GetAgentByFQDN(context.Background(), "fqdn.example.com")
-	if err != nil {
-		t.Fatalf("GetAgentByFQDN() error = %v", err)
-	}
-	if info.AgentID != "agent-fqdn" {
-		t.Errorf("AgentID = %q, want agent-fqdn", info.AgentID)
-	}
-}
-
-func TestRAClient_GetAgentBadge_NetworkError(t *testing.T) {
-	client, err := NewRAClient(
-		WithAccessKeyID("test-ak"),
-		WithAccessKeySecret("test-sk"),
-		WithRAEndpoint("https://nonexistent.invalid:19999"),
-	)
-	if err != nil {
-		t.Fatalf("NewRAClient() error = %v", err)
-	}
-
-	_, err = client.GetAgentBadge(context.Background(), "agent-1")
-	if err == nil {
-		t.Fatal("expected error for network failure")
-	}
-	if !strings.Contains(err.Error(), "GetAgentBadge API call failed") {
-		t.Errorf("error = %q, want to contain 'GetAgentBadge API call failed'", err.Error())
-	}
-}
-
-func TestRAClient_GetAgentBadge_Success(t *testing.T) {
-	client, srv := newTestRAClientWithHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"badgeUrl":    "https://tl.example.com/badge/001",
-			"badgeStatus": "VALID",
-			"agentStatus": "ACTIVE",
-		})
-	}))
-	defer srv.Close()
-
-	badge, err := client.GetAgentBadge(context.Background(), "agent-001")
-	if err != nil {
-		t.Fatalf("GetAgentBadge() error = %v", err)
-	}
-	if badge.BadgeURL != "https://tl.example.com/badge/001" {
-		t.Errorf("BadgeURL = %q", badge.BadgeURL)
-	}
-	if badge.BadgeStatus != "VALID" {
-		t.Errorf("BadgeStatus = %q, want VALID", badge.BadgeStatus)
-	}
-}
-
-func TestRAClient_ListAgents_NetworkError(t *testing.T) {
-	client, err := NewRAClient(
-		WithAccessKeyID("test-ak"),
-		WithAccessKeySecret("test-sk"),
-		WithRAEndpoint("https://nonexistent.invalid:19999"),
-	)
-	if err != nil {
-		t.Fatalf("NewRAClient() error = %v", err)
-	}
-
-	_, err = client.ListAgents(context.Background())
-	if err == nil {
-		t.Fatal("expected error for network failure")
-	}
-	if !strings.Contains(err.Error(), "ListAgents API call failed") {
-		t.Errorf("error = %q, want to contain 'ListAgents API call failed'", err.Error())
-	}
-}
-
-func TestRAClient_ListAgents_WithOptions(t *testing.T) {
-	client, err := NewRAClient(
-		WithAccessKeyID("test-ak"),
-		WithAccessKeySecret("test-sk"),
-		WithRAEndpoint("https://nonexistent.invalid:19999"),
-	)
-	if err != nil {
-		t.Fatalf("NewRAClient() error = %v", err)
-	}
-
-	_, err = client.ListAgents(context.Background(),
-		WithListLimit(50),
-		WithListOffset(10),
-		WithListHost("agent.example.com"),
-	)
-	if err == nil {
-		t.Fatal("expected error for network failure")
-	}
-}
-
-func TestRAClient_GetAuditTrail_NetworkError(t *testing.T) {
-	client, err := NewRAClient(
-		WithAccessKeyID("test-ak"),
-		WithAccessKeySecret("test-sk"),
-		WithRAEndpoint("https://nonexistent.invalid:19999"),
-	)
-	if err != nil {
-		t.Fatalf("NewRAClient() error = %v", err)
-	}
-
-	_, err = client.GetAuditTrail(context.Background(), "agent-1")
-	if err == nil {
-		t.Fatal("expected error for network failure")
-	}
-	if !strings.Contains(err.Error(), "GetAuditTrail API call failed") {
-		t.Errorf("error = %q, want to contain 'GetAuditTrail API call failed'", err.Error())
-	}
-}
-
-func TestRAClient_GetAuditTrail_WithOptions(t *testing.T) {
-	client, err := NewRAClient(
-		WithAccessKeyID("test-ak"),
-		WithAccessKeySecret("test-sk"),
-		WithRAEndpoint("https://nonexistent.invalid:19999"),
-	)
-	if err != nil {
-		t.Fatalf("NewRAClient() error = %v", err)
-	}
-
-	_, err = client.GetAuditTrail(context.Background(), "agent-1",
-		WithAuditLimit(100),
-		WithAuditOffset(5),
-	)
-	if err == nil {
-		t.Fatal("expected error for network failure")
-	}
-}
-
-func TestRAClient_GetAuditTrail_Success(t *testing.T) {
-	client, srv := newTestRAClientWithHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"records": []map[string]interface{}{
-				{"eventType": "REGISTER", "details": "Agent registered"},
+			"RequestId":  "test-req-001",
+			"AgentHost":  "agent.example.com",
+			"AgentId":    "agent-001",
+			"Version":    "1.2.0",
+			"TrustLevel": "HIGH",
+			"Categories": []string{"dns", "security"},
+			"Endpoints": []map[string]interface{}{
+				{"Host": "ep1.example.com", "Port": 443, "Protocol": "HTTPS", "Weight": 100},
 			},
-			"total": 1,
+			"BadgeUrl": "https://tl.example.com/badge/001",
+			"Mode":     "standard",
+			"Status":   "ACTIVE",
 		})
 	}))
 	defer srv.Close()
 
-	trail, err := client.GetAuditTrail(context.Background(), "agent-001")
+	result, err := client.DescribeAgentRegisterInfoMarket(context.Background(), "agent.example.com", ">=1.0.0")
 	if err != nil {
-		t.Fatalf("GetAuditTrail() error = %v", err)
+		t.Fatalf("DescribeAgentRegisterInfoMarket() error = %v", err)
 	}
-	if trail.Total != 1 {
-		t.Errorf("Total = %d, want 1", trail.Total)
+	if result.AgentId != "agent-001" {
+		t.Errorf("AgentId = %q, want agent-001", result.AgentId)
+	}
+	if result.TrustLevel != "HIGH" {
+		t.Errorf("TrustLevel = %q, want HIGH", result.TrustLevel)
+	}
+	if result.Status != "ACTIVE" {
+		t.Errorf("Status = %q, want ACTIVE", result.Status)
+	}
+	if len(result.Endpoints) != 1 {
+		t.Fatalf("Endpoints length = %d, want 1", len(result.Endpoints))
+	}
+	if result.Endpoints[0].Host != "ep1.example.com" {
+		t.Errorf("Endpoints[0].Host = %q, want ep1.example.com", result.Endpoints[0].Host)
+	}
+	if result.Endpoints[0].Port != 443 {
+		t.Errorf("Endpoints[0].Port = %d, want 443", result.Endpoints[0].Port)
+	}
+	if result.BadgeUrl != "https://tl.example.com/badge/001" {
+		t.Errorf("BadgeUrl = %q", result.BadgeUrl)
+	}
+	if len(result.Categories) != 2 || result.Categories[0] != "dns" {
+		t.Errorf("Categories = %v, want [dns security]", result.Categories)
 	}
 }
 
-func TestRAClient_RegisterAgent_NetworkError(t *testing.T) {
-	client, err := NewRAClient(
-		WithAccessKeyID("test-ak"),
-		WithAccessKeySecret("test-sk"),
-		WithRAEndpoint("https://nonexistent.invalid:19999"),
-	)
+func TestRAClient_DescribeAgentRegisterInfoMarket_EmptyVersion(t *testing.T) {
+	client, srv := newTestRAClientWithHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"RequestId": "test-req-002",
+			"AgentHost": "agent.example.com",
+			"AgentId":   "agent-002",
+			"Status":    "ACTIVE",
+		})
+	}))
+	defer srv.Close()
+
+	result, err := client.DescribeAgentRegisterInfoMarket(context.Background(), "agent.example.com", "")
 	if err != nil {
-		t.Fatalf("NewRAClient() error = %v", err)
+		t.Fatalf("DescribeAgentRegisterInfoMarket() error = %v", err)
 	}
-
-	req := &AgentRegistrationRequest{
-		AgentHost:   "test.example.com",
-		AgentName:   "Test Agent",
-		Version:     "1.0.0",
-		IdentityCSR: "-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----",
+	if result.AgentId != "agent-002" {
+		t.Errorf("AgentId = %q, want agent-002", result.AgentId)
 	}
+}
 
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				// dara.ToMap panics on non-pointer string fields - known SDK limitation
-			}
-		}()
-		_, err = client.RegisterAgent(context.Background(), req)
-	}()
+func TestRAClient_DescribeAgentRegisterInfoMarket_MultipleEndpoints(t *testing.T) {
+	client, srv := newTestRAClientWithHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"RequestId": "test-req-003",
+			"AgentHost": "multi.example.com",
+			"AgentId":   "agent-003",
+			"Endpoints": []map[string]interface{}{
+				{"Host": "ep1.example.com", "Port": 443, "Protocol": "HTTPS", "Weight": 70},
+				{"Host": "ep2.example.com", "Port": 8443, "Protocol": "HTTPS", "Weight": 30},
+			},
+			"Status": "ACTIVE",
+		})
+	}))
+	defer srv.Close()
+
+	result, err := client.DescribeAgentRegisterInfoMarket(context.Background(), "multi.example.com", "")
+	if err != nil {
+		t.Fatalf("DescribeAgentRegisterInfoMarket() error = %v", err)
+	}
+	if len(result.Endpoints) != 2 {
+		t.Fatalf("Endpoints length = %d, want 2", len(result.Endpoints))
+	}
+	if result.Endpoints[1].Port != 8443 {
+		t.Errorf("Endpoints[1].Port = %d, want 8443", result.Endpoints[1].Port)
+	}
+	if result.Endpoints[0].Weight != 70 {
+		t.Errorf("Endpoints[0].Weight = %d, want 70", result.Endpoints[0].Weight)
+	}
 }
 
 func TestNewRAAPIDiscoverer(t *testing.T) {
@@ -377,13 +247,18 @@ func TestRAAPIDiscoverer_Discover_Success(t *testing.T) {
 	client, srv := newTestRAClientWithHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"agentId":   "disc-001",
-			"ansName":   "disc-agent",
-			"agentHost": "disc.example.com",
-			"status":    "ACTIVE",
-			"version":   "1.0.0",
-			"protocol":  "HTTPS",
-			"mode":      "standard",
+			"RequestId":  "disc-req-001",
+			"AgentHost":  "disc.example.com",
+			"AgentId":    "disc-001",
+			"Version":    "1.0.0",
+			"TrustLevel": "MEDIUM",
+			"Categories": []string{"dns"},
+			"Endpoints": []map[string]interface{}{
+				{"Host": "ep.disc.example.com", "Port": 443, "Protocol": "HTTPS", "Weight": 100},
+			},
+			"BadgeUrl": "https://tl.example.com/badge/disc",
+			"Mode":     "standard",
+			"Status":   "ACTIVE",
 		})
 	}))
 	defer srv.Close()
@@ -402,6 +277,18 @@ func TestRAAPIDiscoverer_Discover_Success(t *testing.T) {
 	if info.FQDN != "disc.example.com" {
 		t.Errorf("FQDN = %q, want disc.example.com", info.FQDN)
 	}
+	if info.TrustLevel != "MEDIUM" {
+		t.Errorf("TrustLevel = %q, want MEDIUM", info.TrustLevel)
+	}
+	if len(info.Endpoints) != 1 {
+		t.Fatalf("Endpoints length = %d, want 1", len(info.Endpoints))
+	}
+	if info.Endpoints[0].Host != "ep.disc.example.com" {
+		t.Errorf("Endpoints[0].Host = %q, want ep.disc.example.com", info.Endpoints[0].Host)
+	}
+	if info.Protocol != "HTTPS" {
+		t.Errorf("Protocol = %q, want HTTPS", info.Protocol)
+	}
 }
 
 func TestRAAPIDiscoverer_DiscoverWithOptions_NetworkError(t *testing.T) {
@@ -412,23 +299,55 @@ func TestRAAPIDiscoverer_DiscoverWithOptions_NetworkError(t *testing.T) {
 	)
 	d := NewRAAPIDiscoverer(client)
 
-	_, err := d.DiscoverWithOptions(context.Background(), "agent.example.com", ati.WithVersion("1.0"))
+	_, err := d.DiscoverWithOptions(context.Background(), "agent.example.com", ati.WithVersion(">=1.0"))
 	if err == nil {
 		t.Fatal("expected error for network failure")
 	}
 }
 
-func TestRAAgentInfoToATI(t *testing.T) {
-	ra := &RAAgentInfo{
-		AgentID:    "agent-001",
-		BadgeURL:   "https://tl.example.com/badge/001",
-		RAEndpoint: "https://ra.example.com",
+func TestRAAPIDiscoverer_DiscoverWithOptions_Success(t *testing.T) {
+	client, srv := newTestRAClientWithHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"RequestId": "disc-req-002",
+			"AgentHost": "opts.example.com",
+			"AgentId":   "opts-001",
+			"Version":   "2.0.0",
+			"Endpoints": []map[string]interface{}{
+				{"Host": "ep.opts.example.com", "Port": 443, "Protocol": "HTTPS", "Weight": 100},
+			},
+			"Status": "ACTIVE",
+		})
+	}))
+	defer srv.Close()
+
+	d := NewRAAPIDiscoverer(client)
+	info, err := d.DiscoverWithOptions(context.Background(), "opts.example.com", ati.WithVersion(">=2.0.0"))
+	if err != nil {
+		t.Fatalf("DiscoverWithOptions() error = %v", err)
+	}
+	if info.AgentID != "opts-001" {
+		t.Errorf("AgentID = %q, want opts-001", info.AgentID)
+	}
+	if info.Version != "2.0.0" {
+		t.Errorf("Version = %q, want 2.0.0", info.Version)
+	}
+}
+
+func TestMarketResultToATI(t *testing.T) {
+	result := &DescribeAgentMarketPopResult{
+		AgentId:    "agent-001",
+		BadgeUrl:   "https://tl.example.com/badge/001",
 		Version:    "2.0.0",
-		Protocol:   "HTTPS",
+		TrustLevel: "HIGH",
+		Categories: []string{"dns", "security"},
 		Mode:       "standard",
+		Endpoints: []MarketAgentEndpoint{
+			{Host: "ep1.example.com", Port: 443, Protocol: "HTTPS", Weight: 100},
+		},
 	}
 
-	info := raAgentInfoToATI("test.example.com", ra)
+	info := marketResultToATI("test.example.com", result)
 
 	if info.FQDN != "test.example.com" {
 		t.Errorf("FQDN = %q, want test.example.com", info.FQDN)
@@ -439,8 +358,11 @@ func TestRAAgentInfoToATI(t *testing.T) {
 	if info.BadgeURL != "https://tl.example.com/badge/001" {
 		t.Errorf("BadgeURL = %q", info.BadgeURL)
 	}
-	if info.RAEndpoint != "https://ra.example.com" {
-		t.Errorf("RAEndpoint = %q", info.RAEndpoint)
+	if info.TrustLevel != "HIGH" {
+		t.Errorf("TrustLevel = %q, want HIGH", info.TrustLevel)
+	}
+	if len(info.Categories) != 2 {
+		t.Fatalf("Categories length = %d, want 2", len(info.Categories))
 	}
 	if info.Version != "2.0.0" {
 		t.Errorf("Version = %q, want 2.0.0", info.Version)
@@ -454,25 +376,29 @@ func TestRAAgentInfoToATI(t *testing.T) {
 	if info.Source != ati.SourceRAAPI {
 		t.Errorf("Source = %d, want SourceRAAPI", info.Source)
 	}
+	if len(info.Endpoints) != 1 {
+		t.Fatalf("Endpoints length = %d, want 1", len(info.Endpoints))
+	}
+	if info.Endpoints[0].Host != "ep1.example.com" {
+		t.Errorf("Endpoints[0].Host = %q", info.Endpoints[0].Host)
+	}
+	if info.Endpoints[0].Port != 443 {
+		t.Errorf("Endpoints[0].Port = %d, want 443", info.Endpoints[0].Port)
+	}
 }
 
-func TestAgentRegistrationRequest_Fields(t *testing.T) {
-	req := &AgentRegistrationRequest{
-		AgentHost:   "test.example.com",
-		AgentName:   "Test Agent",
-		Version:     "1.0.0",
-		IdentityCSR: "CSR-DATA",
-		ServerCSR:   "SERVER-CSR",
-		Protocol:    "HTTPS",
+func TestMarketResultToATI_NoEndpoints(t *testing.T) {
+	result := &DescribeAgentMarketPopResult{
+		AgentId: "agent-empty",
+		Version: "1.0.0",
 	}
 
-	if req.AgentHost != "test.example.com" {
-		t.Errorf("AgentHost = %q", req.AgentHost)
+	info := marketResultToATI("empty.example.com", result)
+
+	if info.Protocol != "" {
+		t.Errorf("Protocol = %q, want empty when no endpoints", info.Protocol)
 	}
-	if req.AgentName != "Test Agent" {
-		t.Errorf("AgentName = %q", req.AgentName)
-	}
-	if req.IdentityCSR != "CSR-DATA" {
-		t.Errorf("IdentityCSR = %q", req.IdentityCSR)
+	if len(info.Endpoints) != 0 {
+		t.Errorf("Endpoints length = %d, want 0", len(info.Endpoints))
 	}
 }

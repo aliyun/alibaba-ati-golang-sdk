@@ -10,12 +10,22 @@ const (
 	SourceRAAPI
 )
 
+// AgentEndpoint represents a single agent service endpoint.
+type AgentEndpoint struct {
+	Host     string
+	Port     int
+	Protocol string
+}
+
 // AgentInfo holds information about a discovered agent.
 type AgentInfo struct {
 	FQDN       string
 	AgentID    string
 	BadgeURL   string
 	RAEndpoint string
+	Endpoints  []AgentEndpoint
+	TrustLevel string
+	Categories []string
 	Version    string
 	Protocol   string
 	Mode       string
@@ -56,4 +66,13 @@ func WithSource(source DiscoverySource) DiscoverOption {
 type AgentDiscoverer interface {
 	Discover(ctx context.Context, fqdn string) (*AgentInfo, error)
 	DiscoverWithOptions(ctx context.Context, fqdn string, opts ...DiscoverOption) (*AgentInfo, error)
+}
+
+// ResolveDiscoverOptions applies the given options and returns the resolved version and protocol.
+func ResolveDiscoverOptions(opts ...DiscoverOption) (version, protocol string) {
+	cfg := &discoverConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return cfg.version, cfg.protocol
 }
