@@ -930,6 +930,9 @@ func TestParsePrivateKeyPEM_UnknownFormat(t *testing.T) {
 }
 
 func TestSavePrivateKeyPEM_WriteToReadOnlyDir(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: root bypasses filesystem permission checks")
+	}
 	rsaKey, err := GenerateRSAKeyPair(2048)
 	if err != nil {
 		t.Fatalf("failed to generate RSA key: %v", err)
@@ -964,6 +967,9 @@ func TestSavePrivateKeyPEM_WriteToReadOnlyDir(t *testing.T) {
 }
 
 func TestSavePublicKeyPEM_WriteToReadOnlyDir(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: root bypasses filesystem permission checks")
+	}
 	rsaKey, err := GenerateRSAKeyPair(2048)
 	if err != nil {
 		t.Fatalf("failed to generate RSA key: %v", err)
