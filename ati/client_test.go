@@ -14,8 +14,8 @@ func TestNewAgentClient_Defaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
 	}
-	if client.Policy() != PolicyBadgeRequired {
-		t.Errorf("default policy = %v, want PolicyBadgeRequired", client.Policy())
+	if client.Policy() != PolicyPKIBadge {
+		t.Errorf("default policy = %v, want PolicyPKIBadge", client.Policy())
 	}
 	if client.HTTPClient() == nil {
 		t.Error("HTTPClient() returned nil")
@@ -27,14 +27,14 @@ func TestNewAgentClient_Defaults(t *testing.T) {
 
 func TestNewAgentClient_WithOptions(t *testing.T) {
 	client, err := NewAgentClient(
-		WithClientPolicy(PolicyPKIOnly),
+		WithClientPolicy(PolicyPKI),
 		WithClientTLBaseURL("https://custom.example.com"),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
 	}
-	if client.Policy() != PolicyPKIOnly {
-		t.Errorf("policy = %v, want PolicyPKIOnly", client.Policy())
+	if client.Policy() != PolicyPKI {
+		t.Errorf("policy = %v, want PolicyPKI", client.Policy())
 	}
 	if client.tlBaseURL != "https://custom.example.com" {
 		t.Errorf("tlBaseURL = %v, want https://custom.example.com", client.tlBaseURL)

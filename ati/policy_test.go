@@ -10,10 +10,9 @@ func TestVerificationPolicy_String(t *testing.T) {
 		policy VerificationPolicy
 		want   string
 	}{
-		{PolicyNone, "None"},
-		{PolicyPKIOnly, "PKIOnly"},
-		{PolicyBadgeRequired, "BadgeRequired"},
-		{PolicyFull, "Full"},
+		{PolicyPKI, "PKI"},
+		{PolicyPKIBadge, "PKIBadge"},
+		{PolicyPKIBadgeDANE, "PKIBadgeDANE"},
 		{VerificationPolicy(99), "VerificationPolicy(99)"},
 	}
 
@@ -28,17 +27,14 @@ func TestVerificationPolicy_String(t *testing.T) {
 }
 
 func TestVerificationPolicy_Constants(t *testing.T) {
-	if PolicyNone != 0 {
-		t.Errorf("PolicyNone = %d, want 0", PolicyNone)
+	if PolicyPKI != 0 {
+		t.Errorf("PolicyPKI = %d, want 0", PolicyPKI)
 	}
-	if PolicyPKIOnly != 1 {
-		t.Errorf("PolicyPKIOnly = %d, want 1", PolicyPKIOnly)
+	if PolicyPKIBadge != 1 {
+		t.Errorf("PolicyPKIBadge = %d, want 1", PolicyPKIBadge)
 	}
-	if PolicyBadgeRequired != 2 {
-		t.Errorf("PolicyBadgeRequired = %d, want 2", PolicyBadgeRequired)
-	}
-	if PolicyFull != 3 {
-		t.Errorf("PolicyFull = %d, want 3", PolicyFull)
+	if PolicyPKIBadgeDANE != 2 {
+		t.Errorf("PolicyPKIBadgeDANE = %d, want 2", PolicyPKIBadgeDANE)
 	}
 }
 

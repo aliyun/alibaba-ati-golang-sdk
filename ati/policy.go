@@ -6,23 +6,20 @@ import "fmt"
 type VerificationPolicy int
 
 const (
-	PolicyNone          VerificationPolicy = iota // TLS handshake only
-	PolicyPKIOnly                                 // CA chain + SAN matching (requires ca_bundle)
-	PolicyBadgeRequired                           // badge verification + PKI (requires ca_bundle)
-	PolicyFull                                    // badge + DANE + PKI (requires ca_bundle)
+	PolicyPKI          VerificationPolicy = iota // CA chain verification (PKI only)
+	PolicyPKIBadge                               // CA chain + badge transparency log verification (default)
+	PolicyPKIBadgeDANE                           // CA chain + badge + DANE TLSA verification
 )
 
 // String returns a human-readable representation.
 func (p VerificationPolicy) String() string {
 	switch p {
-	case PolicyNone:
-		return "None"
-	case PolicyPKIOnly:
-		return "PKIOnly"
-	case PolicyBadgeRequired:
-		return "BadgeRequired"
-	case PolicyFull:
-		return "Full"
+	case PolicyPKI:
+		return "PKI"
+	case PolicyPKIBadge:
+		return "PKIBadge"
+	case PolicyPKIBadgeDANE:
+		return "PKIBadgeDANE"
 	default:
 		return fmt.Sprintf("VerificationPolicy(%d)", int(p))
 	}

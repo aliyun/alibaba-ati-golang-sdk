@@ -62,7 +62,7 @@ func defaultConfig() *verifierConfig {
 		trustedTLHost:       "",
 		clockSkewTolerance:  defaultClockSkewTolerance,
 		tlBaseURL:           DefaultTLBaseURL,
-		verificationPolicy:  ati.PolicyBadgeRequired,
+		verificationPolicy:  ati.PolicyPKIBadge,
 	}
 }
 

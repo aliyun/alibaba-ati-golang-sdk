@@ -19,7 +19,7 @@ type clientConfig struct {
 
 func defaultClientConfig() *clientConfig {
 	return &clientConfig{
-		policy:    PolicyBadgeRequired,
+		policy:    PolicyPKIBadge,
 		tlBaseURL: "https://tl.ansagent.cn",
 	}
 }
@@ -70,16 +70,15 @@ func WithVerifyConnection(fn func(tls.ConnectionState) error) ClientOption {
 type ServerOption func(*serverConfig)
 
 type serverConfig struct {
-	serverCert        tls.Certificate
-	clientPolicy      VerificationPolicy
-	clientCAPool      *x509.CertPool
-	verifyConn        func(tls.ConnectionState) error
-	ignoreCheckClient bool
+	serverCert   tls.Certificate
+	clientPolicy VerificationPolicy
+	clientCAPool *x509.CertPool
+	verifyConn   func(tls.ConnectionState) error
 }
 
 func defaultServerConfig() *serverConfig {
 	return &serverConfig{
-		clientPolicy: PolicyNone,
+		clientPolicy: PolicyPKIBadge,
 	}
 }
 
@@ -108,14 +107,5 @@ func WithClientVerificationPolicy(p VerificationPolicy) ServerOption {
 func WithServerVerifyConnection(fn func(tls.ConnectionState) error) ServerOption {
 	return func(c *serverConfig) {
 		c.verifyConn = fn
-	}
-}
-
-// WithIgnoreCheckClient skips server-side client certificate verification.
-// When enabled, the server does not request or verify client certificates,
-// and ca_bundle is not required regardless of the client verification policy.
-func WithIgnoreCheckClient() ServerOption {
-	return func(c *serverConfig) {
-		c.ignoreCheckClient = true
 	}
 }

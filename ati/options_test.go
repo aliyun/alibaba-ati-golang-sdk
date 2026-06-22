@@ -8,8 +8,8 @@ import (
 
 func TestDefaultClientConfig(t *testing.T) {
 	cfg := defaultClientConfig()
-	if cfg.policy != PolicyBadgeRequired {
-		t.Errorf("default policy = %v, want PolicyBadgeRequired", cfg.policy)
+	if cfg.policy != PolicyPKIBadge {
+		t.Errorf("default policy = %v, want PolicyPKIBadge", cfg.policy)
 	}
 	if cfg.tlBaseURL != "https://tl.ansagent.cn" {
 		t.Errorf("default tlBaseURL = %v, want https://tl.ansagent.cn", cfg.tlBaseURL)
@@ -36,9 +36,9 @@ func TestWithClientCAs(t *testing.T) {
 
 func TestWithClientPolicy(t *testing.T) {
 	cfg := defaultClientConfig()
-	WithClientPolicy(PolicyFull)(cfg)
-	if cfg.policy != PolicyFull {
-		t.Errorf("policy = %v, want PolicyFull", cfg.policy)
+	WithClientPolicy(PolicyPKIBadgeDANE)(cfg)
+	if cfg.policy != PolicyPKIBadgeDANE {
+		t.Errorf("policy = %v, want PolicyPKIBadgeDANE", cfg.policy)
 	}
 }
 
@@ -70,8 +70,8 @@ func TestWithVerifyConnection_Option(t *testing.T) {
 
 func TestDefaultServerConfig(t *testing.T) {
 	cfg := defaultServerConfig()
-	if cfg.clientPolicy != PolicyNone {
-		t.Errorf("default clientPolicy = %v, want PolicyNone", cfg.clientPolicy)
+	if cfg.clientPolicy != PolicyPKIBadge {
+		t.Errorf("default clientPolicy = %v, want PolicyPKIBadge", cfg.clientPolicy)
 	}
 }
 
@@ -95,9 +95,9 @@ func TestWithClientCA(t *testing.T) {
 
 func TestWithClientVerificationPolicy(t *testing.T) {
 	cfg := defaultServerConfig()
-	WithClientVerificationPolicy(PolicyBadgeRequired)(cfg)
-	if cfg.clientPolicy != PolicyBadgeRequired {
-		t.Errorf("clientPolicy = %v, want PolicyBadgeRequired", cfg.clientPolicy)
+	WithClientVerificationPolicy(PolicyPKI)(cfg)
+	if cfg.clientPolicy != PolicyPKI {
+		t.Errorf("clientPolicy = %v, want PolicyPKI", cfg.clientPolicy)
 	}
 }
 
@@ -107,16 +107,5 @@ func TestWithServerVerifyConnection(t *testing.T) {
 	WithServerVerifyConnection(fn)(cfg)
 	if cfg.verifyConn == nil {
 		t.Error("verifyConn not set")
-	}
-}
-
-func TestWithIgnoreCheckClient(t *testing.T) {
-	cfg := defaultServerConfig()
-	if cfg.ignoreCheckClient {
-		t.Error("default ignoreCheckClient should be false")
-	}
-	WithIgnoreCheckClient()(cfg)
-	if !cfg.ignoreCheckClient {
-		t.Error("ignoreCheckClient not set to true")
 	}
 }

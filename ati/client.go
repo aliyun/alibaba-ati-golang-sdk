@@ -7,7 +7,7 @@ import (
 )
 
 // AgentClient is an mTLS HTTP client with ATI verification.
-// Default policy is PolicyBadgeRequired with TLS 1.3.
+// Default policy is PolicyPKIBadge with TLS 1.3.
 type AgentClient struct {
 	httpClient *http.Client
 	policy     VerificationPolicy
