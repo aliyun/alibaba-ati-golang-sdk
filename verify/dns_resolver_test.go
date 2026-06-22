@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
@@ -513,5 +514,179 @@ func TestErrRecordNotFound(t *testing.T) {
 	}
 	if ErrRecordNotFound.Error() != "no matching badge record found" {
 		t.Errorf("unexpected error message: %s", ErrRecordNotFound.Error())
+	}
+}
+
+func TestStandardDNSResolver_WithCacheTTL(t *testing.T) {
+	r := NewStandardDNSResolver().WithCacheTTL(10 * time.Minute)
+	if r.cacheTTL != 10*time.Minute {
+		t.Errorf("expected cacheTTL 10m, got %v", r.cacheTTL)
+	}
+}
+
+func TestStandardDNSResolver_ClearCache(t *testing.T) {
+	r := NewStandardDNSResolver()
+	r.setCache("key1", "value1")
+	r.setCache("key2", "value2")
+
+	if _, ok := r.getCached("key1"); !ok {
+		t.Fatal("expected key1 to be cached")
+	}
+
+	r.ClearCache()
+
+	if _, ok := r.getCached("key1"); ok {
+		t.Error("expected key1 to be cleared")
+	}
+	if _, ok := r.getCached("key2"); ok {
+		t.Error("expected key2 to be cleared")
+	}
+}
+
+func TestStandardDNSResolver_GetCachedExpiry(t *testing.T) {
+	r := NewStandardDNSResolver().WithCacheTTL(1 * time.Millisecond)
+	r.setCache("expiring", "data")
+
+	time.Sleep(5 * time.Millisecond)
+
+	if _, ok := r.getCached("expiring"); ok {
+		t.Error("expected expired cache entry to be evicted")
+	}
+}
+
+func TestStandardDNSResolver_LookupATIBadge_CacheHit(t *testing.T) {
+	r := NewStandardDNSResolver().WithTimeout(1 * time.Second)
+	fqdn, _ := models.NewFqdn("cached.example.com")
+
+	v100 := models.NewVersion(1, 0, 0)
+	cachedResult := DNSLookupResult{
+		Found:   true,
+		Records: []ATIBadgeRecord{{URL: "https://tl.example.com/cached", Version: &v100}},
+	}
+	r.setCache("badge:cached.example.com", cachedResult)
+
+	result, err := r.LookupATIBadge(context.Background(), fqdn)
+	if err != nil {
+		t.Fatalf("LookupATIBadge() error = %v", err)
+	}
+	if !result.Found {
+		t.Error("expected Found=true from cache")
+	}
+	if result.Records[0].URL != "https://tl.example.com/cached" {
+		t.Errorf("expected cached URL, got %q", result.Records[0].URL)
+	}
+}
+
+func TestStandardDNSResolver_FindPreferredBadge_SortingLogic(t *testing.T) {
+	fqdn, _ := models.NewFqdn("sort.example.com")
+	v100 := models.NewVersion(1, 0, 0)
+	v200 := models.NewVersion(2, 0, 0)
+
+	r := NewStandardDNSResolver()
+	result := DNSLookupResult{
+		Found: true,
+		Records: []ATIBadgeRecord{
+			{URL: "https://tl.example.com/nil", Version: nil},
+			{URL: "https://tl.example.com/v1", Version: &v100},
+			{URL: "https://tl.example.com/v2", Version: &v200},
+		},
+	}
+	r.setCache("badge:sort.example.com", result)
+
+	record, err := r.FindPreferredBadge(context.Background(), fqdn)
+	if err != nil {
+		t.Fatalf("FindPreferredBadge() error = %v", err)
+	}
+	if record.URL != "https://tl.example.com/v2" {
+		t.Errorf("expected highest version, got %q", record.URL)
+	}
+}
+
+func TestStandardDNSResolver_FindPreferredBadge_EmptyRecords(t *testing.T) {
+	fqdn, _ := models.NewFqdn("empty.example.com")
+
+	r := NewStandardDNSResolver()
+	result := DNSLookupResult{Found: true, Records: []ATIBadgeRecord{}}
+	r.setCache("badge:empty.example.com", result)
+
+	_, err := r.FindPreferredBadge(context.Background(), fqdn)
+	if !errors.Is(err, ErrRecordNotFound) {
+		t.Errorf("expected ErrRecordNotFound, got %v", err)
+	}
+}
+
+func TestStandardDNSResolver_LookupATIDiscovery_CacheHit(t *testing.T) {
+	r := NewStandardDNSResolver()
+	fqdn, _ := models.NewFqdn("disc.example.com")
+
+	cachedResult := ATIDiscoveryResult{
+		Found:   true,
+		Records: []*ATIRecord{{AgentID: "agent-1", RAEndpoint: "https://ra.example.com"}},
+	}
+	r.setCache("discovery:disc.example.com", cachedResult)
+
+	result, err := r.LookupATIDiscovery(context.Background(), fqdn)
+	if err != nil {
+		t.Fatalf("LookupATIDiscovery() error = %v", err)
+	}
+	if !result.Found {
+		t.Error("expected Found=true from cache")
+	}
+	if result.Records[0].AgentID != "agent-1" {
+		t.Errorf("expected agent-1, got %q", result.Records[0].AgentID)
+	}
+}
+
+func TestStandardDNSResolver_LookupATIDiscovery_NotFound(t *testing.T) {
+	handler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.SetRcode(r, dns.RcodeNameError)
+		_ = w.WriteMsg(m)
+	})
+	addr := mockDNSServer(t, handler)
+
+	r := NewStandardDNSResolver().WithTimeout(1 * time.Second)
+	r.resolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{}
+			return d.DialContext(ctx, "udp", addr)
+		},
+	}
+
+	fqdn, _ := models.NewFqdn("test.example.com")
+	result, err := r.LookupATIDiscovery(context.Background(), fqdn)
+	if err != nil {
+		t.Fatalf("LookupATIDiscovery() error = %v", err)
+	}
+	if result.Found {
+		t.Error("expected Found=false for not-found")
+	}
+}
+
+func TestStandardDNSResolver_LookupATIDiscovery_HardError(t *testing.T) {
+	r := NewStandardDNSResolver().WithTimeout(1 * time.Second)
+	r.resolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(_ context.Context, _, _ string) (net.Conn, error) {
+			return nil, &net.DNSError{
+				Err:  "server misbehaving",
+				Name: "_ati.test.example.com",
+			}
+		},
+	}
+
+	fqdn, _ := models.NewFqdn("test.example.com")
+	_, err := r.LookupATIDiscovery(context.Background(), fqdn)
+	if err == nil {
+		t.Fatal("expected error for hard DNS failure")
+	}
+	var dnsErr *DNSError
+	if !errors.As(err, &dnsErr) {
+		t.Fatalf("expected *DNSError, got %T", err)
+	}
+	if dnsErr.Type != DNSErrorLookupFailed {
+		t.Errorf("expected DNSErrorLookupFailed, got %v", dnsErr.Type)
 	}
 }

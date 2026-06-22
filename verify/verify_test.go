@@ -2562,3 +2562,152 @@ func TestAnsVerifier_VerifyClientWithScitt(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyFailOpenWithCache_CacheExistsNoMatchingEntry(t *testing.T) {
+	config := defaultConfig()
+	config.cache = NewBadgeCache(DefaultCacheConfig())
+	config.failurePolicy = FailOpenWithCache
+
+	fqdn, _ := models.NewFqdn("test.example.com")
+	errorOutcome := NewDNSErrorOutcome(errors.New("test error"))
+	version := models.NewVersion(1, 0, 0)
+
+	result := applyFailOpenWithCache(config, fqdn, &version, errorOutcome)
+	if result != errorOutcome {
+		t.Error("expected errorOutcome when cache has no matching entry for version")
+	}
+
+	result = applyFailOpenWithCache(config, fqdn, nil, errorOutcome)
+	if result != errorOutcome {
+		t.Error("expected errorOutcome when cache has no matching entry for nil version")
+	}
+}
+
+func TestApplyFailurePolicy_AllPolicies(t *testing.T) {
+	fqdn, _ := models.NewFqdn("test.example.com")
+	errorOutcome := NewDNSErrorOutcome(errors.New("test error"))
+
+	tests := []struct {
+		name     string
+		policy   FailurePolicy
+		wantType OutcomeType
+	}{
+		{"FailClosed returns error", FailClosed, OutcomeDNSError},
+		{"FailOpen returns FailOpen", FailOpen, OutcomeFailOpen},
+		{"FailOpenWithCache with nil cache returns error", FailOpenWithCache, OutcomeDNSError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := defaultConfig()
+			config.failurePolicy = tt.policy
+			result := applyFailurePolicy(config, fqdn, nil, errorOutcome)
+			if result.Type != tt.wantType {
+				t.Errorf("Type = %v, want %v", result.Type, tt.wantType)
+			}
+		})
+	}
+}
+
+func TestRewriteTLHost_BuildBadgeURLError(t *testing.T) {
+	config := defaultConfig()
+	config.tlBaseURL = "://invalid-url"
+
+	log := slog.Default()
+	result := rewriteTLHost(config, "also-not-a-url", log)
+	if result != "also-not-a-url" {
+		t.Errorf("expected original URL on error, got %q", result)
+	}
+}
+
+func TestRewriteTLHost_WithTrustedTLHost(t *testing.T) {
+	config := defaultConfig()
+	config.tlBaseURL = ""
+	config.trustedTLHost = "custom-tl.example.com:8180"
+
+	log := slog.Default()
+	result := rewriteTLHost(config, "https://original.example.com:8180/ans/api/v1/tl/agents/123/logs/latest", log)
+	if !strings.Contains(result, "custom-tl.example.com") {
+		t.Errorf("expected URL with custom host, got %q", result)
+	}
+}
+
+func TestRewriteTLHost_EmptyTLBaseURLAndEmptyTrustedHost(t *testing.T) {
+	config := defaultConfig()
+	config.tlBaseURL = ""
+	config.trustedTLHost = ""
+
+	log := slog.Default()
+	original := "https://original.example.com/badge/123"
+	result := rewriteTLHost(config, original, log)
+	if result != original {
+		t.Errorf("expected original URL when both empty, got %q", result)
+	}
+}
+
+func TestRewriteTLHost_TrustedTLHostRewriteError(t *testing.T) {
+	config := defaultConfig()
+	config.tlBaseURL = ""
+	config.trustedTLHost = "custom.host:8180"
+
+	log := slog.Default()
+	result := rewriteTLHost(config, "://invalid", log)
+	if result != "://invalid" {
+		t.Errorf("expected original URL on rewrite error, got %q", result)
+	}
+}
+
+func TestVerifyWithHeaders_InvalidReceipt(t *testing.T) {
+	store, _ := scitt.NewKeyStore(nil)
+	config := defaultConfig()
+	config.scittKeyLookup = store
+	config.urlValidator = nil
+
+	fqdn, _ := models.NewFqdn("test.example.com")
+	cert := createTestCertIdentity("test.example.com", "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
+	log := slog.Default()
+
+	headers := &scitt.Headers{
+		Receipt:     []byte{0xFF, 0xFF},
+		StatusToken: []byte{0x01, 0x02},
+	}
+
+	result := verifyWithHeaders(
+		context.Background(), config, fqdn, cert, headers, log, roleServer,
+		func() *VerificationOutcome { return NewFailOpenOutcome(nil) },
+	)
+	if result.Type != OutcomeScittError {
+		t.Errorf("expected OutcomeScittError for invalid receipt, got %v", result.Type)
+	}
+}
+
+func TestVerifyWithHeaders_ValidReceiptInvalidToken(t *testing.T) {
+	store, _ := scitt.NewKeyStore(nil)
+	config := defaultConfig()
+	config.scittKeyLookup = store
+	config.urlValidator = nil
+
+	fqdn, _ := models.NewFqdn("test.example.com")
+	cert := createTestCertIdentity("test.example.com", "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
+	log := slog.Default()
+
+	receiptPayload := map[int]interface{}{
+		1:  -7,
+		3:  []byte("content-type"),
+		-1: []byte("proof"),
+	}
+	receiptBytes, _ := cbor.Marshal(receiptPayload)
+
+	headers := &scitt.Headers{
+		Receipt:     receiptBytes,
+		StatusToken: []byte{0xFF, 0xFF},
+	}
+
+	result := verifyWithHeaders(
+		context.Background(), config, fqdn, cert, headers, log, roleServer,
+		func() *VerificationOutcome { return NewFailOpenOutcome(nil) },
+	)
+	if result.Type != OutcomeScittError {
+		t.Errorf("expected OutcomeScittError, got %v", result.Type)
+	}
+}
