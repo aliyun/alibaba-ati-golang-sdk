@@ -8,9 +8,10 @@
 ## Phase 1：基础类型与策略定义
 
 ### Task 1.1：创建 `ati/policy.go`
-- 定义 `VerificationPolicy` 枚举（PolicyNone / PolicyPKIOnly / PolicyBadgeRequired / PolicyFull）
-- PolicyBadgeRequired：badge 验证 + PKI（需 ca_bundle）
-- PolicyFull：badge + DANE + PKI（需 ca_bundle）
+- 定义 `VerificationPolicy` 枚举（三级制：PolicyPKI / PolicyPKIBadge / PolicyPKIBadgeDANE）
+- PolicyPKI：仅 CA 链验证
+- PolicyPKIBadge（客户端默认）：CA 链 + badge 透明日志指纹验证
+- PolicyPKIBadgeDANE：CA 链 + badge + DANE TLSA 验证
 - 定义 `String()` 方法
 - 编写单元测试 `ati/policy_test.go`
 
@@ -40,7 +41,7 @@
 
 ### Task 2.2：`verify/options.go` — 新增配置字段和 Option
 - `verifierConfig` 新增 `tlBaseURL string` 字段，默认 `"https://tl.ansagent.cn"`
-- `verifierConfig` 新增 `verificationPolicy` 字段，默认 `PolicyBadgeRequired`
+- `verifierConfig` 新增 `verificationPolicy` 字段，默认 `PolicyPKIBadge`
 - 新增 `WithTLBaseURL(url string) Option`
 - 新增 `WithVerificationPolicy(p VerificationPolicy) Option`
 - 更新 `defaultConfig()` 设置默认值
@@ -110,25 +111,25 @@
 ### Task 5.1：创建 `ati/options.go`
 - 定义 `ClientOption` 和 `ServerOption`
 - 客户端选项：WithMTLSCerts, WithVerificationPolicy, WithTLBaseURL, WithDiscoverer, WithRAClient
-- 服务端选项：WithServerCert, WithClientCA, WithClientVerificationPolicy
+- 服务端选项：WithServerCert, WithClientCA, WithClientVerificationPolicy（不再包含 WithIgnoreCheckClient）
 
 ### Task 5.2：创建 `ati/client.go`
 - 实现 `NewAgentClient()` 构造函数
-- 默认 policy = PolicyBadgeRequired
+- 默认 policy = PolicyPKIBadge
 - 配置 TLS 1.3 + VerifyConnection 回调
 - 实现 HTTP 方法：Get, Post, Put, Delete, Do
 - 回调中根据 policy 调用 verifyPKI / verifyPKIAndBadge / verifyFull
 
 ### Task 5.3：创建 `ati/server.go`
 - 实现 `NewServerTLSConfig()` 构造函数
-- 默认 clientPolicy = PolicyNone → tls.NoClientCert
-- 新增 `WithIgnoreCheckClient()` ServerOption：开启后 ClientAuth=NoClientCert，不要求 ca_bundle
-- PolicyPKIOnly：必须有 ca_bundle，否则返回错误 → tls.RequireAndVerifyClientCert
-- PolicyBadgeRequired/PolicyFull：必须有 ca_bundle，否则返回错误 → tls.RequireAndVerifyClientCert
+- ca_bundle 驱动模式：未配置 ca_bundle → tls.NoClientCert（跳过客户端证书校验）
+- 配置了 ca_bundle → tls.RequireAndVerifyClientCert，根据 clientPolicy 执行对应验证
+- 默认 clientPolicy = PolicyPKIBadge（当配置了 ca_bundle 时生效）
+- 移除 ignoreCheckClient 开关
 
 ### Task 5.4：编写 `ati/` 包单元测试
-- `client_test.go`：默认策略验证、策略覆盖、TLS 配置检查
-- `server_test.go`：默认不验证客户端、PolicyBadgeRequired/PolicyFull + 有 ca_bundle → RequireAndVerifyClientCert、PolicyBadgeRequired/PolicyFull + 无 ca_bundle → 返回错误、PolicyPKIOnly + 无 ca_bundle → 返回错误、WithIgnoreCheckClient() → NoClientCert（无论 policy/ca_bundle）
+- `client_test.go`：默认 PolicyPKIBadge 验证、策略覆盖、TLS 配置检查
+- `server_test.go`：无 ca_bundle → NoClientCert（不验证客户端）；有 ca_bundle → RequireAndVerifyClientCert（默认 PolicyPKIBadge）；有 ca_bundle + PolicyPKI → RequireAndVerifyClientCert；有 ca_bundle + PolicyPKIBadgeDANE → RequireAndVerifyClientCert
 - `discovery_test.go`：组合发现器 primary/fallback 行为
 
 ---

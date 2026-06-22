@@ -42,10 +42,9 @@ package ati
 type VerificationPolicy int
 
 const (
-    PolicyNone          VerificationPolicy = iota // 仅 TLS 握手
-    PolicyPKIOnly                                 // CA 链 + SAN 匹配（需 ca_bundle）
-    PolicyBadgeRequired                           // badge 透明日志指纹验证 + PKI（需 ca_bundle）
-    PolicyFull                                    // badge + DANE + PKI（需 ca_bundle）
+    PolicyPKI          VerificationPolicy = iota // CA 链验证（PKI）
+    PolicyPKIBadge                               // CA 链 + badge 透明日志指纹验证（PKI+Badge，客户端默认）
+    PolicyPKIBadgeDANE                           // CA 链 + badge + DANE TLSA 验证（PKI+Badge+DANE）
 )
 ```
 
@@ -90,7 +89,7 @@ func BuildBadgeURL(badgeRawURL string, tlBaseURL string) (string, error) {
 type verifierConfig struct {
     // ... 现有字段 ...
     tlBaseURL           string // TL 基础 URL，默认 "https://tl.ansagent.cn"
-    verificationPolicy  VerificationPolicy // 验证策略，默认 PolicyBadgeRequired
+    verificationPolicy  VerificationPolicy // 验证策略，默认 PolicyPKIBadge
 }
 ```
 
@@ -100,7 +99,7 @@ func defaultConfig() *verifierConfig {
     return &verifierConfig{
         // ... 现有默认值 ...
         tlBaseURL:          "https://tl.ansagent.cn",
-        verificationPolicy: PolicyBadgeRequired,
+        verificationPolicy: PolicyPKIBadge,
     }
 }
 ```
@@ -335,7 +334,7 @@ func NewAgentClient(opts ...ClientOption) (*AgentClient, error) {
         opt(cfg)
     }
 
-    // 默认 policy = PolicyBadgeRequired
+    // 默认 policy = PolicyPKIBadge
     // 构建 TLS 配置
     tlsConfig := &tls.Config{
         MinVersion:   tls.VersionTLS13,
@@ -346,13 +345,11 @@ func NewAgentClient(opts ...ClientOption) (*AgentClient, error) {
     // 配置 VerifyConnection 回调
     tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
         switch cfg.policy {
-        case PolicyNone:
-            return nil
-        case PolicyPKIOnly:
+        case PolicyPKI:
             return verifyPKI(state)
-        case PolicyBadgeRequired:
+        case PolicyPKIBadge:
             return verifyPKIAndBadge(state, cfg)
-        case PolicyFull:
+        case PolicyPKIBadgeDANE:
             return verifyFull(state, cfg)
         }
         return nil
@@ -383,36 +380,18 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
         Certificates: []tls.Certificate{cfg.serverCert},
     }
 
-    // ignore_check_client 开关：跳过 server 对 client 证书的校验
-    if cfg.ignoreCheckClient {
+    // ca_bundle 驱动模式：配置了 ca_bundle 就校验客户端证书，未配置则跳过
+    if cfg.clientCAPool == nil {
+        // 未配置 ca_bundle → 不要求客户端证书
         tlsConfig.ClientAuth = tls.NoClientCert
         return tlsConfig, nil
     }
 
-    // 默认 PolicyNone → 不要求客户端证书
-    switch cfg.clientPolicy {
-    case PolicyNone:
-        tlsConfig.ClientAuth = tls.NoClientCert
-    case PolicyPKIOnly:
-        // PKI 验证必须有 ca_bundle
-        if cfg.clientCAPool == nil {
-            return nil, fmt.Errorf("PolicyPKIOnly requires ca_bundle (clientCAPool)")
-        }
-        tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
-        tlsConfig.ClientCAs = cfg.clientCAPool
-        if cfg.verifyConn != nil {
-            tlsConfig.VerifyConnection = cfg.verifyConn
-        }
-    case PolicyBadgeRequired, PolicyFull:
-        // ca_bundle 为必传，用于 PKI 验证
-        if cfg.clientCAPool == nil {
-            return nil, fmt.Errorf("... requires ca_bundle (clientCAPool)")
-        }
-        tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
-        tlsConfig.ClientCAs = cfg.clientCAPool
-        if cfg.verifyConn != nil {
-            tlsConfig.VerifyConnection = cfg.verifyConn
-        }
+    // 配置了 ca_bundle → 启用客户端证书验证
+    tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+    tlsConfig.ClientCAs = cfg.clientCAPool
+    if cfg.verifyConn != nil {
+        tlsConfig.VerifyConnection = cfg.verifyConn
     }
 
     return tlsConfig, nil
@@ -424,14 +403,14 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 ```go
 func defaultClientConfig() *clientConfig {
     return &clientConfig{
-        policy:    PolicyBadgeRequired, // 客户端默认 badge 验证
+        policy:    PolicyPKIBadge, // 客户端默认 PKI+Badge 验证
         tlBaseURL: "https://tl.ansagent.cn",
     }
 }
 
 func defaultServerConfig() *serverConfig {
     return &serverConfig{
-        clientPolicy: PolicyNone, // 服务端默认不验证客户端
+        clientPolicy: PolicyPKIBadge, // 服务端默认策略（当配置了 ca_bundle 时生效）
     }
 }
 ```
@@ -464,11 +443,11 @@ verify/url_validator.go → verify/options.go (tlBaseURL)
 
 | 模块 | 测试类型 | 要点 |
 |------|---------|------|
-| `ati/policy.go` | 单元测试 | 枚举值正确性、默认策略验证 |
+| `ati/policy.go` | 单元测试 | 枚举值正确性、默认策略验证（三级制：PKI / PKI+Badge / PKI+Badge+DANE） |
 | `verify/url_validator.go` | 单元测试 | `BuildBadgeURL` 各种输入组合（含 port/无 port、特殊 path） |
 | `verify/verify.go` | 单元测试 | badge URL 构造调用 `BuildBadgeURL` 而非 `RewriteBadgeURLHost` |
-| `ati/client.go` | 单元测试 + Mock | 默认 PolicyBadgeRequired 生效、不同策略的 TLS 配置 |
-| `ati/server.go` | 单元测试 + Mock | 默认 PolicyNone → NoClientCert；PolicyBadgeRequired/PolicyFull + 有 ca_bundle → RequireAndVerifyClientCert；PolicyBadgeRequired/PolicyFull + 无 ca_bundle → 返回错误；PolicyPKIOnly + 无 ca_bundle → 返回错误；WithIgnoreCheckClient() → NoClientCert（无论 policy/ca_bundle） |
+| `ati/client.go` | 单元测试 + Mock | 默认 PolicyPKIBadge 生效、不同策略的 TLS 配置 |
+| `ati/server.go` | 单元测试 + Mock | 无 ca_bundle → NoClientCert；有 ca_bundle → RequireAndVerifyClientCert（默认 PolicyPKIBadge）；有 ca_bundle + PolicyPKI → RequireAndVerifyClientCert；有 ca_bundle + PolicyPKIBadgeDANE → RequireAndVerifyClientCert |
 | `ati/discovery.go` | 单元测试 + Mock | DNS 发现、RA API 发现、组合发现器降级 |
 | `internal/registry/client.go` | 单元测试 + Mock | AK/SK 凭证创建、API 调用参数、错误处理 |
 | `verify/dns_discoverer.go` | 单元测试 | 适配器正确转换 DNSResolver 结果到 AgentInfo |
