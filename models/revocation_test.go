@@ -53,6 +53,16 @@ func TestIsValidRevocationReason(t *testing.T) {
 			want:   true,
 		},
 		{
+			name:   "EXPIRED_CERT",
+			reason: RevocationReasonExpiredCert,
+			want:   true,
+		},
+		{
+			name:   "REMOVE_FROM_CRL",
+			reason: RevocationReasonRemoveFromCRL,
+			want:   true,
+		},
+		{
 			name:   "UNSPECIFIED",
 			reason: RevocationReasonUnspecified,
 			want:   true,
