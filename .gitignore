@@ -34,3 +34,19 @@ Thumbs.db
 *.pem
 *.key
 *.csr
+
+# Java/Gradle build output (demo modules)
+build/
+.gradle/
+*.class
+*.jar
+
+# Compiled binaries
+/bin/
+/proxy
+/ati-demo/demo-backend
+/ati-demo/demo-client
+/ati-demo/demo-proxy
+
+# Screenshots
+*.png

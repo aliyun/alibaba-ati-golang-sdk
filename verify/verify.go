@@ -389,7 +389,7 @@ func (v *ClientVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn, 
 	tlURL := rewriteTLHost(v.config, record.URL, log)
 	log.InfoContext(ctx, "[client-verify] fetching TLog",
 		slog.String("url", tlURL),
-		slog.String("badgeSource", string(record.Source)))
+		slog.String("badgeSource", record.Source.String()))
 
 	tlResp, err := v.config.tlogClient.FetchTLResponse(ctx, tlURL)
 	if err != nil {

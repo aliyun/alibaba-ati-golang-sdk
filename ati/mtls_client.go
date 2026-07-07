@@ -80,7 +80,8 @@ func WithMTLSCerts(identityCert, privateKey, serverCert, caBundle string) AgentC
 
 // WithTrustLevel sets the verification trust level.
 // Supported levels for client: PKIOnly, BadgeRequired, DANEAndBadge.
-// Default is BadgeRequired when not called.
+// When not called, the client runs in auto-detect mode (reports the highest
+// level the peer supports without failing the connection).
 func WithTrustLevel(level TrustLevel) AgentClientOption {
 	return func(c *agentClientConfig) error {
 		if !level.ValidForClient() {
@@ -195,10 +196,9 @@ func normalizeVersionExpr(expr string) (string, error) {
 
 // NewAgentClient creates a new mTLS-based agent client.
 func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
-	defaultLevel := BadgeRequired
 	cfg := &agentClientConfig{
-		timeout:    30 * time.Second,
-		trustLevel: &defaultLevel,
+		timeout: 30 * time.Second,
+		// trustLevel nil → auto-detect mode (see WithTrustLevel).
 	}
 	for _, opt := range opts {
 		if err := opt(cfg); err != nil {
@@ -232,8 +232,7 @@ func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
 		}
 	}
 	if !hasATIName {
-		slog.Warn("identity certificate missing ati:// URI SAN — ATI Name not found",
-			"cert", cfg.identityCertFile)
+		return nil, fmt.Errorf("identity certificate %s is missing an ati:// URI SAN — ATI Name not found", cfg.identityCertFile)
 	}
 
 	daysUntilExpiry := time.Until(x509Cert.NotAfter).Hours() / 24
@@ -408,6 +407,23 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 		return nil, fmt.Errorf("mTLS requires HTTPS, got scheme %q", parsedURL.Scheme)
 	}
 
+	explicit := c.trustLevel != nil
+	outcome := &TrustOutcome{RequestedLevel: c.trustLevel}
+
+	fqdn, fqdnErr := models.NewFqdn(host)
+	if fqdnErr != nil {
+		return nil, fmt.Errorf("invalid hostname %q: %w", host, fqdnErr)
+	}
+
+	// --- PKI: agent discovery ---
+	// Runs before the request so that an explicit trust level blocks the
+	// connection (no bytes sent to the server) when the agent is not discoverable.
+	outcome.DNSDiscovered, outcome.AgentID = c.checkDNSDiscovery(ctx, fqdn)
+	slog.Info("[verify] PKI: agent discovery", "fqdn", fqdn.String(), "found", outcome.DNSDiscovered, "agentID", outcome.AgentID)
+	if !outcome.DNSDiscovered && explicit {
+		return nil, fmt.Errorf("PKI verification failed: agent not found for %s", host)
+	}
+
 	// --- Execute request (mTLS handshake happens here) ---
 	var bodyReader io.Reader
 	if body != nil {
@@ -443,24 +459,6 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 				VerificationOutcome: cached.(*TrustOutcome),
 			}, nil
 		}
-	}
-
-	// --- First time verifying this server ---
-	explicit := c.trustLevel != nil
-	outcome := &TrustOutcome{RequestedLevel: c.trustLevel}
-
-	fqdn, fqdnErr := models.NewFqdn(host)
-	if fqdnErr != nil {
-		resp.Body.Close()
-		return nil, fmt.Errorf("invalid hostname %q: %w", host, fqdnErr)
-	}
-
-	// --- PKI: agent discovery ---
-	outcome.DNSDiscovered, outcome.AgentID = c.checkDNSDiscovery(ctx, fqdn)
-	slog.Info("[verify] PKI: agent discovery", "fqdn", fqdn.String(), "found", outcome.DNSDiscovered, "agentID", outcome.AgentID)
-	if !outcome.DNSDiscovered && explicit {
-		resp.Body.Close()
-		return nil, fmt.Errorf("PKI verification failed: agent not found for %s", host)
 	}
 
 	// --- PKI: CA chain + SAN match ---
