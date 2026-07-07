@@ -82,12 +82,6 @@ func TestOutcomeConstructors(t *testing.T) {
 			isSuccess: true,
 		},
 		{
-			name:      "URL validation error",
-			outcome:   NewURLValidationErrorOutcome(errors.New("bad url")),
-			wantType:  OutcomeURLValidationError,
-			isSuccess: false,
-		},
-		{
 			name: "DANE rejection",
 			outcome: NewDANERejectionOutcome(tlResp, &DANEOutcome{
 				Type:  DANEMismatch,

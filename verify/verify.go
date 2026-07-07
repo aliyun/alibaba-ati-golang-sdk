@@ -102,18 +102,6 @@ func rewriteTLHost(config *verifierConfig, rawURL string, log *slog.Logger) stri
 	return rewritten
 }
 
-// validateBadgeURL validates a badge URL against the configured URL validator.
-// Returns nil if validation passes or no validator is configured.
-func validateBadgeURL(config *verifierConfig, badgeURL string) *VerificationOutcome {
-	if config.urlValidator == nil {
-		return nil
-	}
-	if err := config.urlValidator.Validate(badgeURL); err != nil {
-		return NewURLValidationErrorOutcome(err)
-	}
-	return nil
-}
-
 // ServerVerifier verifies server certificates against the ANS transparency log.
 // Use this when a client wants to verify that a server is a legitimate ANS agent.
 type ServerVerifier struct {
@@ -161,15 +149,6 @@ func (v *ServerVerifier) Verify(ctx context.Context, fqdn models.Fqdn, cert *Cer
 
 	// 4. Verify against TL response
 	outcome = v.verifyWithTLResponse(tlResp, cert, fqdn)
-	if !outcome.IsSuccess() {
-		return outcome
-	}
-
-	// 5. Optional DANE/TLSA check (can reject even if badge verification passed)
-	if rejection := verifyDANE(ctx, v.config, fqdn, cert, outcome); rejection != nil {
-		return rejection
-	}
-
 	return outcome
 }
 
@@ -241,10 +220,6 @@ func (v *ServerVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn) 
 
 	tlURL := rewriteTLHost(v.config, record.URL, log)
 
-	if outcome := validateBadgeURL(v.config, tlURL); outcome != nil {
-		return nil, outcome
-	}
-
 	log.DebugContext(ctx, "fetchTLResponse: fetching", slog.String("url", tlURL))
 	tlResp, err := v.config.tlogClient.FetchTLResponse(ctx, tlURL)
 	if err != nil {
@@ -304,29 +279,32 @@ func NewClientVerifier(opts ...Option) *ClientVerifier {
 
 // Verify verifies an mTLS client certificate.
 func (v *ClientVerifier) Verify(ctx context.Context, cert *CertIdentity) *VerificationOutcome {
-	// 1. Extract FQDN from cert
-	fqdnStr := cert.FQDN()
-	if fqdnStr == nil {
-		return NewCertErrorOutcome(&VerificationError{Type: VerificationErrorNoCN})
+	log := configLogger(v.config)
+
+	// 1. Extract ANS name from URI SANs (ati://v1.x.x.host)
+	atiName := cert.ATIName()
+	if atiName == nil {
+		log.InfoContext(ctx, "[client-verify] no ati:// URI SAN in cert")
+		return NewCertErrorOutcome(&VerificationError{Type: VerificationErrorNoURISAN})
 	}
 
-	fqdn, err := models.NewFqdn(*fqdnStr)
+	// 2. Use ATI name host as the authoritative FQDN for badge lookup
+	fqdn, err := models.NewFqdn(atiName.Host)
 	if err != nil {
 		return NewCertErrorOutcome(err)
 	}
 
-	// 2. Extract ANS name from URI SANs
-	atiName := cert.ATIName()
-	if atiName == nil {
-		return NewCertErrorOutcome(&VerificationError{Type: VerificationErrorNoURISAN})
-	}
-
 	// 3. Extract version
 	version := atiName.Version
+	log.InfoContext(ctx, "[client-verify] badge lookup",
+		slog.String("fqdn", fqdn.String()),
+		slog.String("version", version.String()),
+		slog.String("atiName", atiName.String()))
 
 	// 4. Check cache first (by FQDN + version)
 	if v.config.cache != nil {
 		if cached, ok := v.config.cache.GetByFqdnVersion(fqdn, version); ok {
+			log.InfoContext(ctx, "[client-verify] cache hit", slog.String("fqdn", fqdn.String()))
 			return v.verifyWithTLResponse(cached.TLResponse, cert, fqdn, atiName)
 		}
 	}
@@ -344,15 +322,6 @@ func (v *ClientVerifier) Verify(ctx context.Context, cert *CertIdentity) *Verifi
 
 	// 7. Verify against TL response
 	outcome = v.verifyWithTLResponse(tlResp, cert, fqdn, atiName)
-	if !outcome.IsSuccess() {
-		return outcome
-	}
-
-	// 8. Optional DANE/TLSA check (can reject even if badge verification passed)
-	if rejection := verifyDANE(ctx, v.config, fqdn, cert, outcome); rejection != nil {
-		return rejection
-	}
-
 	return outcome
 }
 
@@ -398,58 +367,75 @@ func (v *ClientVerifier) VerifyWithScitt(ctx context.Context, cert *CertIdentity
 func (v *ClientVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn, version models.Version) (*models.TLResponse, *VerificationOutcome) {
 	log := configLogger(v.config)
 
-	log.DebugContext(ctx, "fetchTLResponse: DNS lookup", slog.String("fqdn", fqdn.String()))
+	log.InfoContext(ctx, "[client-verify] DNS badge lookup",
+		slog.String("fqdn", fqdn.String()),
+		slog.String("version", version.String()))
 	record, err := v.config.dnsResolver.FindBadgeForVersion(ctx, fqdn, version)
 	if err != nil {
 		if errors.Is(err, ErrRecordNotFound) {
+			log.WarnContext(ctx, "[client-verify] DNS badge not found", slog.String("fqdn", fqdn.String()))
 			return nil, NewNotATIAgentOutcome(fqdn.String())
 		}
-		log.WarnContext(ctx, "fetchTLResponse: DNS error",
+		log.WarnContext(ctx, "[client-verify] DNS error",
 			slog.String("fqdn", fqdn.String()), slog.String("error", err.Error()))
 		outcome := NewDNSErrorOutcome(err)
 		return nil, applyFailurePolicy(v.config, fqdn, &version, outcome)
 	}
 	if record == nil {
+		log.WarnContext(ctx, "[client-verify] DNS badge record is nil", slog.String("fqdn", fqdn.String()))
 		return nil, NewNotATIAgentOutcome(fqdn.String())
 	}
 
 	tlURL := rewriteTLHost(v.config, record.URL, log)
+	log.InfoContext(ctx, "[client-verify] fetching TLog",
+		slog.String("url", tlURL),
+		slog.String("badgeSource", string(record.Source)))
 
-	if outcome := validateBadgeURL(v.config, tlURL); outcome != nil {
-		return nil, outcome
-	}
-
-	log.DebugContext(ctx, "fetchTLResponse: fetching", slog.String("url", tlURL))
 	tlResp, err := v.config.tlogClient.FetchTLResponse(ctx, tlURL)
 	if err != nil {
-		log.WarnContext(ctx, "fetchTLResponse: TLog error",
+		log.WarnContext(ctx, "[client-verify] TLog fetch error",
 			slog.String("url", tlURL), slog.String("error", err.Error()))
 		outcome := NewTlogErrorOutcome(err)
 		return nil, applyFailurePolicy(v.config, fqdn, &version, outcome)
 	}
+
+	log.InfoContext(ctx, "[client-verify] TLog response received",
+		slog.String("agentHost", tlResp.Payload.AgentHost),
+		slog.String("agentStatus", tlResp.Payload.AgentStatus),
+		slog.String("agentName", tlResp.Payload.AgentName))
 
 	return tlResp, nil
 }
 
 // verifyWithTLResponse verifies a client certificate against a TL response.
 func (v *ClientVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *CertIdentity, fqdn models.Fqdn, atiName *ATIName) *VerificationOutcome {
+	log := configLogger(v.config)
+
 	status := models.TLAgentStatus(tlResp.Payload.AgentStatus)
 	if !status.IsValidForConnection() {
+		log.Warn("[client-verify] agent status invalid for connection", "status", string(status))
 		return NewInvalidStatusOutcome(tlResp, status)
 	}
 
 	expectedFP := tlResp.Payload.IdentityCertFingerprint()
+	log.Info("[client-verify] fingerprint comparison",
+		"certFingerprint", cert.Fingerprint.String(),
+		"tlExpectedFingerprint", expectedFP)
 	if !cert.Fingerprint.Matches(expectedFP) {
+		log.Warn("[client-verify] fingerprint MISMATCH")
 		return NewFingerprintMismatchOutcome(tlResp, expectedFP, cert.Fingerprint.String())
 	}
+	log.Info("[client-verify] fingerprint MATCHED")
 
 	tlHost := tlResp.Payload.AgentHost
 	if !strings.EqualFold(tlHost, fqdn.String()) {
+		log.Warn("[client-verify] hostname mismatch", "tlHost", tlHost, "certFqdn", fqdn.String())
 		return NewHostnameMismatchOutcome(tlResp, fqdn.String(), tlHost)
 	}
 
 	tlATIName := tlResp.Payload.AgentName
 	if !strings.EqualFold(tlATIName, atiName.String()) {
+		log.Warn("[client-verify] ATI name mismatch", "tlATIName", tlATIName, "certATIName", atiName.String())
 		return NewATINameMismatchOutcome(tlResp, tlATIName, atiName.String())
 	}
 
@@ -621,11 +607,6 @@ func verifyWithHeaders(
 	}
 	if token.Payload.Status == scitt.StatusDeprecated {
 		outcome.Warnings = append(outcome.Warnings, "agent status is DEPRECATED")
-	}
-
-	// Optional DANE/TLSA check (mirrors badge path). May reject even after SCITT passes.
-	if rejection := verifyDANE(ctx, config, fqdn, cert, outcome); rejection != nil {
-		return rejection
 	}
 
 	return outcome

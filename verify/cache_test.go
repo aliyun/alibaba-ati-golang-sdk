@@ -843,12 +843,3 @@ func TestBadgeCache_CleanupLocked_MaxEntriesEviction_VersionedOverflow(t *testin
 		t.Errorf("cache has %d entries, expected at most %d", total, config.MaxEntries)
 	}
 }
-
-func TestURLValidationError_UnknownType(t *testing.T) {
-	err := &URLValidationError{Type: URLErrorType(99), URL: "http://test.com"}
-	got := err.Error()
-	want := "badge URL validation error: http://test.com"
-	if got != want {
-		t.Errorf("Error() = %q, want %q", got, want)
-	}
-}

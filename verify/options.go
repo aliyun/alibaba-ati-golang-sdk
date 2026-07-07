@@ -17,7 +17,6 @@ type verifierConfig struct {
 	cache               *BadgeCache
 	failurePolicy       FailurePolicy
 	failurePolicyConfig FailurePolicyConfig
-	urlValidator        *URLValidator
 	trustedTLHost       string
 	daneResolver        DANEResolver
 	scittKeyLookup      scitt.KeyLookup
@@ -40,7 +39,7 @@ const defaultClockSkewTolerance = 120 * time.Second
 // DefaultTrustedTLHost is the trusted Transparency Log hostname used as
 // the trust anchor for badge URL rewriting. Badge TXT records may contain
 // arbitrary hostnames; the SDK replaces them with this value before fetching.
-const DefaultTrustedTLHost = "tl.ansagent.cn:8180"
+const DefaultTrustedTLHost = "tl.atiagent.cn"
 
 // defaultConfig returns the default verifier configuration.
 func defaultConfig() *verifierConfig {
@@ -50,7 +49,6 @@ func defaultConfig() *verifierConfig {
 		cache:               nil,
 		failurePolicy:       FailClosed,
 		failurePolicyConfig: DefaultFailurePolicyConfig(),
-		urlValidator:        NewDefaultURLValidator(),
 		trustedTLHost:       "",
 		clockSkewTolerance:  defaultClockSkewTolerance,
 	}
@@ -103,18 +101,16 @@ func WithFailurePolicyConfig(cfg FailurePolicyConfig) Option {
 	}
 }
 
-// WithTrustedRADomains sets custom trusted RA domains for URL validation.
-func WithTrustedRADomains(domains []string) Option {
-	return func(c *verifierConfig) {
-		c.urlValidator = NewURLValidator(domains)
-	}
+// WithTrustedRADomains is a no-op retained for backward compatibility.
+// URL domain validation has been removed; hostname rewriting via
+// DefaultTrustedTLHost provides equivalent protection.
+func WithTrustedRADomains(_ []string) Option {
+	return func(_ *verifierConfig) {}
 }
 
-// WithoutURLValidation disables badge URL domain validation.
+// WithoutURLValidation is a no-op retained for backward compatibility.
 func WithoutURLValidation() Option {
-	return func(c *verifierConfig) {
-		c.urlValidator = nil
-	}
+	return func(_ *verifierConfig) {}
 }
 
 // WithTrustedTLHost overrides the trusted Transparency Log hostname used for

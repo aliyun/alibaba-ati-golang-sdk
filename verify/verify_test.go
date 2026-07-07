@@ -1327,53 +1327,6 @@ func TestServerVerifier_Prefetch_CacheHit(t *testing.T) {
 	}
 }
 
-func TestServerVerifier_URLValidation_Additional(t *testing.T) {
-	tests := []struct {
-		name     string
-		badgeURL string
-		domains  []string
-		wantType OutcomeType
-	}{
-		{
-			name:     "untrusted domain rejected",
-			badgeURL: "https://evil.example.com/badge/123",
-			domains:  []string{"trusted.example.com"},
-			wantType: OutcomeURLValidationError,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			host := "test.example.com"
-			fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
-
-			dnsRecord := ATIBadgeRecord{
-				FormatVersion: "ati-badge1",
-				Version:       ptr(models.NewVersion(1, 0, 0)),
-				URL:           tt.badgeURL,
-			}
-
-			dnsResolver := NewMockDNSResolver().
-				WithRecords(host, []ATIBadgeRecord{dnsRecord})
-			tlogClient := NewMockTransparencyLogClient()
-
-			verifier := NewServerVerifier(
-				WithDNSResolver(dnsResolver),
-				WithTlogClient(tlogClient),
-				WithTrustedRADomains(tt.domains),
-			)
-
-			cert := createTestCertIdentity(host, fingerprint)
-			fqdn, _ := models.NewFqdn(host)
-
-			outcome := verifier.Verify(context.Background(), fqdn, cert)
-			if outcome.Type != tt.wantType {
-				t.Errorf("Verify() expected %v, got %v", tt.wantType, outcome.Type)
-			}
-		})
-	}
-}
-
 func TestServerVerifier_DANERejection(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1658,53 +1611,6 @@ func TestClientVerifier_WithCache(t *testing.T) {
 	}
 }
 
-func TestClientVerifier_URLValidation(t *testing.T) {
-	tests := []struct {
-		name     string
-		badgeURL string
-		domains  []string
-		wantType OutcomeType
-	}{
-		{
-			name:     "untrusted domain rejected",
-			badgeURL: "https://evil.example.com/badge/123",
-			domains:  []string{"trusted.example.com"},
-			wantType: OutcomeURLValidationError,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			host := "test.example.com"
-			version := "v1.0.0"
-			identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
-
-			dnsRecord := ATIBadgeRecord{
-				FormatVersion: "ati-badge1",
-				Version:       ptr(models.NewVersion(1, 0, 0)),
-				URL:           tt.badgeURL,
-			}
-
-			dnsResolver := NewMockDNSResolver().
-				WithRecords(host, []ATIBadgeRecord{dnsRecord})
-			tlogClient := NewMockTransparencyLogClient()
-
-			verifier := NewClientVerifier(
-				WithDNSResolver(dnsResolver),
-				WithTlogClient(tlogClient),
-				WithTrustedRADomains(tt.domains),
-			)
-
-			cert := createMTLSCertIdentity(host, version, identityFP)
-			outcome := verifier.Verify(context.Background(), cert)
-
-			if outcome.Type != tt.wantType {
-				t.Errorf("Verify() expected %v, got %v", tt.wantType, outcome.Type)
-			}
-		})
-	}
-}
-
 func TestClientVerifier_DANERejection(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1838,57 +1744,6 @@ func TestVerifyDANE_NoResolver(t *testing.T) {
 	}
 }
 
-func TestValidateBadgeURL(t *testing.T) {
-	tests := []struct {
-		name        string
-		url         string
-		validator   *URLValidator
-		wantOutcome bool
-		wantType    OutcomeType
-	}{
-		{
-			name:        "nil validator returns nil",
-			url:         "https://evil.example.com",
-			validator:   nil,
-			wantOutcome: false,
-		},
-		{
-			name:        "valid URL returns nil",
-			url:         "https://tl.ansagent.cn:8180/ans/api/v1/tl/agents/123/logs/latest",
-			wantOutcome: false,
-		},
-		{
-			name:        "untrusted domain returns error outcome",
-			url:         "https://untrusted.example.com/badge/123",
-			validator:   NewURLValidator([]string{"trusted.example.com"}),
-			wantOutcome: true,
-			wantType:    OutcomeURLValidationError,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := defaultConfig()
-			if tt.validator != nil {
-				config.urlValidator = tt.validator
-			} else if tt.name == "nil validator returns nil" {
-				config.urlValidator = nil
-			}
-
-			result := validateBadgeURL(config, tt.url)
-			if tt.wantOutcome {
-				if result == nil {
-					t.Fatal("validateBadgeURL() expected non-nil outcome")
-				}
-				if result.Type != tt.wantType {
-					t.Errorf("Type = %v, want %v", result.Type, tt.wantType)
-				}
-			} else if result != nil {
-				t.Errorf("validateBadgeURL() expected nil, got %v", result)
-			}
-		})
-	}
-}
 
 func TestConfigLogger(t *testing.T) {
 	tests := []struct {

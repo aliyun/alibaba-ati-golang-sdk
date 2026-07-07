@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -193,8 +195,10 @@ type CertIdentity struct {
 	DNSSANs []string
 	// URISANs are the URI Subject Alternative Names.
 	URISANs []string
-	// Fingerprint is the certificate's SHA-256 fingerprint.
+	// Fingerprint is the certificate's SHA-256 fingerprint (full cert DER).
 	Fingerprint CertFingerprint
+	// SPKIFingerprint is the SHA-256 of the SubjectPublicKeyInfo (DER).
+	SPKIFingerprint CertFingerprint
 }
 
 // NewCertIdentity creates a new CertIdentity from components.
@@ -221,12 +225,14 @@ func CertIdentityFromX509(cert *x509.Certificate) *CertIdentity {
 	}
 
 	fp := CertFingerprintFromDER(cert.Raw)
+	spkiFP := CertFingerprint{bytes: sha256.Sum256(cert.RawSubjectPublicKeyInfo)}
 
 	return &CertIdentity{
-		CommonName:  cn,
-		DNSSANs:     cert.DNSNames,
-		URISANs:     uriSANs,
-		Fingerprint: fp,
+		CommonName:      cn,
+		DNSSANs:         cert.DNSNames,
+		URISANs:         uriSANs,
+		Fingerprint:     fp,
+		SPKIFingerprint: spkiFP,
 	}
 }
 
@@ -237,6 +243,20 @@ func CertIdentityFromDER(der []byte) (*CertIdentity, error) {
 		return nil, fmt.Errorf("failed to parse certificate: %w", err)
 	}
 	return CertIdentityFromX509(cert), nil
+}
+
+// CertIdentityFromPEM parses a PEM-encoded certificate and extracts identity.
+// Accepts both raw PEM and URL-encoded PEM (as forwarded by Nginx via $ssl_client_escaped_cert).
+func CertIdentityFromPEM(pemData string) (*CertIdentity, error) {
+	decoded, err := url.QueryUnescape(pemData)
+	if err != nil {
+		decoded = pemData
+	}
+	block, _ := pem.Decode([]byte(decoded))
+	if block == nil {
+		return nil, errors.New("failed to decode PEM block")
+	}
+	return CertIdentityFromDER(block.Bytes)
 }
 
 // CertIdentityFromFingerprintAndCN creates a CertIdentity with just fingerprint and CN.
