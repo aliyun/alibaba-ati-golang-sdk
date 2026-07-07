@@ -24,7 +24,7 @@ func createTestTLResponse(host, version, serverFP, identityFP string) *models.TL
 			AgentDisplayName: "Test Agent",
 			AgentHost:        host,
 			Version:          version,
-			AgentStatus:      models.TLStatusActive,
+			AgentStatus:      string(models.TLStatusActive),
 			Certificates: models.TLCertificates{
 				ServerCertFingerprint:   serverFP,
 				IdentityCertFingerprint: identityFP,
@@ -70,7 +70,6 @@ func TestServerVerifier_Success(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -97,7 +96,6 @@ func TestServerVerifier_NotATIAgent(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -134,7 +132,6 @@ func TestServerVerifier_FingerprintMismatch(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -156,7 +153,7 @@ func TestServerVerifier_InvalidStatus(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
 	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Payload.AgentStatus = models.TLStatusRevoked
+	badge.Payload.AgentStatus = string(models.TLStatusRevoked)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -174,7 +171,6 @@ func TestServerVerifier_InvalidStatus(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -196,7 +192,7 @@ func TestServerVerifier_WarningStatus(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
 	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Payload.AgentStatus = models.TLStatusWarning
+	badge.Payload.AgentStatus = string(models.TLStatusWarning)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -213,7 +209,6 @@ func TestServerVerifier_WarningStatus(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -238,7 +233,7 @@ func TestServerVerifier_ExpiredStatus(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
 	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Payload.AgentStatus = models.TLStatusExpired
+	badge.Payload.AgentStatus = string(models.TLStatusExpired)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -255,7 +250,6 @@ func TestServerVerifier_ExpiredStatus(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -295,7 +289,6 @@ func TestServerVerifier_HostnameMismatch(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -327,7 +320,6 @@ func TestServerVerifier_WithCache(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithCache(cache),
 	)
 
@@ -364,7 +356,6 @@ func TestServerVerifier_Prefetch(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithCache(cache),
 		WithoutURLValidation(),
 	)
@@ -415,7 +406,6 @@ func TestClientVerifier_Success(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -435,7 +425,6 @@ func TestClientVerifier_NoCN(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -457,7 +446,6 @@ func TestClientVerifier_NoAnsName(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -498,7 +486,6 @@ func TestClientVerifier_ATINameMismatch(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -535,7 +522,6 @@ func TestClientVerifier_FingerprintMismatch(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -572,7 +558,6 @@ func TestClientVerifier_HostnameMismatch(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -591,7 +576,7 @@ func TestClientVerifier_ExpiredStatus(t *testing.T) {
 	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
 	badge := createTestTLResponse(host, version, "SHA256:server", identityFP)
-	badge.Payload.AgentStatus = models.TLStatusExpired
+	badge.Payload.AgentStatus = string(models.TLStatusExpired)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -609,7 +594,6 @@ func TestClientVerifier_ExpiredStatus(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -648,7 +632,6 @@ func TestAnsVerifier(t *testing.T) {
 	verifier := NewAnsVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -701,7 +684,6 @@ func TestServerVerifier_RefreshOnMismatch(t *testing.T) {
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
-			WithTLBaseURL(""),
 			WithCache(cache),
 			WithoutURLValidation(),
 		)
@@ -729,7 +711,6 @@ func TestServerVerifier_RefreshOnMismatch(t *testing.T) {
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
-			WithTLBaseURL(""),
 			WithCache(cache),
 			WithoutURLValidation(),
 		)
@@ -798,7 +779,6 @@ func TestServerVerifier_FailurePolicy_DNSError(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
-				WithTLBaseURL(""),
 				WithFailurePolicy(tt.policy),
 			}
 			if tt.cache != nil {
@@ -883,7 +863,6 @@ func TestServerVerifier_FailurePolicy_TLogError(t *testing.T) {
 			verifier := NewServerVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
-				WithTLBaseURL(""),
 				WithFailurePolicy(tt.policy),
 				WithoutURLValidation(),
 			)
@@ -908,7 +887,7 @@ func TestServerVerifier_DeprecatedWarning(t *testing.T) {
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
 
 	badge := createTestTLResponse(host, "v1.0.0", fingerprint, "SHA256:aaa")
-	badge.Payload.AgentStatus = models.TLStatusDeprecated
+	badge.Payload.AgentStatus = string(models.TLStatusDeprecated)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -926,7 +905,6 @@ func TestServerVerifier_DeprecatedWarning(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -952,7 +930,7 @@ func TestClientVerifier_DeprecatedWarning(t *testing.T) {
 	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
 
 	badge := createTestTLResponse(host, version, "SHA256:server", identityFP)
-	badge.Payload.AgentStatus = models.TLStatusDeprecated
+	badge.Payload.AgentStatus = string(models.TLStatusDeprecated)
 	badgeURL := "https://tlog.example.com/v1/agents/test-id"
 
 	dnsRecord := ATIBadgeRecord{
@@ -970,7 +948,6 @@ func TestClientVerifier_DeprecatedWarning(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(dnsResolver),
 		WithTlogClient(tlogClient),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -1010,7 +987,6 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		verifier := NewClientVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
-			WithTLBaseURL(""),
 			WithoutURLValidation(),
 		)
 
@@ -1032,7 +1008,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 	t.Run("6.2: old version DEPRECATED, new ACTIVE, client presents old version", func(t *testing.T) {
 		// v1.0.0 DEPRECATED, v1.0.1 ACTIVE — client presents v1.0.0
 		deprecatedBadge := createTestTLResponse(host, "v1.0.0", "SHA256:server", identityFP)
-		deprecatedBadge.Payload.AgentStatus = models.TLStatusDeprecated
+		deprecatedBadge.Payload.AgentStatus = string(models.TLStatusDeprecated)
 		deprecatedURL := "https://tlog.example.com/v1/agents/deprecated-id"
 
 		activeBadge := createTestTLResponse(host, "v1.0.1", "SHA256:server2", "SHA256:identity2")
@@ -1051,7 +1027,6 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		verifier := NewClientVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
-			WithTLBaseURL(""),
 			WithoutURLValidation(),
 		)
 
@@ -1073,7 +1048,7 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		activeURL := "https://tlog.example.com/v1/agents/active-id"
 
 		deprecatedBadge := createTestTLResponse(host, "v1.0.0", "SHA256:old-fp", "SHA256:old-id")
-		deprecatedBadge.Payload.AgentStatus = models.TLStatusDeprecated
+		deprecatedBadge.Payload.AgentStatus = string(models.TLStatusDeprecated)
 		deprecatedURL := "https://tlog.example.com/v1/agents/deprecated-id"
 
 		dnsResolver := NewMockDNSResolver().
@@ -1089,7 +1064,6 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
-			WithTLBaseURL(""),
 			WithoutURLValidation(),
 		)
 
@@ -1125,7 +1099,6 @@ func TestClientVerifier_VersionEdgeCases(t *testing.T) {
 		verifier := NewClientVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
-			WithTLBaseURL(""),
 			WithoutURLValidation(),
 		)
 
@@ -1241,7 +1214,6 @@ func TestAnsVerifier_Prefetch(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(tt.dnsResolver),
 				WithTlogClient(tt.tlogClient),
-				WithTLBaseURL(""),
 				WithoutURLValidation(),
 			}
 			if tt.cache != nil {
@@ -1284,7 +1256,6 @@ func TestAnsVerifier_VerifyServer_EmptyFqdn(t *testing.T) {
 			verifier := NewAnsVerifier(
 				WithDNSResolver(NewMockDNSResolver()),
 				WithTlogClient(NewMockTransparencyLogClient()),
-				WithTLBaseURL(""),
 			)
 
 			cert := createTestCertIdentity("test.example.com", "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
@@ -1316,7 +1287,6 @@ func TestServerVerifier_Prefetch_CacheHit(t *testing.T) {
 				verifier := NewServerVerifier(
 					WithDNSResolver(NewMockDNSResolver()),
 					WithTlogClient(NewMockTransparencyLogClient()),
-					WithTLBaseURL(""),
 					WithCache(cache),
 				)
 				return verifier, fqdn, tlResp
@@ -1328,7 +1298,6 @@ func TestServerVerifier_Prefetch_CacheHit(t *testing.T) {
 				verifier := NewServerVerifier(
 					WithDNSResolver(NewMockDNSResolver()),
 					WithTlogClient(NewMockTransparencyLogClient()),
-					WithTLBaseURL(""),
 					WithoutURLValidation(),
 				)
 				fqdn, _ := models.NewFqdn("unknown.example.com")
@@ -1353,54 +1322,6 @@ func TestServerVerifier_Prefetch_CacheHit(t *testing.T) {
 			}
 			if result != wantTLResp {
 				t.Error("Prefetch() returned different TLResponse than expected")
-			}
-		})
-	}
-}
-
-func TestServerVerifier_URLValidation_Additional(t *testing.T) {
-	tests := []struct {
-		name     string
-		badgeURL string
-		domains  []string
-		wantType OutcomeType
-	}{
-		{
-			name:     "untrusted domain rejected",
-			badgeURL: "https://evil.example.com/badge/123",
-			domains:  []string{"trusted.example.com"},
-			wantType: OutcomeURLValidationError,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			host := "test.example.com"
-			fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
-
-			dnsRecord := ATIBadgeRecord{
-				FormatVersion: "ati-badge1",
-				Version:       ptr(models.NewVersion(1, 0, 0)),
-				URL:           tt.badgeURL,
-			}
-
-			dnsResolver := NewMockDNSResolver().
-				WithRecords(host, []ATIBadgeRecord{dnsRecord})
-			tlogClient := NewMockTransparencyLogClient()
-
-			verifier := NewServerVerifier(
-				WithDNSResolver(dnsResolver),
-				WithTlogClient(tlogClient),
-				WithTLBaseURL(""),
-				WithTrustedRADomains(tt.domains),
-			)
-
-			cert := createTestCertIdentity(host, fingerprint)
-			fqdn, _ := models.NewFqdn(host)
-
-			outcome := verifier.Verify(context.Background(), fqdn, cert)
-			if outcome.Type != tt.wantType {
-				t.Errorf("Verify() expected %v, got %v", tt.wantType, outcome.Type)
 			}
 		})
 	}
@@ -1449,7 +1370,6 @@ func TestServerVerifier_DANERejection(t *testing.T) {
 			verifier := NewServerVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
-				WithTLBaseURL(""),
 				WithoutURLValidation(),
 				WithDANEResolver(daneResolver),
 			)
@@ -1505,7 +1425,6 @@ func TestServerVerifier_DANEVerified(t *testing.T) {
 			verifier := NewServerVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
-				WithTLBaseURL(""),
 				WithoutURLValidation(),
 				WithDANEResolver(daneResolver),
 			)
@@ -1576,7 +1495,6 @@ func TestClientVerifier_FailurePolicy_DNSError(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
-				WithTLBaseURL(""),
 				WithFailurePolicy(tt.policy),
 				WithoutURLValidation(),
 			}
@@ -1636,7 +1554,6 @@ func TestClientVerifier_TLogError(t *testing.T) {
 			verifier := NewClientVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
-				WithTLBaseURL(""),
 				WithFailurePolicy(FailClosed),
 				WithoutURLValidation(),
 			)
@@ -1680,7 +1597,6 @@ func TestClientVerifier_WithCache(t *testing.T) {
 			verifier := NewClientVerifier(
 				WithDNSResolver(NewMockDNSResolver()),
 				WithTlogClient(NewMockTransparencyLogClient()),
-				WithTLBaseURL(""),
 				WithCache(cache),
 				WithoutURLValidation(),
 			)
@@ -1690,54 +1606,6 @@ func TestClientVerifier_WithCache(t *testing.T) {
 
 			if outcome.IsSuccess() != tt.wantSuccess {
 				t.Errorf("Verify() IsSuccess() = %v, want %v (type=%v)", outcome.IsSuccess(), tt.wantSuccess, outcome.Type)
-			}
-		})
-	}
-}
-
-func TestClientVerifier_URLValidation(t *testing.T) {
-	tests := []struct {
-		name     string
-		badgeURL string
-		domains  []string
-		wantType OutcomeType
-	}{
-		{
-			name:     "untrusted domain rejected",
-			badgeURL: "https://evil.example.com/badge/123",
-			domains:  []string{"trusted.example.com"},
-			wantType: OutcomeURLValidationError,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			host := "test.example.com"
-			version := "v1.0.0"
-			identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
-
-			dnsRecord := ATIBadgeRecord{
-				FormatVersion: "ati-badge1",
-				Version:       ptr(models.NewVersion(1, 0, 0)),
-				URL:           tt.badgeURL,
-			}
-
-			dnsResolver := NewMockDNSResolver().
-				WithRecords(host, []ATIBadgeRecord{dnsRecord})
-			tlogClient := NewMockTransparencyLogClient()
-
-			verifier := NewClientVerifier(
-				WithDNSResolver(dnsResolver),
-				WithTlogClient(tlogClient),
-				WithTLBaseURL(""),
-				WithTrustedRADomains(tt.domains),
-			)
-
-			cert := createMTLSCertIdentity(host, version, identityFP)
-			outcome := verifier.Verify(context.Background(), cert)
-
-			if outcome.Type != tt.wantType {
-				t.Errorf("Verify() expected %v, got %v", tt.wantType, outcome.Type)
 			}
 		})
 	}
@@ -1783,7 +1651,6 @@ func TestClientVerifier_DANERejection(t *testing.T) {
 			verifier := NewClientVerifier(
 				WithDNSResolver(dnsResolver),
 				WithTlogClient(tlogClient),
-				WithTLBaseURL(""),
 				WithoutURLValidation(),
 				WithDANEResolver(daneResolver),
 			)
@@ -1877,6 +1744,7 @@ func TestVerifyDANE_NoResolver(t *testing.T) {
 	}
 }
 
+
 func TestConfigLogger(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1920,7 +1788,6 @@ func TestServerVerifier_VerifyWithScitt_NilHeaders(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 		WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -1976,7 +1843,6 @@ func TestServerVerifier_VerifyWithScitt_NoKeyLookup(t *testing.T) {
 	verifier := NewServerVerifier(
 		WithDNSResolver(NewMockDNSResolver()),
 		WithTlogClient(NewMockTransparencyLogClient()),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -2013,7 +1879,6 @@ func TestClientVerifier_VerifyWithScitt_NilHeaders(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 		WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -2053,7 +1918,6 @@ func TestClientVerifier_VerifyWithScitt_NoKeyLookup(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(NewMockDNSResolver()),
 		WithTlogClient(NewMockTransparencyLogClient()),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -2079,7 +1943,6 @@ func TestClientVerifier_VerifyWithScitt_NoCN(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(NewMockDNSResolver()),
 		WithTlogClient(NewMockTransparencyLogClient()),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -2114,7 +1977,6 @@ func TestClientVerifier_VerifyWithScitt_EmptyHeaders(t *testing.T) {
 	verifier := NewClientVerifier(
 		WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 		WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
-		WithTLBaseURL(""),
 		WithoutURLValidation(),
 	)
 
@@ -2220,7 +2082,6 @@ func TestVerifyWithScitt_PolicyEnforcement(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
-				WithTLBaseURL(""),
 				WithoutURLValidation(),
 			}
 			if tt.keyLookup != nil {
@@ -2368,7 +2229,6 @@ func TestVerifyWithScitt_TransportErrorFallback(t *testing.T) {
 			opts := []Option{
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
-				WithTLBaseURL(""),
 				WithoutURLValidation(),
 				WithScittKeyLookup(tt.lookup),
 			}
@@ -2438,7 +2298,6 @@ func TestAnsVerifier_VerifyServerWithScitt(t *testing.T) {
 			verifier := NewAnsVerifier(
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
-				WithTLBaseURL(""),
 				WithoutURLValidation(),
 			)
 
@@ -2497,7 +2356,6 @@ func TestAnsVerifier_VerifyClientWithScitt(t *testing.T) {
 			verifier := NewAnsVerifier(
 				WithDNSResolver(NewMockDNSResolver().WithRecords(host, []ATIBadgeRecord{dnsRecord})),
 				WithTlogClient(NewMockTransparencyLogClient().WithTLResponse(badgeURL, badge)),
-				WithTLBaseURL(""),
 				WithoutURLValidation(),
 			)
 
@@ -2508,152 +2366,5 @@ func TestAnsVerifier_VerifyClientWithScitt(t *testing.T) {
 				t.Errorf("Type = %v, want %v (error: %v)", outcome.Type, tt.wantType, outcome.Error)
 			}
 		})
-	}
-}
-
-func TestApplyFailOpenWithCache_CacheExistsNoMatchingEntry(t *testing.T) {
-	config := defaultConfig()
-	config.cache = NewBadgeCache(DefaultCacheConfig())
-	config.failurePolicy = FailOpenWithCache
-
-	fqdn, _ := models.NewFqdn("test.example.com")
-	errorOutcome := NewDNSErrorOutcome(errors.New("test error"))
-	version := models.NewVersion(1, 0, 0)
-
-	result := applyFailOpenWithCache(config, fqdn, &version, errorOutcome)
-	if result != errorOutcome {
-		t.Error("expected errorOutcome when cache has no matching entry for version")
-	}
-
-	result = applyFailOpenWithCache(config, fqdn, nil, errorOutcome)
-	if result != errorOutcome {
-		t.Error("expected errorOutcome when cache has no matching entry for nil version")
-	}
-}
-
-func TestApplyFailurePolicy_AllPolicies(t *testing.T) {
-	fqdn, _ := models.NewFqdn("test.example.com")
-	errorOutcome := NewDNSErrorOutcome(errors.New("test error"))
-
-	tests := []struct {
-		name     string
-		policy   FailurePolicy
-		wantType OutcomeType
-	}{
-		{"FailClosed returns error", FailClosed, OutcomeDNSError},
-		{"FailOpen returns FailOpen", FailOpen, OutcomeFailOpen},
-		{"FailOpenWithCache with nil cache returns error", FailOpenWithCache, OutcomeDNSError},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := defaultConfig()
-			config.failurePolicy = tt.policy
-			result := applyFailurePolicy(config, fqdn, nil, errorOutcome)
-			if result.Type != tt.wantType {
-				t.Errorf("Type = %v, want %v", result.Type, tt.wantType)
-			}
-		})
-	}
-}
-
-func TestRewriteTLHost_BuildBadgeURLError(t *testing.T) {
-	config := defaultConfig()
-	config.tlBaseURL = "://invalid-url"
-
-	log := slog.Default()
-	result := rewriteTLHost(config, "also-not-a-url", log)
-	if result != "also-not-a-url" {
-		t.Errorf("expected original URL on error, got %q", result)
-	}
-}
-
-func TestRewriteTLHost_WithTrustedTLHost(t *testing.T) {
-	config := defaultConfig()
-	config.tlBaseURL = ""
-	config.trustedTLHost = "custom-tl.example.com:8180"
-
-	log := slog.Default()
-	result := rewriteTLHost(config, "https://original.example.com:8180/ans/api/v1/tl/agents/123/logs/latest", log)
-	if !strings.Contains(result, "custom-tl.example.com") {
-		t.Errorf("expected URL with custom host, got %q", result)
-	}
-}
-
-func TestRewriteTLHost_EmptyTLBaseURLAndEmptyTrustedHost(t *testing.T) {
-	config := defaultConfig()
-	config.tlBaseURL = ""
-	config.trustedTLHost = ""
-
-	log := slog.Default()
-	original := "https://original.example.com/badge/123"
-	result := rewriteTLHost(config, original, log)
-	if result != original {
-		t.Errorf("expected original URL when both empty, got %q", result)
-	}
-}
-
-func TestRewriteTLHost_TrustedTLHostRewriteError(t *testing.T) {
-	config := defaultConfig()
-	config.tlBaseURL = ""
-	config.trustedTLHost = "custom.host:8180"
-
-	log := slog.Default()
-	result := rewriteTLHost(config, "://invalid", log)
-	if result != "://invalid" {
-		t.Errorf("expected original URL on rewrite error, got %q", result)
-	}
-}
-
-func TestVerifyWithHeaders_InvalidReceipt(t *testing.T) {
-	store, _ := scitt.NewKeyStore(nil)
-	config := defaultConfig()
-	config.scittKeyLookup = store
-
-	fqdn, _ := models.NewFqdn("test.example.com")
-	cert := createTestCertIdentity("test.example.com", "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
-	log := slog.Default()
-
-	headers := &scitt.Headers{
-		Receipt:     []byte{0xFF, 0xFF},
-		StatusToken: []byte{0x01, 0x02},
-	}
-
-	result := verifyWithHeaders(
-		context.Background(), config, fqdn, cert, headers, log, roleServer,
-		func() *VerificationOutcome { return NewFailOpenOutcome(nil) },
-	)
-	if result.Type != OutcomeScittError {
-		t.Errorf("expected OutcomeScittError for invalid receipt, got %v", result.Type)
-	}
-}
-
-func TestVerifyWithHeaders_ValidReceiptInvalidToken(t *testing.T) {
-	store, _ := scitt.NewKeyStore(nil)
-	config := defaultConfig()
-	config.scittKeyLookup = store
-
-	fqdn, _ := models.NewFqdn("test.example.com")
-	cert := createTestCertIdentity("test.example.com", "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
-	log := slog.Default()
-
-	receiptPayload := map[int]interface{}{
-		1:  -7,
-		3:  []byte("content-type"),
-		-1: []byte("proof"),
-	}
-	receiptBytes, _ := cbor.Marshal(receiptPayload)
-
-	headers := &scitt.Headers{
-		Receipt:     receiptBytes,
-		StatusToken: []byte{0xFF, 0xFF},
-	}
-
-	result := verifyWithHeaders(
-		context.Background(), config, fqdn, cert, headers, log, roleServer,
-		func() *VerificationOutcome { return NewFailOpenOutcome(nil) },
-	)
-	if result.Type != OutcomeScittError {
-		t.Errorf("expected OutcomeScittError, got %v", result.Type)
 	}
 }

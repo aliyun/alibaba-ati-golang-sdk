@@ -447,7 +447,6 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
-			WithTLBaseURL(""),
 			WithDANEResolver(daneResolver),
 			WithoutURLValidation(),
 		)
@@ -478,7 +477,6 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
-			WithTLBaseURL(""),
 			WithDANEResolver(daneResolver),
 			WithoutURLValidation(),
 		)
@@ -509,7 +507,6 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
-			WithTLBaseURL(""),
 			WithDANEResolver(daneResolver),
 			WithoutURLValidation(),
 		)
@@ -532,7 +529,6 @@ func TestServerVerifier_DANEIntegration(t *testing.T) {
 		verifier := NewServerVerifier(
 			WithDNSResolver(dnsResolver),
 			WithTlogClient(tlogClient),
-			WithTLBaseURL(""),
 			WithoutURLValidation(),
 		)
 

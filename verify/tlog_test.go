@@ -20,7 +20,7 @@ func TestMockTransparencyLogClient(t *testing.T) {
 			LogID:       "test-log-id",
 			AgentName:   "ati://v1.0.0.agent.example.com",
 			AgentHost:   "agent.example.com",
-			AgentStatus: models.TLStatusActive,
+			AgentStatus: string(models.TLStatusActive),
 			Version:     "v1.0.0",
 			Certificates: models.TLCertificates{
 				ServerCertFingerprint:   "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904",
@@ -40,7 +40,7 @@ func TestMockTransparencyLogClient(t *testing.T) {
 		if result == nil {
 			t.Fatal("FetchTLResponse() returned nil")
 		}
-		if result.Payload.AgentStatus != models.TLStatusActive {
+		if result.Payload.AgentStatus != string(models.TLStatusActive) {
 			t.Errorf("AgentStatus = %v, want ACTIVE", result.Payload.AgentStatus)
 		}
 		if result.Payload.AgentHost != "agent.example.com" {
@@ -89,7 +89,7 @@ func TestHTTPTransparencyLogClient_FetchTLResponse_Success(t *testing.T) {
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
 			LogID:       "test-log",
-			AgentStatus: models.TLStatusActive,
+			AgentStatus: string(models.TLStatusActive),
 		},
 	}
 
@@ -104,7 +104,7 @@ func TestHTTPTransparencyLogClient_FetchTLResponse_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchTLResponse() error = %v", err)
 	}
-	if result.Payload.AgentStatus != models.TLStatusActive {
+	if result.Payload.AgentStatus != string(models.TLStatusActive) {
 		t.Errorf("AgentStatus = %v, want %v", result.Payload.AgentStatus, models.TLStatusActive)
 	}
 }

@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ATI SDK演示</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #f5f5f5; padding: 20px; }
+#app { max-width: 1200px; margin: 0 auto; }
+h1 { margin-bottom: 20px; color: #333; }
+h2 { margin-bottom: 12px; color: #444; }
+
+#auth-panel { background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+#config-bar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.config-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+#config-bar label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+#config-bar input, #config-bar select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; }
+#config-bar input[readonly] { background: #f0f0f0; color: #666; }
+button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; background: #2563eb; color: #fff; }
+button:disabled { background: #ccc; cursor: not-allowed; }
+button.danger { background: #dc2626; }
+button.danger:disabled { background: #ccc; }
+
+#auth-content { display: none; gap: 20px; }
+#auth-content.visible { display: flex; }
+#client-side { flex: 1; background: #f8f8f8; padding: 12px; border-radius: 6px; border: 1px solid #eee; }
+#server-side { flex: 1; background: #f8f8f8; padding: 12px; border-radius: 6px; border: 1px solid #eee; }
+.side-title { font-size: 16px; font-weight: 700; color: #333; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #2563eb; }
+
+.step-card { padding: 12px; margin-bottom: 8px; border-radius: 6px; border-left: 4px solid #ccc; background: #fff; }
+.step-card.running { border-left-color: #2563eb; animation: pulse 1.5s infinite; }
+.step-card.success { border-left-color: #16a34a; }
+.step-card.failed { border-left-color: #dc2626; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+.card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.step-icon { font-size: 14px; }
+.step-title { font-weight: 600; font-size: 13px; }
+.step-duration { margin-left: auto; color: #666; font-size: 12px; }
+.card-sdk { font-size: 12px; color: #555; margin-bottom: 4px; }
+.card-sdk code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; }
+.card-details { font-size: 11px; background: #f8f8f8; padding: 8px; border-radius: 4px; overflow-x: auto; margin-top: 4px; white-space: pre-wrap; word-break: break-all; }
+.card-error { font-size: 11px; background: #fef2f2; color: #dc2626; padding: 8px; border-radius: 4px; margin-top: 4px; }
+
+.sub-steps { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 8px; background: #f8f8f8; border-radius: 4px; }
+.sub-step { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #444; }
+.sub-step-icon { font-size: 14px; }
+.sub-step.failed { color: #dc2626; }
+.sub-step-meta { margin-left: auto; font-size: 11px; color: #6b7280; font-family: 'Monaco', 'Courier New', monospace; }
+
+#chat-panel { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+#chat-panel.disabled { opacity: 0.5; pointer-events: none; }
+#chat-history { height: 300px; overflow-y: auto; padding: 12px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px; }
+.chat-msg { margin-bottom: 8px; padding: 8px; border-radius: 4px; font-size: 14px; line-height: 1.5; }
+.chat-msg.you { background: #e0f2fe; }
+.chat-msg.agent { background: #f0fdf4; }
+.chat-msg h1, .chat-msg h2, .chat-msg h3 { margin: 8px 0 4px; font-size: 14px; color: #333; }
+.chat-msg p { margin: 4px 0; }
+.chat-msg ul, .chat-msg ol { margin: 4px 0; padding-left: 20px; }
+.chat-msg li { margin: 2px 0; }
+.chat-msg code { background: #e8e8e8; padding: 2px 4px; border-radius: 3px; font-family: 'Monaco', 'Courier New', monospace; font-size: 12px; }
+.chat-msg pre { background: #1e293b; color: #e2e8f0; padding: 8px; border-radius: 4px; overflow-x: auto; margin: 6px 0; }
+.chat-msg pre code { background: transparent; padding: 0; color: inherit; }
+.chat-meta { font-size: 11px; color: #6b7280; margin-top: 4px; }
+#chat-input { display: flex; gap: 8px; }
+#chat-input input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+
+#status-bar { display: flex; gap: 20px; padding: 12px; margin-top: 12px; background: #fff; border-radius: 8px; font-size: 13px; color: #666; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+#conn-status { font-weight: 600; }
+
+#debug-panel { background: #fff; border-radius: 8px; margin-top: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+#debug-header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #1e293b; color: #e2e8f0; font-size: 13px; }
+#debug-header label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+#debug-header button { padding: 4px 12px; font-size: 12px; background: #475569; }
+#debug-log-count { margin-left: auto; color: #94a3b8; font-size: 12px; }
+#debug-log-container { max-height: 350px; overflow-y: auto; padding: 8px; background: #0f172a; font-family: 'Monaco', 'Courier New', monospace; font-size: 12px; display: none; }
+#debug-log-container.visible { display: block; }
+#debug-log-container:empty::before { content: '暂无日志...'; color: #475569; display: block; padding: 12px; }
+.debug-log { display: flex; gap: 8px; padding: 3px 6px; border-radius: 3px; line-height: 1.5; color: #cbd5e1; }
+.debug-log:hover { background: #1e293b; }
+.log-time { color: #64748b; flex-shrink: 0; }
+.log-level { flex-shrink: 0; width: 50px; font-weight: 600; }
+.debug-log.info .log-level { color: #4ade80; }
+.debug-log.warn .log-level { color: #fbbf24; }
+.debug-log.error .log-level { color: #f87171; }
+.debug-log.error .log-msg { color: #fca5a5; }
+.debug-log.error { background: #1c1010; }
+.log-msg { word-break: break-word; }
+</style>
+</head>
+<body>
+<div id="app">
+    <h1>ATI SDK演示</h1>
+    <div id="auth-panel">
+        <h2>ATI认证</h2>
+        <div id="config-bar">
+            <div class="config-row">
+                <label>server agent域名：
+                    <input type="text" id="agentHost" value="ats-server.asia">
+                </label>
+                <label>端口：
+                    <input type="text" id="port" value="8443" style="width:70px;">
+                </label>
+                <label>server agent版本：
+                    <input type="text" id="serverVersion" value="" placeholder="留空取最新，如 1.0.0 或 ^1.0.0">
+                </label>
+            </div>
+            <div class="config-row">
+                <label>client agent认证策略：
+                    <select id="clientPolicy">
+                        <option value="pki_only">PKI_ONLY</option>
+                        <option value="badge_required" selected>BADGE_REQUIRED</option>
+                        <option value="dane_and_badge">DANE_AND_BADGE</option>
+                    </select>
+                </label>
+                <label>server agent认证策略：
+                    <select id="serverPolicy">
+                        <option value="pki_only" selected>PKI_ONLY</option>
+                        <option value="badge_required">BADGE_REQUIRED</option>
+                        <option value="dane_and_badge">DANE_AND_BADGE</option>
+                    </select>
+                </label>
+                <button id="connectBtn" onclick="doConnect()">连接</button>
+                <button id="disconnectBtn" class="danger" onclick="doDisconnect()" disabled>断开</button>
+            </div>
+        </div>
+        <div id="auth-content">
+            <div id="client-side">
+                <h3 class="side-title">Client agent认证</h3>
+                <div id="client-steps"></div>
+            </div>
+            <div id="server-side">
+                <h3 class="side-title">Server agent认证</h3>
+                <div id="server-steps"></div>
+            </div>
+        </div>
+    </div>
+    <div id="chat-panel" class="disabled">
+        <h2>Agent 对话</h2>
+        <div id="chat-history"></div>
+        <div id="chat-input">
+            <input type="text" id="messageInput" placeholder="输入消息..."
+                   onkeypress="if(event.key==='Enter')doSend()">
+            <button onclick="doSend()">发送</button>
+        </div>
+    </div>
+    <div id="status-bar">
+        <span id="conn-status">未连接</span>
+        <span id="policy-summary"></span>
+        <span id="target-agent"></span>
+    </div>
+    <div id="debug-panel">
+        <div id="debug-header">
+            <label><input type="checkbox" id="debugToggle" onchange="toggleDebug()"> 调试日志</label>
+            <button onclick="clearDebugLogs()">清空</button>
+            <span id="debug-log-count">0 条日志</span>
+        </div>
+        <div id="debug-log-container"></div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.5/dist/purify.min.js"></script>
+<script>
+let connected = false;
+let eventSource = null;
+let debugLogCount = 0;
+
+// --- Connect ---
+async function doConnect() {
+    const btn = document.getElementById('connectBtn');
+    btn.disabled = true;
+    btn.textContent = '连接中...';
+    document.getElementById('client-steps').innerHTML = '';
+    document.getElementById('server-steps').innerHTML = '';
+    document.getElementById('auth-content').classList.add('visible');
+
+    // Show running placeholders
+    renderRunningSteps();
+
+    const payload = {
+        serverUrl: 'https://' + document.getElementById('agentHost').value,
+        port: document.getElementById('port').value,
+        version: document.getElementById('serverVersion').value,
+        clientTrustLevel: document.getElementById('clientPolicy').value,
+        serverTrustLevel: document.getElementById('serverPolicy').value,
+    };
+
+    try {
+        const resp = await fetch('/api/connect', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+
+        if (data.success) {
+            connected = true;
+            onConnected(data);
+        } else {
+            renderErrorState(data.error || 'unknown');
+            btn.disabled = false;
+            btn.textContent = '连接';
+        }
+    } catch (e) {
+        renderErrorState(e.message);
+        btn.disabled = false;
+        btn.textContent = '连接';
+    }
+}
+
+function renderRunningSteps() {
+    const clientSteps = document.getElementById('client-steps');
+    const serverSteps = document.getElementById('server-steps');
+
+    clientSteps.innerHTML = buildStepCard('running', 'Agent Discovery', 'SDK: ati.NewAgentClient() → LookupATIDiscovery()', null)
+        + buildStepCard('', 'mTLS Handshake', null, null)
+        + buildStepCard('', 'Badge Verify', null, null);
+    serverSteps.innerHTML = buildStepCard('', 'PKI (CA Chain)', null, null);
+}
+
+function onConnected(data) {
+    const v = data.verification;
+    const o = v ? v.outcome : {};
+    const agentHost = document.getElementById('agentHost').value;
+    const clientPolicy = document.getElementById('clientPolicy').value.toUpperCase();
+    const serverPolicy = (v && v.serverTrustLevel) ? v.serverTrustLevel : document.getElementById('serverPolicy').value.toUpperCase();
+
+    // Render client steps
+    renderClientSteps(v ? v.clientSteps : [], o);
+    // Render server steps
+    renderServerSteps(v ? v.serverSteps : []);
+
+    // Enable chat
+    document.getElementById('chat-panel').classList.remove('disabled');
+    document.getElementById('disconnectBtn').disabled = false;
+    document.getElementById('connectBtn').textContent = '连接';
+
+    // Status bar
+    const peerName = o.peerATIName || agentHost;
+    document.getElementById('conn-status').textContent = '已连接';
+    document.getElementById('policy-summary').textContent = `client：${clientPolicy} | server：${serverPolicy}`;
+    document.getElementById('target-agent').textContent = `目标：${peerName}`;
+}
+
+function renderClientSteps(steps, outcome) {
+    const container = document.getElementById('client-steps');
+    let html = '';
+
+    // A1: Agent Discovery
+    const discoveryStep = steps.find(s => s.name === 'Agent Discovery');
+    const discoveryPass = discoveryStep ? discoveryStep.pass : false;
+    html += buildStepCard(
+        discoveryPass ? 'success' : 'failed',
+        'Agent Discovery',
+        'SDK: LookupATIDiscovery(fqdn)',
+        null,
+        [{
+            pass: discoveryPass,
+            title: 'DNS/API 服务发现',
+            meta: discoveryStep ? discoveryStep.detail : ''
+        }]
+    );
+
+    // A2: mTLS Handshake
+    const handshakeStep = steps.find(s => s.name === 'mTLS Handshake');
+    const handshakePass = handshakeStep ? handshakeStep.pass : false;
+    const handshakeSubs = [];
+    if (outcome) {
+        handshakeSubs.push({ pass: outcome.caChainValid, title: 'CA Chain 验证', meta: outcome.caChainValid ? 'valid' : 'invalid' });
+        handshakeSubs.push({ pass: outcome.sanMatches, title: 'SAN 匹配', meta: outcome.sanMatches ? 'matched' : 'mismatch' });
+        if (outcome.peerATIName) {
+            handshakeSubs.push({ pass: true, title: 'Peer ATI Name', meta: outcome.peerATIName });
+        }
+    }
+    html += buildStepCard(
+        handshakePass ? 'success' : 'failed',
+        'mTLS Handshake',
+        'SDK: client.Do() → TLS 1.3',
+        null,
+        handshakeSubs
+    );
+
+    // A3: Badge Verify (if present)
+    const badgeStep = steps.find(s => s.name === 'Badge Verify');
+    if (badgeStep) {
+        html += buildStepCard(
+            badgeStep.pass ? 'success' : 'failed',
+            'Badge Verify',
+            'SDK: ServerVerifier.Verify(fqdn, cert)',
+            null,
+            [{
+                pass: badgeStep.pass,
+                title: 'TLog 指纹匹配',
+                meta: badgeStep.detail
+            }]
+        );
+    }
+
+    // A4: DANE (if present)
+    const daneStep = steps.find(s => s.name === 'DANE/TLSA');
+    if (daneStep) {
+        html += buildStepCard(
+            daneStep.pass ? 'success' : 'failed',
+            'DANE/TLSA',
+            'SDK: DANEVerifier.Verify(fqdn, cert)',
+            null,
+            [{
+                pass: daneStep.pass,
+                title: 'TLSA Record 匹配',
+                meta: daneStep.detail
+            }]
+        );
+    }
+
+    container.innerHTML = html;
+}
+
+function renderServerSteps(steps) {
+    const container = document.getElementById('server-steps');
+    let html = '';
+
+    steps.forEach(step => {
+        html += buildStepCard(
+            step.pass ? 'success' : 'failed',
+            step.name,
+            null,
+            null,
+            [{
+                pass: step.pass,
+                title: step.detail,
+                meta: ''
+            }]
+        );
+    });
+
+    if (steps.length === 0) {
+        html = '<div style="color:#999;font-size:13px;padding:8px;">连接后显示</div>';
+    }
+
+    container.innerHTML = html;
+}
+
+function renderErrorState(error) {
+    const container = document.getElementById('client-steps');
+    container.innerHTML = buildStepCard('failed', '连接失败', null, error);
+}
+
+function buildStepCard(status, title, sdk, error, subSteps) {
+    const icon = status === 'success' ? '✅' : status === 'failed' ? '❌' : status === 'running' ? '⏳' : '⬜';
+    const cls = status || '';
+
+    let html = `<div class="step-card ${cls}">`;
+    html += `<div class="card-header"><span class="step-icon">${icon}</span><span class="step-title">${esc(title)}</span></div>`;
+
+    if (sdk) {
+        html += `<div class="card-sdk">${esc(sdk)}</div>`;
+    }
+
+    if (subSteps && subSteps.length > 0) {
+        html += '<div class="sub-steps">';
+        subSteps.forEach(sub => {
+            const subIcon = sub.pass ? '✅' : '❌';
+            const subCls = sub.pass ? '' : 'failed';
+            html += `<div class="sub-step ${subCls}"><span class="sub-step-icon">${subIcon}</span><span>${esc(sub.title)}</span>`;
+            if (sub.meta) html += `<span class="sub-step-meta">${esc(sub.meta)}</span>`;
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    if (error) {
+        html += `<div class="card-error">${esc(error)}</div>`;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+// --- Disconnect ---
+async function doDisconnect() {
+    await fetch('/api/disconnect', {method: 'POST'});
+    connected = false;
+    document.getElementById('chat-panel').classList.add('disabled');
+    document.getElementById('connectBtn').disabled = false;
+    document.getElementById('disconnectBtn').disabled = true;
+    document.getElementById('conn-status').textContent = '未连接';
+    document.getElementById('policy-summary').textContent = '';
+    document.getElementById('target-agent').textContent = '';
+    document.getElementById('client-steps').innerHTML = '';
+    document.getElementById('server-steps').innerHTML = '';
+    document.getElementById('auth-content').classList.remove('visible');
+}
+
+// --- Chat ---
+async function doSend() {
+    const input = document.getElementById('messageInput');
+    const message = input.value.trim();
+    if (!message || !connected) return;
+
+    addChatMessage('我', message, 'you');
+    input.value = '';
+
+    try {
+        const resp = await fetch('/api/send', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message}),
+        });
+        const data = await resp.json();
+
+        if (data.success) {
+            let meta = '';
+            if (data.verification) {
+                const v = data.verification;
+                meta = `Level=${v.achievedLevel} Badge=${v.badgeVerified ? '✓' : '✗'} DANE=${v.daneVerified ? '✓' : '✗'}`;
+            }
+            addChatMessage('Agent', data.text || '(empty)', 'agent', meta);
+        } else {
+            addChatMessage('Agent', '错误: ' + (data.error || 'unknown'), 'agent');
+        }
+    } catch (e) {
+        addChatMessage('Agent', '请求失败: ' + e.message, 'agent');
+    }
+    input.focus();
+}
+
+function addChatMessage(sender, text, role, meta) {
+    const history = document.getElementById('chat-history');
+    const msg = document.createElement('div');
+    msg.className = `chat-msg ${role}`;
+    const label = `<strong>${esc(sender)}:</strong> `;
+
+    if (role === 'agent' && typeof marked !== 'undefined') {
+        const rawHtml = marked.parse(text || '');
+        const cleanHtml = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(rawHtml) : rawHtml;
+        msg.innerHTML = label + cleanHtml;
+    } else {
+        msg.innerHTML = label + esc(text);
+    }
+
+    if (meta) {
+        const metaEl = document.createElement('div');
+        metaEl.className = 'chat-meta';
+        metaEl.textContent = meta;
+        msg.appendChild(metaEl);
+    }
+
+    history.appendChild(msg);
+    history.scrollTop = history.scrollHeight;
+}
+
+// --- Debug Logs (SSE) ---
+function toggleDebug() {
+    const enabled = document.getElementById('debugToggle').checked;
+    const container = document.getElementById('debug-log-container');
+    if (enabled) {
+        container.classList.add('visible');
+        startLogStream();
+    } else {
+        container.classList.remove('visible');
+        if (eventSource) { eventSource.close(); eventSource = null; }
+    }
+}
+
+function startLogStream() {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource('/api/logs');
+    eventSource.onmessage = function(e) {
+        appendDebugLog(e.data);
+    };
+}
+
+function appendDebugLog(text) {
+    const container = document.getElementById('debug-log-container');
+    const line = document.createElement('div');
+
+    const match = text.match(/^(\d{2}:\d{2}:\d{2})\s+(INFO|WARN|ERROR|DEBUG)\s+(.*)$/);
+    if (match) {
+        const levelCls = match[2].toLowerCase();
+        line.className = `debug-log ${levelCls}`;
+        line.innerHTML = `<span class="log-time">${match[1]}</span><span class="log-level">${match[2]}</span><span class="log-msg">${esc(match[3])}</span>`;
+    } else {
+        line.className = 'debug-log info';
+        line.innerHTML = `<span class="log-msg">${esc(text)}</span>`;
+    }
+
+    container.appendChild(line);
+    container.scrollTop = container.scrollHeight;
+    debugLogCount++;
+    document.getElementById('debug-log-count').textContent = debugLogCount + ' 条日志';
+}
+
+function clearDebugLogs() {
+    document.getElementById('debug-log-container').innerHTML = '';
+    debugLogCount = 0;
+    document.getElementById('debug-log-count').textContent = '0 条日志';
+}
+
+// --- Utils ---
+function esc(s) {
+    if (!s) return '';
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+</script>
+</body>
+</html>

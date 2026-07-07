@@ -4,58 +4,113 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
 )
 
-// ATIRecord represents a parsed _ati TXT record for agent discovery.
+// ATIRecord represents a parsed _ati TXT DNS record.
+// Format: v=ati1; id={agentId}; ra=aliyun; version=v1.0.0; p=a2a; url=https://...
+// Also accepts: ver= (alias for version=), proto= (alias for p=)
 type ATIRecord struct {
-	FormatVersion string
-	AgentID       string
-	RAEndpoint    string
-	Version       string
-	Protocol      string
-	Mode          string
-	URL           string
+	ID       string         // Agent ID (e.g., d6c78fcb-...)
+	RA       string         // Registration Authority identifier (e.g., aliyun)
+	Version  models.Version // Semver version
+	Mode     ATIRecordMode  // card or direct (inferred from url presence if not set)
+	Protocol string         // Protocol filter (mcp/a2a/openapi), empty means wildcard
+	URL      string         // Metadata endpoint URL
 }
 
-// ParseATIRecord parses an _ati TXT record.
-// Format: "v=ati1; id=<agentID>; ra=<endpoint>; ver=<version>; proto=<protocol>; mode=<mode>"
+// ATIRecordMode represents the mode field of an _ati TXT record.
+type ATIRecordMode int
+
+const (
+	ATIRecordModeCard ATIRecordMode = iota
+	ATIRecordModeDirect
+)
+
+func (m ATIRecordMode) String() string {
+	switch m {
+	case ATIRecordModeCard:
+		return "card"
+	case ATIRecordModeDirect:
+		return "direct"
+	default:
+		return "unknown"
+	}
+}
+
+// ParseATIRecord parses an _ati TXT record string.
+// Supports both canonical field names (version, p) and aliases (ver, proto).
 func ParseATIRecord(txt string) (*ATIRecord, error) {
-	if txt == "" {
-		return nil, errors.New("empty TXT record")
+	fields := parseSemicolonFields(txt)
+
+	v, ok := fields["v"]
+	if !ok || v != "ati1" {
+		return nil, errors.New("missing or invalid version field: expected v=ati1")
 	}
 
-	record := &ATIRecord{}
+	id := fields["id"]
+	ra := fields["ra"]
 
-	for part := range strings.SplitSeq(txt, ";") {
+	versionStr := fields["version"]
+	if versionStr == "" {
+		versionStr = fields["ver"]
+	}
+	if versionStr == "" {
+		return nil, errors.New("missing required field: version (or ver)")
+	}
+	version, err := models.ParseVersion(versionStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid version %q: %w", versionStr, err)
+	}
+
+	protocol := fields["p"]
+	if protocol == "" {
+		protocol = fields["proto"]
+	}
+
+	url := fields["url"]
+
+	var mode ATIRecordMode
+	if modeStr, ok := fields["mode"]; ok {
+		switch modeStr {
+		case "card":
+			mode = ATIRecordModeCard
+		case "direct":
+			mode = ATIRecordModeDirect
+		default:
+			return nil, fmt.Errorf("invalid mode %q: must be 'card' or 'direct'", modeStr)
+		}
+	} else if url != "" {
+		mode = ATIRecordModeCard
+	} else {
+		mode = ATIRecordModeDirect
+	}
+
+	return &ATIRecord{
+		ID:       id,
+		RA:       ra,
+		Version:  version,
+		Mode:     mode,
+		Protocol: protocol,
+		URL:      url,
+	}, nil
+}
+
+// parseSemicolonFields splits "k1=v1; k2=v2; ..." into a map.
+func parseSemicolonFields(txt string) map[string]string {
+	result := make(map[string]string)
+	parts := strings.Split(txt, ";")
+	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-
-		if v, found := strings.CutPrefix(part, "v="); found {
-			record.FormatVersion = v
-		} else if v, found := strings.CutPrefix(part, "id="); found {
-			record.AgentID = v
-		} else if v, found := strings.CutPrefix(part, "ra="); found {
-			record.RAEndpoint = v
-		} else if v, found := strings.CutPrefix(part, "ver="); found {
-			record.Version = v
-		} else if v, found := strings.CutPrefix(part, "proto="); found {
-			record.Protocol = v
-		} else if v, found := strings.CutPrefix(part, "mode="); found {
-			record.Mode = v
-		} else if v, found := strings.CutPrefix(part, "url="); found {
-			record.URL = v
+		k, v, found := strings.Cut(part, "=")
+		if !found {
+			continue
 		}
+		result[strings.TrimSpace(k)] = strings.TrimSpace(v)
 	}
-
-	if record.FormatVersion == "" {
-		return nil, errors.New("missing format version (v=)")
-	}
-
-	if record.FormatVersion != "ati1" {
-		return nil, fmt.Errorf("unsupported format version: %s", record.FormatVersion)
-	}
-
-	return record, nil
+	return result
 }

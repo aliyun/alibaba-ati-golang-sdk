@@ -5,7 +5,12 @@ import "time"
 // IsValidRevocationReason checks if the revocation reason is a valid enum value
 func IsValidRevocationReason(r RevocationReason) bool {
 	switch r {
-	case RevocationReasonKeyCompromise, RevocationReasonCessationOfOperation, RevocationReasonAffiliationChanged, RevocationReasonSuperseded, RevocationReasonCertificateHold, RevocationReasonPrivilegeWithdrawn, RevocationReasonAACompromise, RevocationReasonCACompromise, RevocationReasonExpiredCert, RevocationReasonRemoveFromCRL, RevocationReasonUnspecified:
+	case RevocationReasonKeyCompromise, RevocationReasonCessationOfOperation,
+		RevocationReasonAffiliationChanged, RevocationReasonSuperseded,
+		RevocationReasonCertificateHold, RevocationReasonPrivilegeWithdrawn,
+		RevocationReasonAACompromise, RevocationReasonCACompromise,
+		RevocationReasonExpiredCert, RevocationReasonRemoveFromCRL,
+		RevocationReasonUnspecified:
 		return true
 	default:
 		return false

@@ -90,17 +90,6 @@ func verifyDANE(ctx context.Context, config *verifierConfig, fqdn models.Fqdn, c
 // rewriteTLHost replaces the hostname in a badge URL with the configured
 // trusted TL host. If rewriting fails, the original URL is returned unchanged.
 func rewriteTLHost(config *verifierConfig, rawURL string, log *slog.Logger) string {
-	// Prefer BuildBadgeURL when tlBaseURL is configured
-	if config.tlBaseURL != "" {
-		rewritten, err := BuildBadgeURL(rawURL, config.tlBaseURL)
-		if err != nil {
-			log.Warn("rewriteTLHost: failed to build badge URL, using original",
-				slog.String("url", rawURL), slog.String("error", err.Error()))
-			return rawURL
-		}
-		return rewritten
-	}
-
 	if config.trustedTLHost == "" {
 		return rawURL
 	}
@@ -245,7 +234,7 @@ func (v *ServerVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn) 
 
 // verifyWithTLResponse verifies a certificate against a TL response.
 func (v *ServerVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *CertIdentity, fqdn models.Fqdn) *VerificationOutcome {
-	status := tlResp.Payload.AgentStatus
+	status := models.TLAgentStatus(tlResp.Payload.AgentStatus)
 	if !status.IsValidForConnection() {
 		return NewInvalidStatusOutcome(tlResp, status)
 	}
@@ -400,7 +389,7 @@ func (v *ClientVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn, 
 	tlURL := rewriteTLHost(v.config, record.URL, log)
 	log.InfoContext(ctx, "[client-verify] fetching TLog",
 		slog.String("url", tlURL),
-		slog.String("badgeSource", record.Source.String()))
+		slog.String("badgeSource", string(record.Source)))
 
 	tlResp, err := v.config.tlogClient.FetchTLResponse(ctx, tlURL)
 	if err != nil {
@@ -412,7 +401,7 @@ func (v *ClientVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn, 
 
 	log.InfoContext(ctx, "[client-verify] TLog response received",
 		slog.String("agentHost", tlResp.Payload.AgentHost),
-		slog.String("agentStatus", string(tlResp.Payload.AgentStatus)),
+		slog.String("agentStatus", tlResp.Payload.AgentStatus),
 		slog.String("agentName", tlResp.Payload.AgentName))
 
 	return tlResp, nil

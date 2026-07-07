@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
 	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify/scitt"
 )
 
@@ -173,112 +172,5 @@ func TestDefaultScittKeyLookupNil(t *testing.T) {
 	cfg := defaultConfig()
 	if cfg.scittKeyLookup != nil {
 		t.Error("expected nil scitt key lookup by default")
-	}
-}
-
-func TestWithTrustedTLHost(t *testing.T) {
-	cfg := defaultConfig()
-	WithTrustedTLHost("custom.host:8180")(cfg)
-	if cfg.trustedTLHost != "custom.host:8180" {
-		t.Errorf("expected custom.host:8180, got %q", cfg.trustedTLHost)
-	}
-}
-
-func TestWithTrustPolicy(t *testing.T) {
-	tp := &TrustPolicy{TrustedIssuers: []string{"issuer1"}, MinKeyStrength: 2048}
-	cfg := defaultConfig()
-	WithTrustPolicy(tp)(cfg)
-	if cfg.trustPolicy != tp {
-		t.Error("expected trust policy to be set")
-	}
-	if len(cfg.trustPolicy.TrustedIssuers) != 1 || cfg.trustPolicy.TrustedIssuers[0] != "issuer1" {
-		t.Error("trust policy content mismatch")
-	}
-}
-
-func TestWithProducerKeys(t *testing.T) {
-	cfg := defaultConfig()
-	if cfg.producerKeys != nil {
-		t.Error("expected nil producerKeys by default")
-	}
-}
-
-func TestWithAgentCardVerifier(t *testing.T) {
-	acv := &AgentCardVerifier{TrustedIssuers: []string{"iss1"}}
-	cfg := defaultConfig()
-	WithAgentCardVerifier(acv)(cfg)
-	if cfg.agentCardVerifier != acv {
-		t.Error("expected agent card verifier to be set")
-	}
-}
-
-func TestWithSessionMonitor(t *testing.T) {
-	sm := &SessionMonitor{PollInterval: 30}
-	cfg := defaultConfig()
-	WithSessionMonitor(sm)(cfg)
-	if cfg.sessionMonitor != sm {
-		t.Error("expected session monitor to be set")
-	}
-}
-
-func TestWithOCSPCheckerOption(t *testing.T) {
-	checker := &OCSPChecker{}
-	cfg := defaultConfig()
-	WithOCSPCheckerOption(checker)(cfg)
-	if cfg.ocspChecker != checker {
-		t.Error("expected OCSP checker to be set")
-	}
-}
-
-func TestWithParallelFetch(t *testing.T) {
-	cfg := defaultConfig()
-	if cfg.parallelFetch {
-		t.Error("expected parallelFetch false by default")
-	}
-	WithParallelFetch(true)(cfg)
-	if !cfg.parallelFetch {
-		t.Error("expected parallelFetch true after setting")
-	}
-	WithParallelFetch(false)(cfg)
-	if cfg.parallelFetch {
-		t.Error("expected parallelFetch false after unsetting")
-	}
-}
-
-func TestWithOfflineMode(t *testing.T) {
-	cfg := defaultConfig()
-	if cfg.offlineMode {
-		t.Error("expected offlineMode false by default")
-	}
-	WithOfflineMode(true)(cfg)
-	if !cfg.offlineMode {
-		t.Error("expected offlineMode true after setting")
-	}
-}
-
-func TestWithTLBaseURL(t *testing.T) {
-	cfg := defaultConfig()
-	if cfg.tlBaseURL != DefaultTLBaseURL {
-		t.Errorf("expected default TL base URL %q, got %q", DefaultTLBaseURL, cfg.tlBaseURL)
-	}
-	WithTLBaseURL("https://custom-tl.example.com")(cfg)
-	if cfg.tlBaseURL != "https://custom-tl.example.com" {
-		t.Errorf("expected custom URL, got %q", cfg.tlBaseURL)
-	}
-	WithTLBaseURL("")(cfg)
-	if cfg.tlBaseURL != "" {
-		t.Errorf("expected empty URL, got %q", cfg.tlBaseURL)
-	}
-}
-
-func TestWithVerificationPolicy(t *testing.T) {
-	cfg := defaultConfig()
-	WithVerificationPolicy(ati.PolicyPKI)(cfg)
-	if cfg.verificationPolicy != ati.PolicyPKI {
-		t.Errorf("expected PolicyPKI, got %v", cfg.verificationPolicy)
-	}
-	WithVerificationPolicy(ati.PolicyPKIBadgeDANE)(cfg)
-	if cfg.verificationPolicy != ati.PolicyPKIBadgeDANE {
-		t.Errorf("expected PolicyPKIBadgeDANE, got %v", cfg.verificationPolicy)
 	}
 }

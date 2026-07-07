@@ -10,7 +10,7 @@ import (
 func TestOutcomeConstructors(t *testing.T) {
 	tlResp := &models.TLResponse{
 		Payload: models.TLPayload{
-			AgentStatus: models.TLStatusActive,
+			AgentStatus: string(models.TLStatusActive),
 		},
 	}
 	fp := CertFingerprintFromBytes([32]byte{1, 2, 3})
