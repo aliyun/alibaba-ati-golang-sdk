@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATI SDK演示</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div id="starfield-bg"></div>
+    <div id="app">
+        <h1>ATI SDK 演示 · Agent 可信身份认证</h1>
+
+        <div id="config-bar">
+            <label>Client 域名
+                <select id="clientHost"></select>
+            </label>
+            <label>Client 认证等级
+                <select id="clientPolicy">
+                    <option value="PKI_ONLY">基础验证</option>
+                    <option value="BADGE_REQUIRED" selected>加强验证</option>
+                    <option value="DANE_AND_BADGE">最高验证</option>
+                </select>
+            </label>
+            <label>Server 域名
+                <input type="text" id="agentHost" value="ats-server.asia">
+            </label>
+            <label>Server 版本
+                <input type="text" id="serverVersion" value="" placeholder="e.g. 1.0.0">
+            </label>
+            <label>Server 认证等级
+                <select id="serverPolicy" onchange="updateServerPolicy()">
+                    <option value="PKI_ONLY">基础验证</option>
+                    <option value="BADGE_REQUIRED" selected>加强验证</option>
+                    <option value="DANE_AND_BADGE">最高验证</option>
+                </select>
+            </label>
+            <label>所在城市
+                <input type="text" id="cityInput" value="北京" placeholder="例如 北京">
+            </label>
+            <div class="config-actions">
+                <button id="connectBtn" onclick="connect()">连接</button>
+                <button id="disconnectBtn" onclick="disconnect()" disabled>断开</button>
+            </div>
+        </div>
+
+        <div id="verify-banner" class="hidden"></div>
+
+        <div id="stage">
+            <canvas id="link-canvas"></canvas>
+            <div id="link-status">等待建立连接…</div>
+        </div>
+
+        <div id="chat-panel" class="disabled">
+            <div class="chat-title">与出行规划 Agent 对话</div>
+            <div id="chat-history"></div>
+            <div id="chat-input">
+                <input type="text" id="messageInput" placeholder="随便说说，例如：今天好无聊啊，有什么地方推荐去玩的？"
+                       onkeypress="if(event.key==='Enter')sendMessage()">
+                <button onclick="sendMessage()">发送</button>
+            </div>
+        </div>
+
+        <div id="status-bar">
+            <span id="conn-status">未连接</span>
+            <span id="policy-summary"></span>
+            <span id="target-agent"></span>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.5/dist/purify.min.js"></script>
+    <script src="/app.js"></script>
+</body>
+</html>
