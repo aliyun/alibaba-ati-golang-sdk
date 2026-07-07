@@ -26,7 +26,7 @@ func main() {
 	var (
 		certPath = flag.String("cert", "", "client identity certificate PEM (required)")
 		hostFlag = flag.String("host", "", "override host for TLSA lookup (default: from cert ati:// URI SAN)")
-		dnsFlag  = flag.String("dns", "", "DNS server addr host:port (default: /etc/resolv.conf, else 8.8.8.8:53)")
+		dnsFlag  = flag.String("dns", "", "DNS server addr host:port (default: 8.8.8.8:53)")
 		timeout  = flag.Duration("timeout", 5*time.Second, "DNS lookup timeout")
 	)
 	flag.Parse()

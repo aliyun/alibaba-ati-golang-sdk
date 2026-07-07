@@ -730,6 +730,41 @@ func TestWithDNSResolver_Option(t *testing.T) {
 	}
 }
 
+func TestWithDNSServer_Option(t *testing.T) {
+	cfg := &agentClientConfig{}
+	opt := WithDNSServer("1.2.3.4:53")
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithDNSServer() error = %v", err)
+	}
+	if cfg.dnsServerAddr != "1.2.3.4:53" {
+		t.Errorf("dnsServerAddr = %q, want %q", cfg.dnsServerAddr, "1.2.3.4:53")
+	}
+}
+
+func TestWithDNSServer_Option_Empty(t *testing.T) {
+	cfg := &agentClientConfig{}
+	if err := WithDNSServer("")(cfg); err != nil {
+		t.Fatalf("WithDNSServer() error = %v", err)
+	}
+	if cfg.dnsServerAddr != "" {
+		t.Errorf("dnsServerAddr = %q, want empty", cfg.dnsServerAddr)
+	}
+}
+
+func TestNewAgentClient_WithDNSServer(t *testing.T) {
+	certFile, keyFile, caFile := setupClientTestCerts(t, "agent.example.com", "v1.0.0")
+	client, err := NewAgentClient(
+		WithMTLSCerts(certFile, keyFile, "", caFile),
+		WithDNSServer("1.2.3.4"),
+	)
+	if err != nil {
+		t.Fatalf("NewAgentClient() error = %v", err)
+	}
+	if client.dnsResolver == nil {
+		t.Error("expected dnsResolver to be set")
+	}
+}
+
 func TestNewAgentClient_WithServerCert(t *testing.T) {
 	dir := t.TempDir()
 	caCert, caKey, caCertPEM, _ := generateCA(t)

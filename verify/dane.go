@@ -84,14 +84,33 @@ type DANEOutcome struct {
 	Error error
 }
 
-// IsPass returns true only if DANE verification fully passed (DNSSEC valid + TLSA match).
+// IsPass reports whether the connection should be allowed under a fail-open
+// DANE policy. It is true when verification succeeded (DANEVerified) and also
+// in the benign cases where DANE cannot make a negative assertion: no TLSA
+// records published (DANENoRecords) or records present without a DNSSEC chain
+// (DANESkipped). Only an affirmative negative — a fingerprint mismatch or an
+// explicit DNSSEC failure — is treated as non-passing.
 func (o *DANEOutcome) IsPass() bool {
-	return o.Type == DANEVerified
+	switch o.Type {
+	case DANEVerified, DANESkipped, DANENoRecords:
+		return true
+	default:
+		return false
+	}
 }
 
-// IsReject returns true if DANE verification did not pass.
+// IsReject reports whether the connection must be refused. Only an affirmative
+// negative assertion rejects: TLSA records exist under a valid DNSSEC chain but
+// none match the presented certificate (DANEMismatch), or DNSSEC validation
+// explicitly failed (DANEDNSSECFailed). A bare lookup error is not a rejection —
+// callers apply their own fail-open/fail-closed policy via IsError.
 func (o *DANEOutcome) IsReject() bool {
-	return o.Type != DANEVerified
+	switch o.Type {
+	case DANEMismatch, DANEDNSSECFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 // IsError returns true if a DNS lookup error prevented verification.
@@ -228,21 +247,13 @@ const (
 	defaultDANETimeout = 5 * time.Second
 	// edns0BufSize is the EDNS0 UDP buffer size for DNSSEC-aware queries.
 	edns0BufSize = 4096
+	// defaultDANEServer is the DNS server used for DANE/TLSA lookups when none is
+	// configured. DANE requires an upstream that returns DNSSEC records (RRSIG),
+	// so we default to a known DNSSEC-capable public resolver rather than the
+	// host's /etc/resolv.conf, which is often a non-validating corporate resolver.
+	// Callers can override via WithDANEServer.
+	defaultDANEServer = "8.8.8.8:53"
 )
-
-// getLocalDNSServer reads the first nameserver from /etc/resolv.conf.
-// Falls back to 127.0.0.1:53 if parsing fails.
-func getLocalDNSServer() string {
-	conf, err := dns.ClientConfigFromFile("/etc/resolv.conf")
-	if err != nil || len(conf.Servers) == 0 {
-		return "8.8.8.8:53"
-	}
-	server := conf.Servers[0]
-	if !strings.Contains(server, ":") {
-		server += ":" + conf.Port
-	}
-	return server
-}
 
 // StandardDANEResolver performs real DNSSEC-aware TLSA lookups using miekg/dns.
 // It performs local DNSSEC chain validation instead of relying on the recursive
@@ -257,7 +268,7 @@ type StandardDANEResolver struct {
 // NewStandardDANEResolver creates a new StandardDANEResolver with the given options.
 func NewStandardDANEResolver(opts ...DANEResolverOption) *StandardDANEResolver {
 	r := &StandardDANEResolver{
-		server:  getLocalDNSServer(),
+		server:  defaultDANEServer,
 		timeout: defaultDANETimeout,
 	}
 	for _, opt := range opts {

@@ -35,7 +35,11 @@ func createTestTLResponse(host, version, serverFP, identityFP string) *models.TL
 
 func createTestCertIdentity(cn, fingerprint string) *CertIdentity {
 	fp, _ := ParseCertFingerprint(fingerprint)
-	return CertIdentityFromFingerprintAndCN(fp, cn)
+	id := CertIdentityFromFingerprintAndCN(fp, cn)
+	// DANE TLSA tests use Selector=1 (SPKI) records whose hash equals the cert
+	// fingerprint, so mirror the fingerprint into SPKIFingerprint for the mock.
+	id.SPKIFingerprint = fp
+	return id
 }
 
 func createMTLSCertIdentity(host, version, fingerprint string) *CertIdentity {

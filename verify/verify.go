@@ -128,6 +128,9 @@ func (v *ServerVerifier) Verify(ctx context.Context, fqdn models.Fqdn, cert *Cer
 				slog.String("fqdn", fqdn.String()), slog.Bool("cache_hit", true))
 			result := v.verifyWithTLResponse(cached.TLResponse, cert, fqdn)
 			if result.Type != OutcomeFingerprintMismatch {
+				if rejection := v.applyDANE(ctx, fqdn, cert, result); rejection != nil {
+					return rejection
+				}
 				return result
 			}
 		} else {
@@ -149,7 +152,20 @@ func (v *ServerVerifier) Verify(ctx context.Context, fqdn models.Fqdn, cert *Cer
 
 	// 4. Verify against TL response
 	outcome = v.verifyWithTLResponse(tlResp, cert, fqdn)
+	if rejection := v.applyDANE(ctx, fqdn, cert, outcome); rejection != nil {
+		return rejection
+	}
 	return outcome
+}
+
+// applyDANE runs an optional DANE/TLSA check when the badge outcome succeeded
+// and a DANE resolver is configured. It returns a rejection outcome if DANE
+// affirmatively rejects; otherwise it enriches outcome in place and returns nil.
+func (v *ServerVerifier) applyDANE(ctx context.Context, fqdn models.Fqdn, cert *CertIdentity, outcome *VerificationOutcome) *VerificationOutcome {
+	if outcome.Type != OutcomeVerified {
+		return nil
+	}
+	return verifyDANE(ctx, v.config, fqdn, cert, outcome)
 }
 
 // Prefetch fetches and caches a TL response for an FQDN.
@@ -281,6 +297,12 @@ func NewClientVerifier(opts ...Option) *ClientVerifier {
 func (v *ClientVerifier) Verify(ctx context.Context, cert *CertIdentity) *VerificationOutcome {
 	log := configLogger(v.config)
 
+	// 0. A client cert must carry a subject identity (CN or DNS SAN).
+	if cert.FQDN() == nil {
+		log.InfoContext(ctx, "[client-verify] cert has no CN or DNS SAN")
+		return NewCertErrorOutcome(&VerificationError{Type: VerificationErrorNoCN})
+	}
+
 	// 1. Extract ANS name from URI SANs (ati://v1.x.x.host)
 	atiName := cert.ATIName()
 	if atiName == nil {
@@ -305,7 +327,11 @@ func (v *ClientVerifier) Verify(ctx context.Context, cert *CertIdentity) *Verifi
 	if v.config.cache != nil {
 		if cached, ok := v.config.cache.GetByFqdnVersion(fqdn, version); ok {
 			log.InfoContext(ctx, "[client-verify] cache hit", slog.String("fqdn", fqdn.String()))
-			return v.verifyWithTLResponse(cached.TLResponse, cert, fqdn, atiName)
+			result := v.verifyWithTLResponse(cached.TLResponse, cert, fqdn, atiName)
+			if rejection := v.applyDANE(ctx, fqdn, cert, result); rejection != nil {
+				return rejection
+			}
+			return result
 		}
 	}
 
@@ -322,7 +348,20 @@ func (v *ClientVerifier) Verify(ctx context.Context, cert *CertIdentity) *Verifi
 
 	// 7. Verify against TL response
 	outcome = v.verifyWithTLResponse(tlResp, cert, fqdn, atiName)
+	if rejection := v.applyDANE(ctx, fqdn, cert, outcome); rejection != nil {
+		return rejection
+	}
 	return outcome
+}
+
+// applyDANE runs an optional DANE/TLSA check when the badge outcome succeeded
+// and a DANE resolver is configured. It returns a rejection outcome if DANE
+// affirmatively rejects; otherwise it enriches outcome in place and returns nil.
+func (v *ClientVerifier) applyDANE(ctx context.Context, fqdn models.Fqdn, cert *CertIdentity, outcome *VerificationOutcome) *VerificationOutcome {
+	if outcome.Type != OutcomeVerified {
+		return nil
+	}
+	return verifyDANE(ctx, v.config, fqdn, cert, outcome)
 }
 
 // VerifyWithScitt verifies an mTLS client certificate using SCITT receipts and status tokens.

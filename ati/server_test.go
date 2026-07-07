@@ -223,6 +223,30 @@ func TestNewServerTLSConfig_Success(t *testing.T) {
 	}
 }
 
+func TestWithServerDNSServer_Option(t *testing.T) {
+	cfg := &serverConfig{}
+	if err := WithServerDNSServer("1.2.3.4:53")(cfg); err != nil {
+		t.Fatalf("WithServerDNSServer() error = %v", err)
+	}
+	if cfg.dnsServerAddr != "1.2.3.4:53" {
+		t.Errorf("dnsServerAddr = %q, want %q", cfg.dnsServerAddr, "1.2.3.4:53")
+	}
+}
+
+func TestNewServerTLSConfig_WithDNSServer(t *testing.T) {
+	bundle := setupTestCertBundle(t)
+	tlsConfig, err := NewServerTLSConfig(
+		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
+		WithServerDNSServer("1.2.3.4"),
+	)
+	if err != nil {
+		t.Fatalf("NewServerTLSConfig() error = %v", err)
+	}
+	if tlsConfig == nil {
+		t.Fatal("NewServerTLSConfig() returned nil config")
+	}
+}
+
 func TestNewServerTLSConfig_MissingServerCert(t *testing.T) {
 	bundle := setupTestCertBundle(t)
 

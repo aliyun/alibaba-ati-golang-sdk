@@ -72,7 +72,9 @@ func GetConfig() *Config {
 
 // defaultDiscoveryResolver creates the default discovery resolver.
 // Priority: global config AK/SK → env ATI_AK/ATI_SK → fallback to DNS.
-func defaultDiscoveryResolver() verify.DNSResolver {
+// When dnsServerAddr is non-empty, the DNS fallback resolver queries that
+// server instead of the system resolver configuration.
+func defaultDiscoveryResolver(dnsServerAddr string) verify.DNSResolver {
 	ak, sk, endpoint := "", "", "alidns.aliyuncs.com"
 
 	configMu.RLock()
@@ -107,5 +109,5 @@ func defaultDiscoveryResolver() verify.DNSResolver {
 		slog.Warn("[discovery] ATI_AK/ATI_SK not set, falling back to DNS _ati TXT")
 	}
 
-	return verify.NewStandardDNSResolver()
+	return verify.NewStandardDNSResolver().WithServerAddress(dnsServerAddr)
 }

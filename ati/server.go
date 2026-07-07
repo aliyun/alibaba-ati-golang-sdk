@@ -24,6 +24,7 @@ type serverConfig struct {
 	privateKeyFile string
 	caBundleFile   string
 	trustLevel     *TrustLevel
+	dnsServerAddr  string
 	dnsResolver    verify.DNSResolver
 	daneResolver   verify.DANEResolver
 	tlogClient     verify.TransparencyLogClient
@@ -75,6 +76,20 @@ func WithPeerLevelStore(store *sync.Map) ServerOption {
 func WithServerDANEResolver(r verify.DANEResolver) ServerOption {
 	return func(c *serverConfig) error {
 		c.daneResolver = r
+		return nil
+	}
+}
+
+// WithServerDNSServer points DNS-based badge/discovery and DANE lookups at a
+// specific DNS server, given as "host" or "host:port" (port defaults to 53).
+// When empty or unset, lookups use the system resolver configuration
+// (/etc/resolv.conf).
+//
+// This has no effect when an explicit resolver is supplied via
+// WithServerAliyunDiscovery.
+func WithServerDNSServer(addr string) ServerOption {
+	return func(c *serverConfig) error {
+		c.dnsServerAddr = addr
 		return nil
 	}
 }
@@ -138,12 +153,16 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 
 	// Auto-create DANE resolver when trust level requires it
 	if cfg.daneResolver == nil && cfg.trustLevel != nil && *cfg.trustLevel >= DANEAndBadge {
-		cfg.daneResolver = verify.NewStandardDANEResolver()
+		var daneOpts []verify.DANEResolverOption
+		if cfg.dnsServerAddr != "" {
+			daneOpts = append(daneOpts, verify.WithDANEServer(cfg.dnsServerAddr))
+		}
+		cfg.daneResolver = verify.NewStandardDANEResolver(daneOpts...)
 	}
 
 	// Default discovery resolver
 	if cfg.dnsResolver == nil {
-		cfg.dnsResolver = defaultDiscoveryResolver()
+		cfg.dnsResolver = defaultDiscoveryResolver(cfg.dnsServerAddr)
 	}
 
 	// Build ClientVerifier for TL-based fingerprint verification
@@ -154,9 +173,9 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 	if cfg.tlogClient != nil {
 		verifyOpts = append(verifyOpts, verify.WithTlogClient(cfg.tlogClient))
 	}
-	if cfg.daneResolver != nil {
-		verifyOpts = append(verifyOpts, verify.WithDANEResolver(cfg.daneResolver))
-	}
+	// DANE is run by buildVerifyConnection using the correct per-role query
+	// (VerifyIdentity for client identity certs). It is intentionally NOT wired
+	// into the ClientVerifier here to avoid a second, wrong-query DANE pass.
 	verifyOpts = append(verifyOpts, verify.WithTrustedTLHost(verify.DefaultTrustedTLHost))
 	cfg.clientVerifier = verify.NewClientVerifier(verifyOpts...)
 

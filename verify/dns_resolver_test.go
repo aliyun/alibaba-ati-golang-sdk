@@ -281,6 +281,53 @@ func TestStandardDNSResolver_WithTimeout_Custom(t *testing.T) {
 	}
 }
 
+func TestStandardDNSResolver_WithServerAddress_Empty(t *testing.T) {
+	// Empty address is a no-op: keeps the default (system) resolver.
+	r := NewStandardDNSResolver()
+	original := r.resolver
+	got := r.WithServerAddress("")
+	if got != r {
+		t.Error("WithServerAddress should return the same resolver for chaining")
+	}
+	if r.resolver != original {
+		t.Error("empty address should keep the system resolver unchanged")
+	}
+}
+
+func TestStandardDNSResolver_WithServerAddress_HostOnly(t *testing.T) {
+	// A bare host gets a custom PreferGo resolver dialing port 53.
+	r := NewStandardDNSResolver()
+	original := r.resolver
+	r.WithServerAddress("1.2.3.4")
+	if r.resolver == original {
+		t.Fatal("expected a new custom resolver to be set")
+	}
+	if !r.resolver.PreferGo {
+		t.Error("expected PreferGo=true on custom resolver")
+	}
+	if r.resolver.Dial == nil {
+		t.Fatal("expected a custom Dial func")
+	}
+	// The Dial func should target 1.2.3.4:53. We can't observe the address
+	// directly, but a dial to a black-holed context should fail fast rather
+	// than hitting the system resolver.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, _ = r.resolver.Dial(ctx, "udp", "ignored:53")
+}
+
+func TestStandardDNSResolver_WithServerAddress_HostPort(t *testing.T) {
+	r := NewStandardDNSResolver()
+	original := r.resolver
+	r.WithServerAddress("8.8.8.8:5353")
+	if r.resolver == original {
+		t.Fatal("expected a new custom resolver to be set")
+	}
+	if r.resolver.Dial == nil {
+		t.Fatal("expected a custom Dial func")
+	}
+}
+
 func TestStandardDNSResolver_HandleLookupError_NonDNSError(t *testing.T) {
 	r := NewStandardDNSResolver()
 	_, err := r.handleLookupError(context.DeadlineExceeded, "_ati-badge.example.com")

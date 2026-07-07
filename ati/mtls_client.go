@@ -50,6 +50,7 @@ type agentClientConfig struct {
 	trustLevel       *TrustLevel
 	targetVersion    string
 	timeout          time.Duration
+	dnsServerAddr    string
 	dnsResolver      verify.DNSResolver
 	daneResolver     verify.DANEResolver
 	tlogClient       verify.TransparencyLogClient
@@ -104,6 +105,19 @@ func WithClientTimeout(d time.Duration) AgentClientOption {
 func WithDNSResolver(r verify.DNSResolver) AgentClientOption {
 	return func(c *agentClientConfig) error {
 		c.dnsResolver = r
+		return nil
+	}
+}
+
+// WithDNSServer points DNS-based badge/discovery and DANE lookups at a specific
+// DNS server, given as "host" or "host:port" (port defaults to 53). When empty
+// or unset, lookups use the system resolver configuration (/etc/resolv.conf).
+//
+// This has no effect when an explicit resolver is supplied via WithDNSResolver
+// or WithAliyunDiscovery.
+func WithDNSServer(addr string) AgentClientOption {
+	return func(c *agentClientConfig) error {
+		c.dnsServerAddr = addr
 		return nil
 	}
 }
@@ -268,7 +282,7 @@ func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
 
 	resolver := cfg.dnsResolver
 	if resolver == nil {
-		resolver = defaultDiscoveryResolver()
+		resolver = defaultDiscoveryResolver(cfg.dnsServerAddr)
 	}
 
 	// Set target version on Aliyun discovery resolver
@@ -286,7 +300,11 @@ func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
 	// Auto-create DANE resolver when trust level requires it
 	daneResolver := cfg.daneResolver
 	if daneResolver == nil && cfg.trustLevel != nil && *cfg.trustLevel >= DANEAndBadge {
-		daneResolver = verify.NewStandardDANEResolver()
+		var daneOpts []verify.DANEResolverOption
+		if cfg.dnsServerAddr != "" {
+			daneOpts = append(daneOpts, verify.WithDANEServer(cfg.dnsServerAddr))
+		}
+		daneResolver = verify.NewStandardDANEResolver(daneOpts...)
 	}
 
 	verifyOpts := []verify.Option{
@@ -295,9 +313,9 @@ func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
 		verify.WithTrustedTLHost(verify.DefaultTrustedTLHost),
 		verify.WithCacheConfig(verify.DefaultCacheConfig()),
 	}
-	if daneResolver != nil {
-		verifyOpts = append(verifyOpts, verify.WithDANEResolver(daneResolver))
-	}
+	// DANE is run by Do() using the correct server query (Verify on _443._tcp).
+	// It is intentionally NOT wired into the ServerVerifier here to avoid a
+	// second DANE pass.
 	serverVerifier := verify.NewServerVerifier(verifyOpts...)
 
 	return &AgentClient{

@@ -49,6 +49,26 @@ func (r *StandardDNSResolver) WithResolver(resolver *net.Resolver) *StandardDNSR
 	return r
 }
 
+// WithServerAddress points the resolver at a specific DNS server, given as
+// "host" or "host:port" (port defaults to 53). An empty address is a no-op and
+// keeps the system resolver configuration (/etc/resolv.conf).
+func (r *StandardDNSResolver) WithServerAddress(addr string) *StandardDNSResolver {
+	if addr == "" {
+		return r
+	}
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		addr = net.JoinHostPort(addr, "53")
+	}
+	r.resolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			d := net.Dialer{Timeout: r.timeout}
+			return d.DialContext(ctx, network, addr)
+		},
+	}
+	return r
+}
+
 // WithTimeout sets the lookup timeout.
 func (r *StandardDNSResolver) WithTimeout(timeout time.Duration) *StandardDNSResolver {
 	r.timeout = timeout
