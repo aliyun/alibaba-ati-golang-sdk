@@ -39,9 +39,36 @@ func (r *MockDANEResolver) WithError(fqdn string, port uint16, err error) *MockD
 	return r
 }
 
+// WithIdentityTLSA configures a TLSA lookup result for identity verification.
+func (r *MockDANEResolver) WithIdentityTLSA(fqdn string, result TLSALookupResult) *MockDANEResolver {
+	r.results["_ati-identity._tls."+strings.ToLower(fqdn)] = result
+	return r
+}
+
+// WithIdentityError configures an error for identity TLSA lookup.
+func (r *MockDANEResolver) WithIdentityError(fqdn string, err error) *MockDANEResolver {
+	r.errors["_ati-identity._tls."+strings.ToLower(fqdn)] = err
+	return r
+}
+
 // LookupTLSA returns the configured TLSA result or error for the given FQDN and port.
 func (r *MockDANEResolver) LookupTLSA(_ context.Context, fqdn models.Fqdn, port uint16) (TLSALookupResult, error) {
 	key := daneKey(fqdn.String(), port)
+
+	if err, ok := r.errors[key]; ok {
+		return TLSALookupResult{}, err
+	}
+
+	if result, ok := r.results[key]; ok {
+		return result, nil
+	}
+
+	return TLSALookupResult{Found: false}, nil
+}
+
+// LookupIdentityTLSA returns the configured identity TLSA result or error.
+func (r *MockDANEResolver) LookupIdentityTLSA(_ context.Context, fqdn models.Fqdn) (TLSALookupResult, error) {
+	key := "_ati-identity._tls." + strings.ToLower(fqdn.String())
 
 	if err, ok := r.errors[key]; ok {
 		return TLSALookupResult{}, err

@@ -20,6 +20,18 @@ const (
 	BadgeRecordSourceRaBadge
 )
 
+// String returns a human-readable name for the badge record source.
+func (s BadgeRecordSource) String() string {
+	switch s {
+	case BadgeRecordSourceATIBadge:
+		return "ati-badge"
+	case BadgeRecordSourceRaBadge:
+		return "ra-badge"
+	default:
+		return "unknown"
+	}
+}
+
 // getValidFormatVersions returns the accepted format version prefixes.
 func getValidFormatVersions() []string {
 	return []string{"ati-badge1", "ra-badge1"}

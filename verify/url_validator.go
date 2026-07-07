@@ -169,6 +169,11 @@ func RewriteBadgeURLHost(rawURL, trustedHost string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid badge URL: %w", err)
 	}
-	parsed.Host = trustedHost
+	origPort := parsed.Port()
+	if origPort != "" {
+		parsed.Host = trustedHost + ":" + origPort
+	} else {
+		parsed.Host = trustedHost
+	}
 	return parsed.String(), nil
 }

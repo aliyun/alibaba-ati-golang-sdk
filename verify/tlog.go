@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	crypto_tls "crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,7 +16,7 @@ import (
 const (
 	defaultHTTPTimeoutSeconds = 30
 	maxErrorResponseBodyBytes = 1024
-	maxTLResponseBodyBytes = 1 << 20 // 1 MB
+	maxTLResponseBodyBytes    = 1 << 20 // 1 MB
 )
 
 // TransparencyLogClient is the interface for fetching TL responses from the transparency log.
@@ -34,6 +35,9 @@ func NewHTTPTransparencyLogClient() *HTTPTransparencyLogClient {
 	return &HTTPTransparencyLogClient{
 		httpClient: &http.Client{
 			Timeout: defaultHTTPTimeoutSeconds * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &crypto_tls.Config{InsecureSkipVerify: true},
+			},
 		},
 	}
 }

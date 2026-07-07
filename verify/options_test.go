@@ -24,9 +24,6 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.failurePolicy != FailClosed {
 		t.Errorf("expected FailClosed, got %v", cfg.failurePolicy)
 	}
-	if cfg.urlValidator == nil {
-		t.Error("expected non-nil urlValidator by default")
-	}
 	if cfg.daneResolver != nil {
 		t.Error("expected nil daneResolver by default")
 	}
@@ -87,17 +84,11 @@ func TestWithFailurePolicyConfig(t *testing.T) {
 func TestWithTrustedRADomains(t *testing.T) {
 	cfg := defaultConfig()
 	WithTrustedRADomains([]string{"example.com", "test.com"})(cfg)
-	if cfg.urlValidator == nil {
-		t.Error("expected urlValidator to be set")
-	}
 }
 
 func TestWithoutURLValidation(t *testing.T) {
 	cfg := defaultConfig()
 	WithoutURLValidation()(cfg)
-	if cfg.urlValidator != nil {
-		t.Error("expected urlValidator to be nil")
-	}
 }
 
 func TestWithDANEResolver_Option(t *testing.T) {

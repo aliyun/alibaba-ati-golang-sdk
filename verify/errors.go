@@ -64,6 +64,9 @@ func (e *TlogError) Error() string {
 	case TlogErrorNotFound:
 		return fmt.Sprintf("badge not found at %s", e.URL)
 	case TlogErrorServiceUnavailable:
+		if e.Reason != "" {
+			return fmt.Sprintf("transparency log unavailable at %s: %s", e.URL, e.Reason)
+		}
 		return fmt.Sprintf("transparency log unavailable at %s", e.URL)
 	case TlogErrorInvalidResponse:
 		if e.Reason != "" {

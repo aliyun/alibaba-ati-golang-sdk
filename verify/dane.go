@@ -3,6 +3,8 @@ package verify
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -76,20 +78,20 @@ type DANEOutcome struct {
 	Type DANEOutcomeType
 	// Records contains the TLSA records found (if any).
 	Records []TLSARecord
+	// CertHashUsed is the hex-encoded cert hash that was computed and compared against TLSA records.
+	CertHashUsed string
 	// Error is the underlying error (if any).
 	Error error
 }
 
-// IsPass returns true if the DANE outcome does not reject the connection.
-// Note: DANELookupError returns false for both IsPass and IsReject — use IsError() to detect it.
+// IsPass returns true only if DANE verification fully passed (DNSSEC valid + TLSA match).
 func (o *DANEOutcome) IsPass() bool {
-	return o.Type == DANEVerified || o.Type == DANESkipped || o.Type == DANENoRecords
+	return o.Type == DANEVerified
 }
 
-// IsReject returns true if the DANE outcome should reject the connection.
-// Note: DANELookupError returns false for both IsPass and IsReject — use IsError() to detect it.
+// IsReject returns true if DANE verification did not pass.
 func (o *DANEOutcome) IsReject() bool {
-	return o.Type == DANEMismatch || o.Type == DANEDNSSECFailed
+	return o.Type != DANEVerified
 }
 
 // IsError returns true if a DNS lookup error prevented verification.
@@ -100,8 +102,10 @@ func (o *DANEOutcome) IsError() bool {
 
 // DANEResolver is the interface for DANE/TLSA DNS resolution.
 type DANEResolver interface {
-	// LookupTLSA queries TLSA records for the given FQDN and port.
+	// LookupTLSA queries TLSA records for the given FQDN and port (_<port>._tcp.<fqdn>).
 	LookupTLSA(ctx context.Context, fqdn models.Fqdn, port uint16) (TLSALookupResult, error)
+	// LookupIdentityTLSA queries identity TLSA records (_ati-identity._tls.<fqdn>).
+	LookupIdentityTLSA(ctx context.Context, fqdn models.Fqdn) (TLSALookupResult, error)
 }
 
 // DANEVerifier verifies certificates against DANE/TLSA records.
@@ -117,13 +121,28 @@ func NewDANEVerifier(resolver DANEResolver) *DANEVerifier {
 // tlsaUsageDANEEE is the DANE-EE (domain-issued certificate) usage type.
 const tlsaUsageDANEEE = 3
 
-// Verify performs DANE/TLSA verification for a certificate.
+// Verify performs DANE/TLSA verification for a server certificate.
+// Queries _<port>._tcp.<fqdn> TLSA records.
 func (d *DANEVerifier) Verify(ctx context.Context, fqdn models.Fqdn, port uint16, cert *CertIdentity) *DANEOutcome {
+	return d.verifyWithLookup(ctx, fqdn, cert, func() (TLSALookupResult, error) {
+		return d.resolver.LookupTLSA(ctx, fqdn, port)
+	})
+}
+
+// VerifyIdentity performs DANE/TLSA verification for a client identity certificate.
+// Queries _ati-identity._tls.<fqdn> TLSA records.
+func (d *DANEVerifier) VerifyIdentity(ctx context.Context, fqdn models.Fqdn, cert *CertIdentity) *DANEOutcome {
+	return d.verifyWithLookup(ctx, fqdn, cert, func() (TLSALookupResult, error) {
+		return d.resolver.LookupIdentityTLSA(ctx, fqdn)
+	})
+}
+
+func (d *DANEVerifier) verifyWithLookup(ctx context.Context, fqdn models.Fqdn, cert *CertIdentity, lookup func() (TLSALookupResult, error)) *DANEOutcome {
 	if cert == nil {
 		return &DANEOutcome{Type: DANELookupError, Error: errors.New("nil certificate identity")}
 	}
 
-	result, err := d.resolver.LookupTLSA(ctx, fqdn, port)
+	result, err := lookup()
 	if err != nil {
 		var daneErr *DANEError
 		if errors.As(err, &daneErr) && daneErr.Type == DANEErrorDNSSECFailed {
@@ -133,29 +152,50 @@ func (d *DANEVerifier) Verify(ctx context.Context, fqdn models.Fqdn, port uint16
 	}
 
 	if !result.Found {
-		return &DANEOutcome{Type: DANENoRecords}
+		return &DANEOutcome{Type: DANENoRecords, Error: fmt.Errorf("no TLSA records found for %s", fqdn.String())}
 	}
 
 	if !result.DNSSECValid {
-		return &DANEOutcome{Type: DANESkipped, Records: result.Records}
+		return &DANEOutcome{Type: DANESkipped, Records: result.Records, Error: fmt.Errorf("TLSA records found but DNSSEC validation failed for %s", fqdn.String())}
 	}
 
-	// Compare cert fingerprint against DANE-EE (Usage=3) TLSA records only.
-	// NOTE: Selector and MatchingType are not yet checked — a production implementation
-	// should compute the appropriate hash for each selector (full cert vs SPKI).
-	certHex := strings.ToLower(cert.Fingerprint.ToHex())
+	// Compare cert fingerprint against DANE-EE (Usage=3) TLSA records.
+	// Selector=0: match full certificate DER hash
+	// Selector=1: match SubjectPublicKeyInfo (SPKI) hash
+	certFullHex := strings.ToLower(cert.Fingerprint.ToHex())
+	spkiHex := strings.ToLower(cert.SPKIFingerprint.ToHex())
+	var lastCertHex string
+
 	for _, rec := range result.Records {
 		if rec.Usage != tlsaUsageDANEEE {
-			continue // Only match DANE-EE records; skip DANE-TA, PKIX-TA, PKIX-EE
+			continue
 		}
-		// Defensive lowercase: StandardDANEResolver already lowercases, but alternative
-		// resolver implementations or mocks may provide mixed-case hashes.
+
+		var certHex string
+		switch rec.Selector {
+		case 0:
+			certHex = certFullHex
+		case 1:
+			certHex = spkiHex
+		default:
+			continue
+		}
+		lastCertHex = certHex
+
 		if strings.ToLower(rec.CertHash) == certHex {
-			return &DANEOutcome{Type: DANEVerified, Records: result.Records}
+			return &DANEOutcome{Type: DANEVerified, Records: result.Records, CertHashUsed: certHex}
 		}
 	}
 
-	return &DANEOutcome{Type: DANEMismatch, Records: result.Records}
+	if lastCertHex == "" {
+		lastCertHex = spkiHex
+	}
+	return &DANEOutcome{
+		Type:         DANEMismatch,
+		Records:      result.Records,
+		CertHashUsed: lastCertHex,
+		Error:        fmt.Errorf("TLSA fingerprint mismatch: cert(full)=%s, cert(spki)=%s, TLSA records have no match", certFullHex, spkiHex),
+	}
 }
 
 // DANEResolverOption configures a StandardDANEResolver.
@@ -185,11 +225,24 @@ func WithDANETrustAnchor(ds *dns.DS) DANEResolverOption {
 }
 
 const (
-	defaultDANEServer  = "8.8.8.8:53"
 	defaultDANETimeout = 5 * time.Second
 	// edns0BufSize is the EDNS0 UDP buffer size for DNSSEC-aware queries.
 	edns0BufSize = 4096
 )
+
+// getLocalDNSServer reads the first nameserver from /etc/resolv.conf.
+// Falls back to 127.0.0.1:53 if parsing fails.
+func getLocalDNSServer() string {
+	conf, err := dns.ClientConfigFromFile("/etc/resolv.conf")
+	if err != nil || len(conf.Servers) == 0 {
+		return "8.8.8.8:53"
+	}
+	server := conf.Servers[0]
+	if !strings.Contains(server, ":") {
+		server += ":" + conf.Port
+	}
+	return server
+}
 
 // StandardDANEResolver performs real DNSSEC-aware TLSA lookups using miekg/dns.
 // It performs local DNSSEC chain validation instead of relying on the recursive
@@ -204,7 +257,7 @@ type StandardDANEResolver struct {
 // NewStandardDANEResolver creates a new StandardDANEResolver with the given options.
 func NewStandardDANEResolver(opts ...DANEResolverOption) *StandardDANEResolver {
 	r := &StandardDANEResolver{
-		server:  defaultDANEServer,
+		server:  getLocalDNSServer(),
 		timeout: defaultDANETimeout,
 	}
 	for _, opt := range opts {
@@ -215,41 +268,46 @@ func NewStandardDANEResolver(opts ...DANEResolverOption) *StandardDANEResolver {
 	return r
 }
 
-// LookupTLSA queries TLSA records for the given FQDN and port.
+// LookupTLSA queries TLSA records for the given FQDN and port (_<port>._tcp.<fqdn>).
 // It performs local DNSSEC chain validation instead of relying on the AD flag.
 func (r *StandardDANEResolver) LookupTLSA(ctx context.Context, fqdn models.Fqdn, port uint16) (TLSALookupResult, error) {
 	tlsaName := fqdn.TlsaName(port) + "."
+	return r.lookupTLSAByName(ctx, tlsaName, fqdn.String())
+}
 
+// LookupIdentityTLSA queries identity TLSA records (_ati-identity._tls.<fqdn>).
+func (r *StandardDANEResolver) LookupIdentityTLSA(ctx context.Context, fqdn models.Fqdn) (TLSALookupResult, error) {
+	tlsaName := fqdn.IdentityTLSAName() + "."
+	return r.lookupTLSAByName(ctx, tlsaName, fqdn.String())
+}
+
+func (r *StandardDANEResolver) lookupTLSAByName(ctx context.Context, tlsaName, fqdnStr string) (TLSALookupResult, error) {
 	msg := new(dns.Msg)
 	msg.SetQuestion(tlsaName, dns.TypeTLSA)
-	msg.SetEdns0(edns0BufSize, true) // Enable DNSSEC OK flag
+	msg.SetEdns0(edns0BufSize, true)
 	msg.RecursionDesired = true
 
-	// Use validator's exchange for TCP fallback support
 	resp, err := r.validator.exchange(ctx, msg)
 	if err != nil {
 		return TLSALookupResult{}, &DANEError{
 			Type:   DANEErrorLookupFailed,
-			Fqdn:   fqdn.String(),
+			Fqdn:   fqdnStr,
 			Reason: err.Error(),
 		}
 	}
 
-	// SERVFAIL with DNSSEC requested typically means DNSSEC validation failure
 	if resp.Rcode == dns.RcodeServerFailure {
 		return TLSALookupResult{}, &DANEError{
 			Type:   DANEErrorDNSSECFailed,
-			Fqdn:   fqdn.String(),
+			Fqdn:   fqdnStr,
 			Reason: "SERVFAIL response (possible DNSSEC validation failure)",
 		}
 	}
 
-	// NXDOMAIN or no answer means no TLSA records
 	if resp.Rcode == dns.RcodeNameError || len(resp.Answer) == 0 {
 		return TLSALookupResult{Found: false}, nil
 	}
 
-	// Parse TLSA records and collect RRSIGs
 	var records []TLSARecord
 	var tlsaRRset []dns.RR
 	var rrsigs []*dns.RRSIG
@@ -260,8 +318,7 @@ func (r *StandardDANEResolver) LookupTLSA(ctx context.Context, fqdn models.Fqdn,
 				Usage:        v.Usage,
 				Selector:     v.Selector,
 				MatchingType: v.MatchingType,
-				// miekg/dns stores Certificate as a hex string already — just lowercase it.
-				CertHash: strings.ToLower(v.Certificate),
+				CertHash:     strings.ToLower(v.Certificate),
 			})
 			tlsaRRset = append(tlsaRRset, rr)
 		case *dns.RRSIG:
@@ -275,14 +332,19 @@ func (r *StandardDANEResolver) LookupTLSA(ctx context.Context, fqdn models.Fqdn,
 		return TLSALookupResult{Found: false}, nil
 	}
 
-	// Local DNSSEC validation
+	slog.Info("[DANE] TLSA lookup", "query", tlsaName, "server", r.server, "records", len(records), "rrsigs", len(rrsigs))
+
 	dnssecValid := false
 	if len(rrsigs) > 0 {
 		valid, err := r.validator.validateRRset(ctx, tlsaRRset, rrsigs)
 		if err == nil && valid {
 			dnssecValid = true
+			slog.Info("[DANE] DNSSEC validation PASSED", "query", tlsaName)
+		} else {
+			slog.Warn("[DANE] DNSSEC validation FAILED", "query", tlsaName, "valid", valid, "error", err)
 		}
-		// If validation fails, we don't error — just set DNSSECValid=false
+	} else {
+		slog.Warn("[DANE] no RRSIG in response", "query", tlsaName)
 	}
 
 	return TLSALookupResult{

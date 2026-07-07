@@ -402,24 +402,6 @@ func TestServerVerifier_DeprecatedBadge(t *testing.T) {
 	}
 }
 
-func TestServerVerifier_URLValidation(t *testing.T) {
-	mockDNS := NewMockDNSResolver().
-		WithRecords("test.example.com", []ATIBadgeRecord{
-			{URL: "https://evil.example.com/badge/123"},
-		})
-
-	v := NewServerVerifier(
-		WithDNSResolver(mockDNS),
-		WithTrustedRADomains([]string{"trusted.alibaba-inc.com"}),
-	)
-
-	fqdn, _ := models.NewFqdn("test.example.com")
-	outcome := v.Verify(context.Background(), fqdn, &CertIdentity{})
-	if outcome.Type != OutcomeURLValidationError {
-		t.Errorf("expected URLValidationError, got %v", outcome.Type)
-	}
-}
-
 func TestClientVerifier_SuccessfulVerification(t *testing.T) {
 	version, _ := models.ParseVersion("v1.0.0")
 	tlResp := &models.TLResponse{

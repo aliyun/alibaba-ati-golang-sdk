@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -71,11 +72,28 @@ func (v *dnssecValidator) validateZoneChain(ctx context.Context, zone string, rr
 		return false, nil // insecure delegation
 	}
 
-	// 2. Find the ZSK that signed this RRset (matching KeyTag)
+	// 2. Handle wildcard expansion: if RRSIG labels < owner name labels,
+	// the record was synthesized from a wildcard. Replace owner names with
+	// the wildcard form for signature verification, then restore them.
+	verifyRRset := rrset
+	if len(rrset) > 0 {
+		ownerLabels := dns.CountLabel(rrset[0].Header().Name)
+		if int(rrsig.Labels) < ownerLabels {
+			verifyRRset = make([]dns.RR, len(rrset))
+			copy(verifyRRset, rrset)
+			wildcardName := wildcardOwner(rrset[0].Header().Name, int(rrsig.Labels))
+			for i := range verifyRRset {
+				verifyRRset[i] = dns.Copy(verifyRRset[i])
+				verifyRRset[i].Header().Name = wildcardName
+			}
+		}
+	}
+
+	// 3. Find the ZSK that signed this RRset (matching KeyTag)
 	verified := false
 	for _, key := range dnskeys {
 		if key.KeyTag() == rrsig.KeyTag {
-			if err := rrsig.Verify(key, rrset); err == nil {
+			if err := rrsig.Verify(key, verifyRRset); err == nil {
 				verified = true
 				break
 			}
@@ -85,17 +103,17 @@ func (v *dnssecValidator) validateZoneChain(ctx context.Context, zone string, rr
 		return false, fmt.Errorf("RRSIG verification failed for zone %s (key tag %d)", zone, rrsig.KeyTag)
 	}
 
-	// 3. Validate the DNSKEY set itself (must be signed by a KSK)
+	// 4. Validate the DNSKEY set itself (must be signed by a KSK)
 	if err := v.validateDNSKEYSet(ctx, zone, dnskeys); err != nil {
 		return false, err
 	}
 
-	// 4. If this is the root zone, verify against trust anchor
+	// 5. If this is the root zone, verify against trust anchor
 	if zone == "." {
 		return v.verifyRootKeys(dnskeys)
 	}
 
-	// 5. Get DS from parent, verify KSK matches DS
+	// 6. Get DS from parent, verify KSK matches DS
 	return v.validateDSChain(ctx, zone, dnskeys)
 }
 
@@ -263,8 +281,35 @@ func (v *dnssecValidator) verifyRootKeys(dnskeys []*dns.DNSKEY) (bool, error) {
 	return false, fmt.Errorf("no root DNSKEY matches trust anchor (key tag %d)", v.trustAnchor.KeyTag)
 }
 
-// exchange performs a DNS query with TCP fallback if response is truncated.
+const daneMaxRetries = 2
+
+// exchange performs a DNS query with timeout retry and TCP fallback if truncated.
 func (v *dnssecValidator) exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	var lastErr error
+
+	for attempt := 0; attempt <= daneMaxRetries; attempt++ {
+		if attempt > 0 {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			slog.Info("[DANE] retrying DNS query", "attempt", attempt+1, "server", v.server, "question", msg.Question[0].Name)
+		}
+
+		resp, err := v.doExchange(ctx, msg)
+		if err == nil {
+			return resp, nil
+		}
+
+		lastErr = err
+		if !isTimeout(err) {
+			return nil, err
+		}
+	}
+
+	return nil, fmt.Errorf("DNS query timeout after %d retries: %w", daneMaxRetries, lastErr)
+}
+
+func (v *dnssecValidator) doExchange(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	client := &dns.Client{
 		Timeout: v.timeout,
 	}
@@ -300,6 +345,25 @@ func (v *dnssecValidator) exchange(ctx context.Context, msg *dns.Msg) (*dns.Msg,
 	}
 
 	return resp, nil
+}
+
+func isTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "timeout") || strings.Contains(s, "i/o timeout")
+}
+
+// wildcardOwner reconstructs the wildcard owner name from an expanded name.
+// e.g., "_ati-identity._tls.www.ats-client.asia." with sigLabels=5
+// → "*.ats-client.asia." (strip labels beyond sigLabels, prepend "*").
+func wildcardOwner(name string, sigLabels int) string {
+	labels := dns.SplitDomainName(name)
+	if sigLabels >= len(labels) {
+		return name
+	}
+	return "*." + strings.Join(labels[len(labels)-sigLabels:], ".") + "."
 }
 
 // parentOf returns the parent zone of the given zone.

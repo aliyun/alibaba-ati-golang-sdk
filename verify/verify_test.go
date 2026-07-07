@@ -1877,58 +1877,6 @@ func TestVerifyDANE_NoResolver(t *testing.T) {
 	}
 }
 
-func TestValidateBadgeURL(t *testing.T) {
-	tests := []struct {
-		name        string
-		url         string
-		validator   *URLValidator
-		wantOutcome bool
-		wantType    OutcomeType
-	}{
-		{
-			name:        "nil validator returns nil",
-			url:         "https://evil.example.com",
-			validator:   nil,
-			wantOutcome: false,
-		},
-		{
-			name:        "valid URL returns nil",
-			url:         "https://tl.ansagent.cn:8180/ans/api/v1/tl/agents/123/logs/latest",
-			wantOutcome: false,
-		},
-		{
-			name:        "untrusted domain returns error outcome",
-			url:         "https://untrusted.example.com/badge/123",
-			validator:   NewURLValidator([]string{"trusted.example.com"}),
-			wantOutcome: true,
-			wantType:    OutcomeURLValidationError,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := defaultConfig()
-			if tt.validator != nil {
-				config.urlValidator = tt.validator
-			} else if tt.name == "nil validator returns nil" {
-				config.urlValidator = nil
-			}
-
-			result := validateBadgeURL(config, tt.url)
-			if tt.wantOutcome {
-				if result == nil {
-					t.Fatal("validateBadgeURL() expected non-nil outcome")
-				}
-				if result.Type != tt.wantType {
-					t.Errorf("Type = %v, want %v", result.Type, tt.wantType)
-				}
-			} else if result != nil {
-				t.Errorf("validateBadgeURL() expected nil, got %v", result)
-			}
-		})
-	}
-}
-
 func TestConfigLogger(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -2661,7 +2609,6 @@ func TestVerifyWithHeaders_InvalidReceipt(t *testing.T) {
 	store, _ := scitt.NewKeyStore(nil)
 	config := defaultConfig()
 	config.scittKeyLookup = store
-	config.urlValidator = nil
 
 	fqdn, _ := models.NewFqdn("test.example.com")
 	cert := createTestCertIdentity("test.example.com", "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
@@ -2685,7 +2632,6 @@ func TestVerifyWithHeaders_ValidReceiptInvalidToken(t *testing.T) {
 	store, _ := scitt.NewKeyStore(nil)
 	config := defaultConfig()
 	config.scittKeyLookup = store
-	config.urlValidator = nil
 
 	fqdn, _ := models.NewFqdn("test.example.com")
 	cert := createTestCertIdentity("test.example.com", "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")

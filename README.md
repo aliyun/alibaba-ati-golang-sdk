@@ -1,8 +1,6 @@
 # ATI Go SDK
 
-Agent Trust Infrastructure (ATI) 的 Go SDK，为 AI Agent 提供安全身份注册、mTLS 通信、多级信任验证和透明度日志集成。
-
-ATI 是阿里云与 CNNIC 联合建设的 Agent 信任基础设施，基于 DNS + PKI + 透明日志三重机制，为 Agent 间通信提供可验证的身份保障。
+Agent Trust Infrastructure (ATI) 的 Go SDK，为 AI Agent 提供基于 mTLS 的安全通信和多级信任验证。
 
 ## 安装
 
@@ -10,9 +8,23 @@ ATI 是阿里云与 CNNIC 联合建设的 Agent 信任基础设施，基于 DNS 
 go get gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk
 ```
 
-## 快速开始
+## 信任等级
 
-### Agent 间 mTLS 通信（客户端）
+SDK 支持三级递增的信任验证：
+
+| 等级 | 常量 | 验证内容 |
+|------|------|---------|
+| **PKI_ONLY** | `ati.PKIOnly` | 证书有效性（CA链 + SAN匹配 + 有效期） |
+| **BADGE_REQUIRED** | `ati.BadgeRequired` | PKI + Badge 验证（_ati-badge DNS → 透明日志 → 证书指纹比对） |
+| **DANE_AND_BADGE** | `ati.DANEAndBadge` | Badge + DANE/TLSA 双重验证 |
+
+**默认值**：
+- Client 验证 Server：`BadgeRequired`
+- Server 验证 Client：`PKIOnly`
+
+## Client 用法
+
+### 最简示例
 
 ```go
 package main
@@ -27,48 +39,103 @@ import (
 )
 
 func main() {
+    // 创建客户端，提供身份证书（需包含 ati:// URI SAN）
     client, err := ati.NewAgentClient(
-        ati.WithMTLSCerts(
-            "certs/identity-cert.pem",
-            "certs/private-key.pem",
-            "certs/server-cert.pem",
-            "certs/ca-bundle.pem",
-        ),
-        ati.WithTrustLevel(ati.Bronze), // 默认 Bronze，可选 Silver / Gold
+        ati.WithIdentityCert("certs/client.crt", "certs/client.key"),
     )
     if err != nil {
         log.Fatal(err)
     }
 
-    // 检查证书到期状态
-    status := client.CertStatus()
-    fmt.Printf("证书剩余有效天数: %d\n", status.DaysRemaining)
-
-    // 发起 mTLS 请求（自动执行 Bronze 验证）
+    // 发起请求（自动执行 Badge 验证）
     resp, err := client.Get(context.Background(), "https://target-agent.example.com/api/data")
     if err != nil {
-        log.Fatal(err)
+        log.Fatal(err) // 验证不通过时返回 error
     }
     defer resp.Body.Close()
 
     // 查看验证结果
-    outcome := resp.VerificationOutcome
-    fmt.Printf("DNS 发现: %v, CA 链有效: %v, SAN 匹配: %v\n",
-        outcome.DNSDiscovered, outcome.CAChainValid, outcome.SANMatches)
-    fmt.Printf("信任等级: %s\n", outcome.TrustLevel)
+    o := resp.VerificationOutcome
+    fmt.Printf("Badge验证: %v, 达成等级: %s\n", o.BadgeVerified, o.AchievedLevel)
 
     body, _ := io.ReadAll(resp.Body)
-    fmt.Printf("响应: %s\n", body)
+    fmt.Println(string(body))
 }
 ```
 
-### Agent 服务端（mTLS 配置）
+### 指定信任等级
+
+```go
+client, err := ati.NewAgentClient(
+    ati.WithIdentityCert("client.crt", "client.key"),
+    ati.WithTrustLevel(ati.DANEAndBadge), // 要求最高等级
+    ati.WithAgentDANEResolver(verify.NewStandardDANEResolver()), // DANE 需要 DANE resolver
+)
+```
+
+### 使用阿里云 API 做服务发现
+
+默认的 Agent 发现通过 DNS `_ati` TXT 记录。如果使用阿里云 DescribeAgentRegisterInfoMarket API：
+
+```go
+import "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify"
+
+client, err := ati.NewAgentClient(
+    ati.WithIdentityCert("client.crt", "client.key"),
+    ati.WithAliyunDiscovery(verify.AliyunATIConfig{
+        AccessKeyID:     os.Getenv("ATI_AK"),
+        AccessKeySecret: os.Getenv("ATI_SK"),
+        Endpoint:        "alidns.aliyuncs.com",
+    }),
+)
+```
+
+### 自定义 CA Bundle
+
+当服务端使用私有 CA 签发证书时：
+
+```go
+client, err := ati.NewAgentClient(
+    ati.WithMTLSCerts("client.crt", "client.key", "", "ca-bundle.pem"),
+)
+```
+
+### 验证结果
+
+每次请求的响应中包含 `VerificationOutcome`：
+
+```go
+resp, err := client.Get(ctx, url)
+o := resp.VerificationOutcome
+
+o.DNSDiscovered   // Agent 发现成功（_ati 记录或 API）
+o.CAChainValid    // CA 链验证通过
+o.SANMatches      // 证书 SAN 匹配目标主机
+o.BadgeVerified   // Badge 验证通过
+o.DANEVerified    // DANE/TLSA 验证通过
+o.AchievedLevel   // 实际达成的信任等级
+o.PeerATIName     // 对端 ATI 身份（如 "ati://v1.0.0.agent.example.com"）
+o.AgentID         // 对端 Agent ID
+```
+
+### 证书状态检查
+
+```go
+status := client.CertStatus()
+fmt.Printf("证书到期: %s（剩余 %d 天）\n", status.ExpiresAt.Format("2006-01-02"), status.DaysRemaining)
+if status.IsExpired {
+    log.Fatal("证书已过期")
+}
+```
+
+## Server 用法
+
+### 配置 mTLS 服务端
 
 ```go
 package main
 
 import (
-    "crypto/tls"
     "log"
     "net/http"
 
@@ -77,9 +144,7 @@ import (
 
 func main() {
     tlsConfig, err := ati.NewServerTLSConfig(
-        ati.WithServerCert("certs/server-cert.pem", "certs/private-key.pem"),
-        ati.WithClientCA("certs/ca-bundle.pem"),
-        ati.WithClientVerifier(ati.Bronze), // 自动验证客户端 ati:// URI SAN
+        ati.WithServerCert("server.crt", "server.key"),
     )
     if err != nil {
         log.Fatal(err)
@@ -88,255 +153,121 @@ func main() {
     server := &http.Server{
         Addr:      ":8443",
         TLSConfig: tlsConfig,
-        Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            // 提取对方 Agent 身份
-            peer, err := ati.PeerATIName(r.TLS)
-            if err != nil {
-                http.Error(w, "unknown peer", 403)
-                return
-            }
-            w.Write([]byte("Hello, " + peer.Host))
-        }),
+        Handler:   http.HandlerFunc(handler),
     }
-
+    // 证书已加载到 tlsConfig，传空字符串
     log.Fatal(server.ListenAndServeTLS("", ""))
 }
-```
 
-### Trust Card 查询
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-
-    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
-)
-
-func main() {
-    card, err := ati.GetTrustCard(context.Background(), "agent.example.com", "1.0.0")
+func handler(w http.ResponseWriter, r *http.Request) {
+    peer, err := ati.PeerATIName(r.TLS)
     if err != nil {
-        log.Fatal(err)
+        http.Error(w, "unknown peer", 403)
+        return
     }
-    fmt.Printf("Agent: %s (ID: %s, 版本: %s)\n", card.AgentName, card.AgentID, card.Version)
+    fmt.Fprintf(w, "Hello, %s", peer.Host)
 }
 ```
 
-### 诊断工具
+### Server 验证 Client
 
 ```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-
-    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
+// 要求客户端通过 Badge 验证
+tlsConfig, err := ati.NewServerTLSConfig(
+    ati.WithServerCert("server.crt", "server.key"),
+    ati.WithClientVerifier(ati.BadgeRequired),
 )
 
-func main() {
-    result, err := ati.Diagnose(context.Background(), "agent.example.com")
-    if err != nil {
-        log.Fatal(err)
+// 要求 DANE + Badge 双重验证
+tlsConfig, err := ati.NewServerTLSConfig(
+    ati.WithServerCert("server.crt", "server.key"),
+    ati.WithClientVerifier(ati.DANEAndBadge),
+    ati.WithServerDANEResolver(verify.NewStandardDANEResolver()),
+)
+```
+
+### 使用自定义 Client CA
+
+当客户端证书由特定 CA 签发时，可指定 CA Bundle 进行 CA 链验证：
+
+```go
+tlsConfig, err := ati.NewServerTLSConfig(
+    ati.WithServerCert("server.crt", "server.key"),
+    ati.WithClientCA("client-ca-bundle.pem"), // 不设则接受任意客户端证书（通过 Badge/TLog 建立信任）
+    ati.WithClientVerifier(ati.BadgeRequired),
+)
+```
+
+### 读取对端身份
+
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+    // 获取对端 ATI Name
+    peer, err := ati.PeerATIName(r.TLS)
+    if err == nil {
+        fmt.Println(peer.Host)    // "ats-client.asia"
+        fmt.Println(peer.Version) // "1.2.0"
+        fmt.Println(peer.Raw)     // "ati://v1.2.0.ats-client.asia"
     }
-    fmt.Println(result.String()) // 人类可读报告
-    // 或 result.JSON() 获取 JSON 格式
 }
 ```
 
-## 功能概览
+## 证书要求
 
-### `ati` 包 — Agent 通信与信任验证
+### 身份证书（Client）
 
-| 功能 | 说明 |
-|------|------|
-| `NewAgentClient` | 创建 mTLS 客户端，支持 Bronze/Silver/Gold 三级信任验证 |
-| `NewServerTLSConfig` | 创建服务端 TLS 配置，自动验证客户端 ATI 身份证书 |
-| `GetTrustCard` | 从 CNNIC 透明日志查询 Agent 元数据 |
-| `Diagnose` | 运行 7 步诊断链（DNS 发现 → TL 查询 → 密封验证 → Merkle 证明） |
-| `PeerATIName` | 从 TLS 连接中提取对端 Agent 的 ATI 身份 |
+- **必须** 包含 `ati://` URI SAN，格式：`ati://v{major}.{minor}.{patch}.{host}`
+- 可以是自签证书（信任通过 Badge/TLog 指纹验证建立）
+- 示例 SAN：`ati://v1.0.0.my-agent.example.com`
 
-### 三级信任验证
+### 服务端证书（Server）
 
-| 等级 | 验证内容 | 说明 |
-|------|---------|------|
-| **Bronze** | DNS 发现 + CA 链 + SAN 匹配 | 默认等级。验证 `_ati` TXT 记录、CA 签名链、证书 URI SAN 与目标主机匹配 |
-| **Silver** | Bronze + DANE/TLSA | 额外验证 DNS TLSA 记录，提供双通道信任锚定 |
-| **Gold** | Silver + TL 密封 + Merkle 证明 | 最高等级。验证 CNNIC 透明日志的 ECDSA 密封签名和 Merkle 包含证明 |
+- 必须由公有 CA 签发
+- DNS SAN 必须包含服务主机名
+- 建议同时包含 `ati://` URI SAN
 
-### `verify` 包 — 底层验证引擎
+## 全局配置（可选）
 
-| 模块 | 说明 |
-|------|------|
-| `dns.go` / `dns_resolver.go` | DNS 接口和标准解析器（`_ati` / `_ati-badge` TXT 查询） |
-| `badge_record.go` | `_ati-badge` TXT 记录解析 |
-| `dane.go` | DANE/TLSA 验证（RFC 6698） |
-| `cert.go` | 证书抽象（`CertIdentity`、`CertFingerprint`、ATI Name 解析） |
-| `seal.go` | CNNIC TL 密封验证（RFC 8785 JCS + SHA-256 + ECDSA） |
-| `jcs.go` | RFC 8785 JSON Canonicalization Scheme 实现 |
-| `merkle.go` | Merkle 包含证明验证（RFC 9162 风格） |
-| `gold.go` | Gold 级别验证编排（6 步流程） |
-| `tlog.go` | 透明日志客户端接口 |
-| `cache.go` | Badge 缓存（TTL + stale fallback） |
-| `verify.go` | Badge 级别验证器（`ServerVerifier` / `ClientVerifier`） |
-| `scitt/` | SCITT 密码学子系统（COSE_Sign1、Receipt、Merkle Tree、Root Keys） |
-
-### `internal/registry` 包 — RA API 客户端
-
-| 方法 | 说明 |
-|------|------|
-| `RegisterAgent` | 注册新 Agent |
-| `GetAgentDetails` | 获取 Agent 详情 |
-| `SearchAgents` | 搜索 Agent |
-| `ResolveAgent` | 按 host + version 解析 Agent |
-| `RevokeAgent` | 撤销 Agent 注册 |
-| `SubmitIdentityCSR` / `SubmitServerCSR` | 提交证书签名请求 |
-| `GetCSRStatus` | 查询 CSR 状态 |
-| `VerifyACME` / `VerifyDNS` | 触发 ACME / DNS 验证 |
-| `GetAgentEvents` | 分页获取 Agent 事件 |
-
-### `keygen` 包 — 密钥生成
+适用于需要集中管理 Aliyun 凭证的场景：
 
 ```go
-import "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/keygen"
-
-// 生成 EC 密钥对 (P-256)
-ecKeyPair, err := keygen.GenerateECKeyPairWithPEM(keygen.CurveP256(), nil)
-
-// 生成 RSA 密钥对 (2048+)
-rsaKeyPair, err := keygen.GenerateRSAKeyPairWithPEM(2048, nil)
-
-// 保存到文件
-err = ecKeyPair.WriteKeyPairToFiles("private.key", "public.pem")
+err := ati.Init(ati.Config{
+    AK:               os.Getenv("ATI_AK"),
+    SK:               os.Getenv("ATI_SK"),
+    LocalHostname:    "my-agent.example.com",
+    IdentityCertFile: "certs/identity.crt",
+    IdentityKeyFile:  "certs/identity.key",
+    TrustLevel:       ati.BadgeRequired,
+})
 ```
-
-## ATI Name 格式
-
-ATI Name 是 Agent 身份的全局唯一标识，嵌入在身份证书的 URI SAN 中：
-
-```
-ati://v{major}.{minor}.{patch}.{agentHost}
-```
-
-例如：`ati://v1.0.0.agent.example.com`
 
 ## DNS 记录
 
 | 记录名 | 类型 | 用途 |
 |--------|------|------|
-| `_ati.{host}` | TXT | 协议发现（Agent ID、版本、模式） |
-| `_ati-badge.{host}` | TXT | Badge URL（指向 CNNIC 透明日志） |
-| `_443._tcp.{host}` | TLSA | DANE 证书绑定（Silver 级别验证） |
+| `_ati.{host}` | TXT | Agent 发现（ID、版本、模式） |
+| `_ati-badge.{host}` | TXT | Badge URL（指向透明日志） |
+| `_443._tcp.{host}` | TLSA | 服务端 DANE 证书绑定 |
+| `_ati-identity._tls.{host}` | TLSA | 客户端身份 DANE 证书绑定 |
 
-## 项目结构
+## ATI Name 格式
 
-```
-ati-golang-sdk/
-├── ati/                          # 公共 SDK API
-│   ├── mtls_client.go           # mTLS 客户端（Bronze/Silver/Gold）
-│   ├── server.go                # 服务端 TLS 配置
-│   ├── trust_card.go            # Trust Card 查询
-│   ├── trust_level.go           # 信任等级定义
-│   └── diagnose.go              # 诊断工具
-├── verify/                       # 验证引擎
-│   ├── dns.go, dns_resolver.go  # DNS 解析
-│   ├── badge_record.go          # Badge 记录解析
-│   ├── dane.go                  # DANE/TLSA 验证
-│   ├── cert.go                  # 证书抽象
-│   ├── seal.go                  # TL 密封验证（JCS + ECDSA）
-│   ├── jcs.go                   # RFC 8785 JCS
-│   ├── merkle.go                # Merkle 证明验证
-│   ├── gold.go                  # Gold 验证编排
-│   ├── tlog.go                  # 透明日志客户端
-│   ├── cache.go                 # Badge 缓存
-│   ├── verify.go                # Badge 验证器
-│   └── scitt/                   # SCITT 密码学子系统
-├── models/                       # 数据模型
-├── internal/
-│   ├── registry/                # RA API 客户端
-│   └── httputility/             # HTTP 工具
-├── keygen/                       # 密钥生成
-├── cmd/ati-cli/                  # CLI 工具
-└── examples/                     # 使用示例
-```
-
-## CNNIC 透明日志
-
-ATI 使用 CNNIC 运营的透明日志（TL）记录 Agent 生命周期事件：
-
-- **API 端点**: `https://tl.ansagent.cn:8180/ans/api/v1`
-- **密封格式**: JSON/JCS + SHA-256 + ECDSA（非 CBOR/COSE）
-- **Merkle 树**: RFC 9162 风格的包含证明
-- **查询接口**: `GET /tl/agents/{agentId}/logs/latest`
-
-### Gold 验证流程
+ATI Name 是 Agent 身份的全局唯一标识，嵌入在证书 URI SAN 中：
 
 ```
-1. DNS 发现    → 查询 _ati TXT 获取 agentId
-2. TL 日志获取  → GET /tl/agents/{agentId}/logs/latest
-3. 密封验证    → JCS 规范化 → SHA-256 → ECDSA 签名验证
-4. Merkle 验证 → 重建根哈希，与期望值比对
-5. 指纹匹配    → 证书指纹与 TL 记录比对
-6. 状态检查    → ACTIVE / DEPRECATED 允许，REVOKED 拒绝
+ati://v{major}.{minor}.{patch}.{agentHost}
 ```
+
+示例：`ati://v1.0.0.agent.example.com`
+
+## 验证缓存
+
+Client 对同一服务端的验证结果会按 `(host, cert fingerprint)` 缓存。同一连接上的后续请求不会重复验证。
 
 ## 测试
 
 ```bash
-# 运行所有测试
 go test ./... -count=1
-
-# 运行特定包测试
 go test ./ati/ -v
 go test ./verify/ -v
-
-# 覆盖率
-go test -cover -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out
 ```
-
-## 错误处理
-
-API 错误返回 `*models.ResponseError`，包含 HTTP 状态码、错误码和详细信息：
-
-```go
-import (
-    "errors"
-    "net/http"
-    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
-)
-
-result, err := client.GetAgentDetails(ctx, agentID)
-if err != nil {
-    var respErr *models.ResponseError
-    if errors.As(err, &respErr) {
-        switch respErr.StatusCode {
-        case http.StatusNotFound:
-            fmt.Println("Agent 不存在")
-        case http.StatusUnauthorized:
-            fmt.Println("认证失败")
-        default:
-            fmt.Printf("API 错误 %d: %s\n", respErr.StatusCode, respErr.Message)
-        }
-    }
-}
-```
-
-## 基础设施角色
-
-| 角色 | 负责方 | SDK 交互方式 |
-|------|--------|-------------|
-| RA (注册机构) | 阿里云 ATI API | HTTPS REST API |
-| DNS | 阿里云云解析 | DNS UDP/TCP |
-| 透明日志 (TL) | CNNIC | HTTPS REST API |
-| Trust Card 托管 | CNNIC | HTTPS GET |
-| Private CA | CNNIC | 不直接通信（RA 代为） |
-| Public CA | 阿里云证书服务 | 不直接通信（RA 代为） |
-
-## License
-
-MIT License
