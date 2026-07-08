@@ -44,9 +44,18 @@ build/
 # Compiled binaries
 /bin/
 /proxy
-/ati-demo/demo-backend
-/ati-demo/demo-client
-/ati-demo/demo-proxy
+
+# Demo modules (not part of the published SDK)
+/ati-demo/
+/ati-demo-backend/
+/ati-demo-client/
+/ati-demo-proxy/
+/internal/demo/
+/cmd/demo/
+/cmd/demo-all/
+/cmd/demo-backend/
+/cmd/demo-client/
+/cmd/demo-proxy/
 
 # Screenshots
 *.png
