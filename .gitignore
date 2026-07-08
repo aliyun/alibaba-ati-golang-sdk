@@ -57,6 +57,7 @@ build/
 /cmd/
 /docs/
 /keygen/
+/.devix-agent/
 
 # Screenshots
 *.png
