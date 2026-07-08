@@ -67,6 +67,7 @@ build/
 /CONTRIBUTING.md
 /DESIGN.md
 /SECURITY.md
+/.github/
 
 # Screenshots
 *.png
