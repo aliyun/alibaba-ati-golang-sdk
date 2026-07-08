@@ -58,6 +58,8 @@ build/
 /docs/
 /keygen/
 /.devix-agent/
+/CHANGELOG.md
+/CODEBASE_ANALYSIS.md
 
 # Screenshots
 *.png
