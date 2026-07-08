@@ -51,11 +51,12 @@ build/
 /ati-demo-client/
 /ati-demo-proxy/
 /internal/demo/
-/cmd/demo/
-/cmd/demo-all/
-/cmd/demo-backend/
-/cmd/demo-client/
-/cmd/demo-proxy/
+
+# Tools, internal docs and local-only assets (not part of the published SDK)
+/cert/
+/cmd/
+/docs/
+/keygen/
 
 # Screenshots
 *.png
