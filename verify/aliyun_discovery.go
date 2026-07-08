@@ -14,16 +14,19 @@ import (
 )
 
 const (
+	// defaultAliyunEndpoint and defaultTLBaseURL are fixed platform values and
+	// are intentionally not customer-configurable.
 	defaultAliyunEndpoint = "alidns.aliyuncs.com"
+	defaultTLBaseURL      = "https://tl.atiagent.cn:8180"
 	defaultAPIVersion     = "2015-01-09"
 )
 
 // AliyunATIConfig configures the Alibaba Cloud ATI marketplace discovery client.
+// Only the access credentials are configurable; the API endpoint and TL base URL
+// are fixed platform constants.
 type AliyunATIConfig struct {
 	AccessKeyID     string
 	AccessKeySecret string
-	Endpoint        string // default: "alidns.aliyuncs.com"
-	TLBaseURL       string // default: "https://tl.atiagent.cn:8180"
 }
 
 // MarketplaceEndpoint represents an endpoint returned from the marketplace API.
@@ -61,12 +64,6 @@ type AliyunATIDiscovery struct {
 
 // NewAliyunATIDiscovery creates a new marketplace discovery client using the official SDK.
 func NewAliyunATIDiscovery(cfg AliyunATIConfig) (*AliyunATIDiscovery, error) {
-	if cfg.Endpoint == "" {
-		cfg.Endpoint = defaultAliyunEndpoint
-	}
-	if cfg.TLBaseURL == "" {
-		cfg.TLBaseURL = "https://tl.atiagent.cn:8180"
-	}
 	if cfg.AccessKeyID == "" || cfg.AccessKeySecret == "" {
 		return nil, fmt.Errorf("aliyun ati: AccessKeyID and AccessKeySecret are required")
 	}
@@ -75,7 +72,7 @@ func NewAliyunATIDiscovery(cfg AliyunATIConfig) (*AliyunATIDiscovery, error) {
 		AccessKeyId:     tea.String(cfg.AccessKeyID),
 		AccessKeySecret: tea.String(cfg.AccessKeySecret),
 	}
-	config.Endpoint = tea.String(cfg.Endpoint)
+	config.Endpoint = tea.String(defaultAliyunEndpoint)
 
 	client, err := openapi.NewClient(config)
 	if err != nil {

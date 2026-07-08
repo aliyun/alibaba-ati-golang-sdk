@@ -24,7 +24,6 @@ type serverConfig struct {
 	privateKeyFile string
 	caBundleFile   string
 	trustLevel     *TrustLevel
-	dnsServerAddr  string
 	dnsResolver    verify.DNSResolver
 	daneResolver   verify.DANEResolver
 	tlogClient     verify.TransparencyLogClient
@@ -50,8 +49,12 @@ func WithClientCA(caBundle string) ServerOption {
 }
 
 // WithClientVerifier sets the trust level for client verification.
-// Supported levels for server: TrustNone, TrustBadge, TrustFull.
-// Default is TrustNone when not called.
+// Supported levels: PKIOnly, BadgeRequired, DANEAndBadge.
+//
+// When not called, the server performs NO client verification — it does not
+// request a client certificate and accepts the connection as a plain TLS
+// connection. (Exception: providing a private root cert via WithClientCA
+// implies PKIOnly verification.)
 func WithClientVerifier(level TrustLevel) ServerOption {
 	return func(c *serverConfig) error {
 		if !level.ValidForServer() {
@@ -80,20 +83,6 @@ func WithServerDANEResolver(r verify.DANEResolver) ServerOption {
 	}
 }
 
-// WithServerDNSServer points DNS-based badge/discovery and DANE lookups at a
-// specific DNS server, given as "host" or "host:port" (port defaults to 53).
-// When empty or unset, lookups use the system resolver configuration
-// (/etc/resolv.conf).
-//
-// This has no effect when an explicit resolver is supplied via
-// WithServerAliyunDiscovery.
-func WithServerDNSServer(addr string) ServerOption {
-	return func(c *serverConfig) error {
-		c.dnsServerAddr = addr
-		return nil
-	}
-}
-
 // WithServerAliyunDiscovery uses the Aliyun DescribeAtiAgentRegisterInfoMarket API for
 // client discovery (_ati replacement), while badge lookups still use DNS TXT records.
 func WithServerAliyunDiscovery(cfg verify.AliyunATIConfig) ServerOption {
@@ -108,17 +97,21 @@ func WithServerAliyunDiscovery(cfg verify.AliyunATIConfig) ServerOption {
 }
 
 // NewServerTLSConfig creates a TLS configuration for an agent server.
-// It configures mutual TLS with VerifyConnection callback that verifies
-// the client's identity certificate fingerprint against the Transparency Log.
 //
-// Client certificates can be self-signed — trust is established through TL
-// fingerprint verification, not CA chain validation. If a CA bundle is provided
-// via WithClientCA, the CA chain is also validated.
+// The verification behavior depends on WithClientVerifier / WithClientCA:
+//   - Neither set: no client verification. The server does not request a client
+//     certificate and accepts the connection as a plain TLS connection.
+//   - WithClientVerifier(level) set: mutual TLS with a VerifyConnection callback
+//     enforcing the given trust level. Client certificates can be self-signed —
+//     trust is established through TL fingerprint verification.
+//   - WithClientCA set: the CA chain is also validated, and PKIOnly verification
+//     is implied even without WithClientVerifier.
 func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
-	defaultLevel := PKIOnly
+	// trustLevel is left nil by default. When WithClientVerifier is not called,
+	// the server performs no client verification at all — behaving like a plain
+	// TLS connection (no client certificate is requested).
 	cfg := &serverConfig{
 		peerLevels: &sync.Map{},
-		trustLevel: &defaultLevel,
 	}
 	for _, opt := range opts {
 		if err := opt(cfg); err != nil {
@@ -135,11 +128,23 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 		return nil, fmt.Errorf("%s 或 %s 不是有效的证书/密钥对: %w", cfg.serverCertFile, cfg.privateKeyFile, err)
 	}
 
-	// Client CA bundle is optional. When absent, client certs are accepted without
-	// CA chain validation — identity is verified via TL fingerprint instead.
+	// Providing a private root cert (CA bundle) is an explicit request to verify
+	// the client, so it implies at least PKIOnly even when no trust level was set.
+	if cfg.trustLevel == nil && cfg.caBundleFile != "" {
+		lvl := PKIOnly
+		cfg.trustLevel = &lvl
+	}
+
+	// Determine the TLS client-auth mode from the configured trust level:
+	//   - no trust level        → NoClientCert (plain connection, no mTLS)
+	//   - CA bundle provided     → RequireAndVerifyClientCert (CA chain validated)
+	//   - trust level, no bundle → RequireAnyClientCert (trust via Badge/TLog)
 	var clientCAs *x509.CertPool
-	clientAuth := tls.RequireAnyClientCert
-	if cfg.caBundleFile != "" {
+	var clientAuth tls.ClientAuthType
+	switch {
+	case cfg.trustLevel == nil:
+		clientAuth = tls.NoClientCert
+	case cfg.caBundleFile != "":
 		caBundlePEM, readErr := os.ReadFile(cfg.caBundleFile)
 		if readErr != nil {
 			return nil, fmt.Errorf("无法读取 CA bundle %s: %w", cfg.caBundleFile, readErr)
@@ -149,20 +154,27 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 			return nil, fmt.Errorf("%s 不包含有效的 PEM 证书", cfg.caBundleFile)
 		}
 		clientAuth = tls.RequireAndVerifyClientCert
+	default:
+		clientAuth = tls.RequireAnyClientCert
 	}
 
 	// Auto-create DANE resolver when trust level requires it
 	if cfg.daneResolver == nil && cfg.trustLevel != nil && *cfg.trustLevel >= DANEAndBadge {
 		var daneOpts []verify.DANEResolverOption
-		if cfg.dnsServerAddr != "" {
-			daneOpts = append(daneOpts, verify.WithDANEServer(cfg.dnsServerAddr))
+		if dnsServer := globalDNSServer(); dnsServer != "" {
+			daneOpts = append(daneOpts, verify.WithDANEServer(dnsServer))
 		}
 		cfg.daneResolver = verify.NewStandardDANEResolver(daneOpts...)
 	}
 
-	// Default discovery resolver
-	if cfg.dnsResolver == nil {
-		cfg.dnsResolver = defaultDiscoveryResolver(cfg.dnsServerAddr)
+	// Default discovery resolver. Only required when badge/DANE verification is
+	// requested — a PKIOnly server never performs discovery.
+	if cfg.dnsResolver == nil && cfg.trustLevel != nil && *cfg.trustLevel >= BadgeRequired {
+		resolver, err := defaultDiscoveryResolver()
+		if err != nil {
+			return nil, err
+		}
+		cfg.dnsResolver = resolver
 	}
 
 	// Build ClientVerifier for TL-based fingerprint verification
@@ -180,11 +192,16 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 	cfg.clientVerifier = verify.NewClientVerifier(verifyOpts...)
 
 	tlsConfig := &tls.Config{
-		Certificates:     []tls.Certificate{serverCert},
-		ClientCAs:        clientCAs,
-		ClientAuth:       clientAuth,
-		MinVersion:       tls.VersionTLS13,
-		VerifyConnection: buildVerifyConnection(cfg),
+		Certificates: []tls.Certificate{serverCert},
+		ClientCAs:    clientCAs,
+		ClientAuth:   clientAuth,
+		MinVersion:   tls.VersionTLS13,
+	}
+
+	// Only enforce trust verification when a level is configured. With no trust
+	// level the connection is accepted as-is (plain TLS, nothing verified).
+	if cfg.trustLevel != nil {
+		tlsConfig.VerifyConnection = buildVerifyConnection(cfg)
 	}
 
 	return tlsConfig, nil

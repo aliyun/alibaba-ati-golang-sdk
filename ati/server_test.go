@@ -195,6 +195,8 @@ func setupTestCertBundle(t *testing.T) *testCertBundle {
 }
 
 func TestNewServerTLSConfig_Success(t *testing.T) {
+	t.Setenv("ATI_AK", "test-ak")
+	t.Setenv("ATI_SK", "test-sk")
 	bundle := setupTestCertBundle(t)
 
 	tlsConfig, err := NewServerTLSConfig(
@@ -223,30 +225,6 @@ func TestNewServerTLSConfig_Success(t *testing.T) {
 	}
 }
 
-func TestWithServerDNSServer_Option(t *testing.T) {
-	cfg := &serverConfig{}
-	if err := WithServerDNSServer("1.2.3.4:53")(cfg); err != nil {
-		t.Fatalf("WithServerDNSServer() error = %v", err)
-	}
-	if cfg.dnsServerAddr != "1.2.3.4:53" {
-		t.Errorf("dnsServerAddr = %q, want %q", cfg.dnsServerAddr, "1.2.3.4:53")
-	}
-}
-
-func TestNewServerTLSConfig_WithDNSServer(t *testing.T) {
-	bundle := setupTestCertBundle(t)
-	tlsConfig, err := NewServerTLSConfig(
-		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
-		WithServerDNSServer("1.2.3.4"),
-	)
-	if err != nil {
-		t.Fatalf("NewServerTLSConfig() error = %v", err)
-	}
-	if tlsConfig == nil {
-		t.Fatal("NewServerTLSConfig() returned nil config")
-	}
-}
-
 func TestNewServerTLSConfig_MissingServerCert(t *testing.T) {
 	bundle := setupTestCertBundle(t)
 
@@ -264,14 +242,58 @@ func TestNewServerTLSConfig_MissingServerCert(t *testing.T) {
 func TestNewServerTLSConfig_NoCABundle_AcceptsSelfSignedClients(t *testing.T) {
 	bundle := setupTestCertBundle(t)
 
+	// With a trust level set but no CA bundle, self-signed client certs are
+	// accepted (RequireAnyClientCert); trust is established via Badge/TLog.
 	tlsConfig, err := NewServerTLSConfig(
 		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
+		WithClientVerifier(PKIOnly),
 	)
 	if err != nil {
 		t.Fatalf("expected no error without CA bundle, got: %v", err)
 	}
 	if tlsConfig.ClientAuth != tls.RequireAnyClientCert {
 		t.Errorf("ClientAuth = %v, want RequireAnyClientCert", tlsConfig.ClientAuth)
+	}
+	if tlsConfig.VerifyConnection == nil {
+		t.Error("VerifyConnection should be set when a trust level is configured")
+	}
+}
+
+func TestNewServerTLSConfig_NoTrustLevel_PlainConnection(t *testing.T) {
+	bundle := setupTestCertBundle(t)
+
+	// No WithClientVerifier and no WithClientCA → no client verification at all.
+	tlsConfig, err := NewServerTLSConfig(
+		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if tlsConfig.ClientAuth != tls.NoClientCert {
+		t.Errorf("ClientAuth = %v, want NoClientCert", tlsConfig.ClientAuth)
+	}
+	if tlsConfig.VerifyConnection != nil {
+		t.Error("VerifyConnection should be nil when no trust level is configured")
+	}
+}
+
+func TestNewServerTLSConfig_CABundleOnly_ImpliesPKI(t *testing.T) {
+	bundle := setupTestCertBundle(t)
+
+	// A private root cert (CA bundle) implies PKI verification even without
+	// an explicit WithClientVerifier.
+	tlsConfig, err := NewServerTLSConfig(
+		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
+		WithClientCA(bundle.CACertFile),
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if tlsConfig.ClientAuth != tls.RequireAndVerifyClientCert {
+		t.Errorf("ClientAuth = %v, want RequireAndVerifyClientCert", tlsConfig.ClientAuth)
+	}
+	if tlsConfig.VerifyConnection == nil {
+		t.Error("VerifyConnection should be set when a CA bundle is provided")
 	}
 }
 
@@ -591,6 +613,8 @@ func TestWithClientVerifier_Option(t *testing.T) {
 }
 
 func TestServerTLSConfig_RejectsClientWithoutATIName(t *testing.T) {
+	t.Setenv("ATI_AK", "test-ak")
+	t.Setenv("ATI_SK", "test-sk")
 	bundle := setupTestCertBundle(t)
 
 	serverTLS, err := NewServerTLSConfig(
@@ -681,6 +705,8 @@ func TestServerTLSConfig_RejectsClientWithoutATIName(t *testing.T) {
 }
 
 func TestNewServerTLSConfig_HasVerifyConnection(t *testing.T) {
+	t.Setenv("ATI_AK", "test-ak")
+	t.Setenv("ATI_SK", "test-sk")
 	bundle := setupTestCertBundle(t)
 
 	tlsConfig, err := NewServerTLSConfig(

@@ -50,7 +50,6 @@ type agentClientConfig struct {
 	trustLevel       *TrustLevel
 	targetVersion    string
 	timeout          time.Duration
-	dnsServerAddr    string
 	dnsResolver      verify.DNSResolver
 	daneResolver     verify.DANEResolver
 	tlogClient       verify.TransparencyLogClient
@@ -81,8 +80,7 @@ func WithMTLSCerts(identityCert, privateKey, serverCert, caBundle string) AgentC
 
 // WithTrustLevel sets the verification trust level.
 // Supported levels for client: PKIOnly, BadgeRequired, DANEAndBadge.
-// When not called, the client runs in auto-detect mode (reports the highest
-// level the peer supports without failing the connection).
+// When not called, the client defaults to BadgeRequired.
 func WithTrustLevel(level TrustLevel) AgentClientOption {
 	return func(c *agentClientConfig) error {
 		if !level.ValidForClient() {
@@ -105,19 +103,6 @@ func WithClientTimeout(d time.Duration) AgentClientOption {
 func WithDNSResolver(r verify.DNSResolver) AgentClientOption {
 	return func(c *agentClientConfig) error {
 		c.dnsResolver = r
-		return nil
-	}
-}
-
-// WithDNSServer points DNS-based badge/discovery and DANE lookups at a specific
-// DNS server, given as "host" or "host:port" (port defaults to 53). When empty
-// or unset, lookups use the system resolver configuration (/etc/resolv.conf).
-//
-// This has no effect when an explicit resolver is supplied via WithDNSResolver
-// or WithAliyunDiscovery.
-func WithDNSServer(addr string) AgentClientOption {
-	return func(c *agentClientConfig) error {
-		c.dnsServerAddr = addr
 		return nil
 	}
 }
@@ -212,12 +197,17 @@ func normalizeVersionExpr(expr string) (string, error) {
 func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
 	cfg := &agentClientConfig{
 		timeout: 30 * time.Second,
-		// trustLevel nil → auto-detect mode (see WithTrustLevel).
 	}
 	for _, opt := range opts {
 		if err := opt(cfg); err != nil {
 			return nil, err
 		}
+	}
+
+	// Client defaults to BadgeRequired when no trust level is specified.
+	if cfg.trustLevel == nil {
+		defaultLevel := BadgeRequired
+		cfg.trustLevel = &defaultLevel
 	}
 
 	if cfg.identityCertFile == "" || cfg.privateKeyFile == "" {
@@ -282,7 +272,10 @@ func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
 
 	resolver := cfg.dnsResolver
 	if resolver == nil {
-		resolver = defaultDiscoveryResolver(cfg.dnsServerAddr)
+		resolver, err = defaultDiscoveryResolver()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Set target version on Aliyun discovery resolver
@@ -301,8 +294,8 @@ func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
 	daneResolver := cfg.daneResolver
 	if daneResolver == nil && cfg.trustLevel != nil && *cfg.trustLevel >= DANEAndBadge {
 		var daneOpts []verify.DANEResolverOption
-		if cfg.dnsServerAddr != "" {
-			daneOpts = append(daneOpts, verify.WithDANEServer(cfg.dnsServerAddr))
+		if dnsServer := globalDNSServer(); dnsServer != "" {
+			daneOpts = append(daneOpts, verify.WithDANEServer(dnsServer))
 		}
 		daneResolver = verify.NewStandardDANEResolver(daneOpts...)
 	}

@@ -59,6 +59,7 @@ func TestNewAgentClient_Success(t *testing.T) {
 	client, err := NewAgentClient(
 		WithMTLSCerts(certFile, keyFile, "", caFile),
 		WithClientTimeout(10*time.Second),
+		WithDNSResolver(verify.NewMockDNSResolver()),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -66,8 +67,8 @@ func TestNewAgentClient_Success(t *testing.T) {
 	if client == nil {
 		t.Fatal("NewAgentClient() returned nil")
 	}
-	if client.trustLevel != nil {
-		t.Errorf("trustLevel = %v, want nil (auto-detect)", client.trustLevel)
+	if client.trustLevel == nil || *client.trustLevel != BadgeRequired {
+		t.Errorf("trustLevel = %v, want BadgeRequired (default)", client.trustLevel)
 	}
 }
 
@@ -102,6 +103,7 @@ func TestNewAgentClient_NoCABundle_UsesSystemCA(t *testing.T) {
 
 	_, err := NewAgentClient(
 		WithIdentityCert(bundle.ClientCertF, bundle.ClientKeyF),
+		WithDNSResolver(verify.NewMockDNSResolver()),
 	)
 	if err != nil {
 		t.Fatalf("expected no error without CA bundle (should use system CA), got: %v", err)
@@ -232,6 +234,7 @@ func TestNewAgentClient_ExpiringCert(t *testing.T) {
 	// Should succeed but log a warning (we can't check log output easily)
 	client, err := NewAgentClient(
 		WithMTLSCerts(certFile, keyFile, "", caFile),
+		WithDNSResolver(verify.NewMockDNSResolver()),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -251,6 +254,7 @@ func TestCertStatus(t *testing.T) {
 
 	client, err := NewAgentClient(
 		WithMTLSCerts(certFile, keyFile, "", caFile),
+		WithDNSResolver(verify.NewMockDNSResolver()),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -307,6 +311,7 @@ func TestCertStatus_Expired(t *testing.T) {
 
 	client, err := NewAgentClient(
 		WithMTLSCerts(certFile, keyFile, "", caFile),
+		WithDNSResolver(verify.NewMockDNSResolver()),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -400,6 +405,7 @@ func TestAgentClient_Get(t *testing.T) {
 	client, err := NewAgentClient(
 		WithMTLSCerts(certFile, keyFile, "", caFile),
 		WithDNSResolver(discoveryMockForServer(t, server.URL)),
+		WithTrustLevel(TrustPKI),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -440,6 +446,7 @@ func TestAgentClient_Post(t *testing.T) {
 	client, err := NewAgentClient(
 		WithMTLSCerts(certFile, keyFile, "", caFile),
 		WithDNSResolver(discoveryMockForServer(t, server.URL)),
+		WithTrustLevel(TrustPKI),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -472,6 +479,7 @@ func TestAgentClient_Put(t *testing.T) {
 	client, err := NewAgentClient(
 		WithMTLSCerts(certFile, keyFile, "", caFile),
 		WithDNSResolver(discoveryMockForServer(t, server.URL)),
+		WithTrustLevel(TrustPKI),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -504,6 +512,7 @@ func TestAgentClient_Delete(t *testing.T) {
 	client, err := NewAgentClient(
 		WithMTLSCerts(certFile, keyFile, "", caFile),
 		WithDNSResolver(discoveryMockForServer(t, server.URL)),
+		WithTrustLevel(TrustPKI),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -533,6 +542,7 @@ func TestAgentClient_Do_WithBody(t *testing.T) {
 	client, err := NewAgentClient(
 		WithMTLSCerts(certFile, keyFile, "", caFile),
 		WithDNSResolver(discoveryMockForServer(t, server.URL)),
+		WithTrustLevel(TrustPKI),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -730,41 +740,6 @@ func TestWithDNSResolver_Option(t *testing.T) {
 	}
 }
 
-func TestWithDNSServer_Option(t *testing.T) {
-	cfg := &agentClientConfig{}
-	opt := WithDNSServer("1.2.3.4:53")
-	if err := opt(cfg); err != nil {
-		t.Fatalf("WithDNSServer() error = %v", err)
-	}
-	if cfg.dnsServerAddr != "1.2.3.4:53" {
-		t.Errorf("dnsServerAddr = %q, want %q", cfg.dnsServerAddr, "1.2.3.4:53")
-	}
-}
-
-func TestWithDNSServer_Option_Empty(t *testing.T) {
-	cfg := &agentClientConfig{}
-	if err := WithDNSServer("")(cfg); err != nil {
-		t.Fatalf("WithDNSServer() error = %v", err)
-	}
-	if cfg.dnsServerAddr != "" {
-		t.Errorf("dnsServerAddr = %q, want empty", cfg.dnsServerAddr)
-	}
-}
-
-func TestNewAgentClient_WithDNSServer(t *testing.T) {
-	certFile, keyFile, caFile := setupClientTestCerts(t, "agent.example.com", "v1.0.0")
-	client, err := NewAgentClient(
-		WithMTLSCerts(certFile, keyFile, "", caFile),
-		WithDNSServer("1.2.3.4"),
-	)
-	if err != nil {
-		t.Fatalf("NewAgentClient() error = %v", err)
-	}
-	if client.dnsResolver == nil {
-		t.Error("expected dnsResolver to be set")
-	}
-}
-
 func TestNewAgentClient_WithServerCert(t *testing.T) {
 	dir := t.TempDir()
 	caCert, caKey, caCertPEM, _ := generateCA(t)
@@ -780,6 +755,7 @@ func TestNewAgentClient_WithServerCert(t *testing.T) {
 	// so it falls back to using the identity cert for server
 	client, err := NewAgentClient(
 		WithMTLSCerts(identityFile, keyFile, serverFile, caFile),
+		WithDNSResolver(verify.NewMockDNSResolver()),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -818,7 +794,7 @@ func TestAgentClient_Do_DNSDiscoveryBlocking(t *testing.T) {
 	}
 }
 
-func TestAgentClient_Do_AutoDetect(t *testing.T) {
+func TestAgentClient_Do_PKIOnly(t *testing.T) {
 	certFile, keyFile, caFile := setupClientTestCerts(t, "agent.example.com", "v1.0.0")
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -829,6 +805,7 @@ func TestAgentClient_Do_AutoDetect(t *testing.T) {
 	client, err := NewAgentClient(
 		WithMTLSCerts(certFile, keyFile, "", caFile),
 		WithDNSResolver(discoveryMockForServer(t, server.URL)),
+		WithTrustLevel(TrustPKI),
 	)
 	if err != nil {
 		t.Fatalf("NewAgentClient() error = %v", err)
@@ -845,8 +822,8 @@ func TestAgentClient_Do_AutoDetect(t *testing.T) {
 	if resp.VerificationOutcome == nil {
 		t.Fatal("VerificationOutcome is nil")
 	}
-	if resp.VerificationOutcome.RequestedLevel != nil {
-		t.Errorf("RequestedLevel should be nil in auto-detect mode")
+	if resp.VerificationOutcome.RequestedLevel == nil || *resp.VerificationOutcome.RequestedLevel != PKIOnly {
+		t.Errorf("RequestedLevel = %v, want PKIOnly", resp.VerificationOutcome.RequestedLevel)
 	}
 	if !resp.VerificationOutcome.DNSDiscovered {
 		t.Error("DNSDiscovered should be true")
