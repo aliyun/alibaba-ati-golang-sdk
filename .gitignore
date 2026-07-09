@@ -1,0 +1,74 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets and certificates
+.env
+.env.*
+*.pem
+*.key
+*.csr
+
+# Java/Gradle build output (demo modules)
+build/
+.gradle/
+*.class
+*.jar
+
+# Compiled binaries
+/bin/
+/proxy
+
+# Demo modules (not part of the published SDK)
+/ati-demo/
+/ati-demo-backend/
+/ati-demo-client/
+/ati-demo-proxy/
+/internal/demo/
+
+# Tools, internal docs and local-only assets (not part of the published SDK)
+/cert/
+/cmd/
+/docs/
+/keygen/
+/.devix-agent/
+/CHANGELOG.md
+/CODEBASE_ANALYSIS.md
+/.golangci.yml
+/.release-please-manifest.json
+/release-please-config.json
+/CODE_OF_CONDUCT.md
+/CONTRIBUTING.md
+/DESIGN.md
+/SECURITY.md
+/.github/
+/LICENSE
+
+# Screenshots
+*.png
