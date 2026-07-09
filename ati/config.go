@@ -6,7 +6,7 @@ import (
 	"os"
 	"sync"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify"
+	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
 )
 
 // Config holds the global SDK configuration set via Init().

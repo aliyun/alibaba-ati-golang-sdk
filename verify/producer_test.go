@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"testing"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 func TestVerifyProducerSignature_Valid(t *testing.T) {

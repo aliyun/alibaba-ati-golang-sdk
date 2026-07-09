@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
 )
 
 // AgentClient is the primary ATI SDK client for secure agent-to-agent communication.

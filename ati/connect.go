@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // ConnectRequest is the entry point for establishing an ATI connection.

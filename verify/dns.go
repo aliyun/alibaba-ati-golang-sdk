@@ -3,7 +3,7 @@ package verify
 import (
 	"context"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // DNSLookupResult represents the result of a DNS lookup.

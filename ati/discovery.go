@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/internal/registry"
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/internal/registry"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // DiscoveryOption configures a DiscoverAgents call.

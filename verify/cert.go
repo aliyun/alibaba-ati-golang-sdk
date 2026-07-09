@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // CertValidityCheck examines a peer certificate's validity period.

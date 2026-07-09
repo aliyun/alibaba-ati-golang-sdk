@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 func TestMockDNSResolver_LookupATIDiscovery_Found(t *testing.T) {

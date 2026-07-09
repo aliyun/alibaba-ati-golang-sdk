@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify/scitt"
+	"github.com/aliyun/alibaba-ati-golang-sdk/verify/scitt"
 )
 
 // Option configures a verifier.

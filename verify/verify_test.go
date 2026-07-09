@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify/scitt"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/verify/scitt"
 )
 
 func createTestTLResponse(host, version, serverFP, identityFP string) *models.TLResponse {

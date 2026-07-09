@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // VerifySealSignature verifies the CNNIC TL seal signature over the four sealed fields:

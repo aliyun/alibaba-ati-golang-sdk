@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
 )
 
 const defaultTLBaseURL = "https://tl.ansagent.cn:8180/ans/api/v1"

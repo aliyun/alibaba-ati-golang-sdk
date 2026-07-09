@@ -8,7 +8,7 @@ import (
 	"log"
 	"net/http"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
+	"github.com/aliyun/alibaba-ati-golang-sdk/ati"
 )
 
 func main() {

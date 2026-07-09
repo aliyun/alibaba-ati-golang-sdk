@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 const defaultCNNICTLBaseURL = "https://tl.ansagent.cn:8180/ans/api/v1"

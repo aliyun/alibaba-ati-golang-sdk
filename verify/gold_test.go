@@ -12,7 +12,7 @@ import (
 	"encoding/pem"
 	"testing"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 func buildTestTLResponse(t *testing.T, tlKey *ecdsa.PrivateKey, producerKey *ecdsa.PrivateKey, fingerprint string) *models.TLResponse {

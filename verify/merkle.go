@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // VerifyInclusionProof verifies the Merkle inclusion proof from the TL response.

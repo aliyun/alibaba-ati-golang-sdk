@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify/scitt"
+	"github.com/aliyun/alibaba-ati-golang-sdk/verify/scitt"
 )
 
 func TestDefaultConfig(t *testing.T) {

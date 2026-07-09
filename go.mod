@@ -1,4 +1,4 @@
-module gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk
+module github.com/aliyun/alibaba-ati-golang-sdk
 
 go 1.25.0
 

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // MockDNSResolver is a mock DNS resolver for testing.

@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
 )
 
 // setupClientTestCerts generates a CA + identity cert with ATI URI SAN + CA file for tests.

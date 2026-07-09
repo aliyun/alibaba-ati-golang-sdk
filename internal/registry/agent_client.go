@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify"
+	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
 )
 
 // AgentClient is an HTTP client that verifies ANS agent certificates before requests.

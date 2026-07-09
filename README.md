@@ -1,11 +1,13 @@
-# ATI Go SDK 使用指南
+# Alibaba ATI Go SDK
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/aliyun/alibaba-ati-golang-sdk.svg)](https://pkg.go.dev/github.com/aliyun/alibaba-ati-golang-sdk)
 
 Agent Trust Infrastructure (ATI) 的 Go SDK,为 AI Agent 之间提供基于 **mTLS 传输 + 服务发现 + 多级信任验证** 的安全通信能力。
 
 - **Client**(`ati.AgentClient`)—— Agent 作为调用方,发起经过验证的 HTTPS 请求。
 - **Server**(`ati.NewServerTLSConfig`)—— Agent 作为服务方,在 TLS 握手阶段验证对端身份。
 
-> 模块路径:`gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk`
+> 模块路径:`github.com/aliyun/alibaba-ati-golang-sdk`
 
 ---
 
@@ -23,6 +25,7 @@ Agent Trust Infrastructure (ATI) 的 Go SDK,为 AI Agent 之间提供基于 **mT
 - [证书要求与 ATI Name](#证书要求与-ati-name)
 - [DNS 记录清单](#dns-记录清单)
 - [验证缓存与失败语义](#验证缓存与失败语义)
+- [示例代码](#示例代码)
 - [测试](#测试)
 
 ---
@@ -30,15 +33,15 @@ Agent Trust Infrastructure (ATI) 的 Go SDK,为 AI Agent 之间提供基于 **mT
 ## 安装
 
 ```bash
-go get gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk
+go get github.com/aliyun/alibaba-ati-golang-sdk
 ```
 
 导入常用的两个包:
 
 ```go
 import (
-    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"    // 客户端 / 服务端入口
-    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/verify" // resolver / 验证器等
+    "github.com/aliyun/alibaba-ati-golang-sdk/ati"    // 客户端 / 服务端入口
+    "github.com/aliyun/alibaba-ati-golang-sdk/verify" // resolver / 验证器等
 )
 ```
 
@@ -102,7 +105,7 @@ import (
     "log"
     "os"
 
-    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
+    "github.com/aliyun/alibaba-ati-golang-sdk/ati"
 )
 
 func main() {
@@ -150,7 +153,7 @@ import (
     "log"
     "net/http"
 
-    "gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/ati"
+    "github.com/aliyun/alibaba-ati-golang-sdk/ati"
 )
 
 func main() {
@@ -462,6 +465,38 @@ ati://v{major}.{minor}.{patch}.{host}
 
 - **缓存**:Client 对同一服务端的验证结果按 `(host, 证书指纹)` 缓存;相同主机 + 相同证书的后续请求跳过重复验证。
 - **DANE 失败开放(fail-open)语义**:DANE 只有在做出**明确的否定判断**时才拒绝连接——即 DNSSEC 保护下存在 TLSA 记录但与出示证书不匹配(`DANEMismatch`),或 DNSSEC 校验显式失败(`DANEDNSSECFailed`)。以下良性情况**不拒绝**:未发布 TLSA 记录(`DANENoRecords`)、有记录但无 DNSSEC 链(`DANESkipped`)。单纯的 DNS 查询错误交由调用方的失败策略处理。
+
+---
+
+## 示例代码
+
+SDK 自带两个可运行的示例,位于 [`examples/`](examples/) 目录:
+
+### Agent Server ([examples/agent-server](examples/agent-server))
+
+一个 ATI Agent 服务端,启动 HTTPS 服务并对调用方进行信任验证。
+
+```bash
+cd examples/agent-server
+go run main.go \
+  -cert server.crt \
+  -key server.key \
+  -addr :8443 \
+  -trust badge
+```
+
+### Agent Client ([examples/agent-client](examples/agent-client))
+
+一个 ATI Agent 客户端,向目标 Agent 发起经过信任验证的 HTTPS 请求。
+
+```bash
+cd examples/agent-client
+go run main.go \
+  -cert client.crt \
+  -key client.key \
+  -url https://target-agent.example.com:8443/hello \
+  -trust badge
+```
 
 ---
 

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // RefreshFunc is called during background refresh for each expiring entry.

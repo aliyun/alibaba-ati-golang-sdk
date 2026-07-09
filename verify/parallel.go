@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // DiscoveryResult holds all DNS discovery results per spec §4.6.

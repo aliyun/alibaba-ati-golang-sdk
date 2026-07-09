@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // ProducerKeyLookup retrieves RA producer public keys by key ID.

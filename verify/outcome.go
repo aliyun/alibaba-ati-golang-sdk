@@ -3,7 +3,7 @@ package verify
 import (
 	"fmt"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // OutcomeType represents the type of verification outcome.

@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/internal/httputility"
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/internal/httputility"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // Client represents an ANS Registry Authority API client

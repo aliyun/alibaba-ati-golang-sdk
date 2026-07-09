@@ -3,7 +3,7 @@ package registry
 import (
 	"fmt"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // validateRequired checks that a required string parameter is not empty.

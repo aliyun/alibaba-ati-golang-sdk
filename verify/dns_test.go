@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 func TestMockDNSResolver(t *testing.T) {

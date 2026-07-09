@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // BadgeRecordSource indicates where a badge record was resolved from.

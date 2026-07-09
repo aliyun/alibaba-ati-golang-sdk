@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"gitlab.alibaba-inc.com/alibaba-dns/ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
 // OfflineVerifier performs verification using pre-provisioned keys and embedded
