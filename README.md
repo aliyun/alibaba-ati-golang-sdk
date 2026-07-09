@@ -26,7 +26,6 @@ Agent Trust Infrastructure (ATI) 的 Go SDK,为 AI Agent 之间提供基于 **mT
 - [DNS 记录清单](#dns-记录清单)
 - [验证缓存与失败语义](#验证缓存与失败语义)
 - [示例代码](#示例代码)
-- [测试](#测试)
 
 ---
 
@@ -496,15 +495,4 @@ go run main.go \
   -key client.key \
   -url https://target-agent.example.com:8443/hello \
   -trust badge
-```
-
----
-
-## 测试
-
-```bash
-go test ./...            # 全部包
-go test ./ati/ -v        # 客户端 / 服务端
-go test ./verify/ -v     # 验证逻辑
-go vet ./...
 ```
