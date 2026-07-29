@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -731,6 +733,248 @@ func TestNewServerTLSConfig_EmptyKeyFile(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected error for empty key file")
+	}
+}
+
+func TestNewServerTLSConfig_PolicyNone(t *testing.T) {
+	bundle := setupTestCertBundle(t)
+
+	tlsConfig, err := NewServerTLSConfig(
+		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
+		WithClientVerifier(PolicyNone),
+	)
+	if err != nil {
+		t.Fatalf("NewServerTLSConfig(PolicyNone) error = %v", err)
+	}
+	if tlsConfig.ClientAuth != tls.NoClientCert {
+		t.Errorf("ClientAuth = %v, want NoClientCert for PolicyNone", tlsConfig.ClientAuth)
+	}
+	if tlsConfig.VerifyConnection != nil {
+		t.Error("VerifyConnection should be nil for PolicyNone")
+	}
+}
+
+func TestNewServerTLSConfig_PolicyNone_WithCABundle_Fails(t *testing.T) {
+	bundle := setupTestCertBundle(t)
+
+	_, err := NewServerTLSConfig(
+		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
+		WithClientCA(bundle.CACertFile),
+		WithClientVerifier(PolicyNone),
+	)
+	if err == nil {
+		t.Fatal("expected error for PolicyNone + CA bundle, got nil")
+	}
+}
+
+func TestWithCRLCheck_Option(t *testing.T) {
+	cfg := &serverConfig{}
+	opt := WithCRLCheck()
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithCRLCheck() error = %v", err)
+	}
+	if cfg.crlEnabled == nil || !*cfg.crlEnabled {
+		t.Error("crlEnabled should be true")
+	}
+}
+
+func TestWithCRLCheckDisabled_Option(t *testing.T) {
+	cfg := &serverConfig{}
+	opt := WithCRLCheckDisabled()
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithCRLCheckDisabled() error = %v", err)
+	}
+	if cfg.crlEnabled == nil || *cfg.crlEnabled {
+		t.Error("crlEnabled should be false")
+	}
+}
+
+func TestWithCRLHTTPClient_Option(t *testing.T) {
+	cfg := &serverConfig{}
+	customClient := &http.Client{Timeout: 5 * time.Second}
+	opt := WithCRLHTTPClient(customClient)
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithCRLHTTPClient() error = %v", err)
+	}
+	if cfg.crlHTTPClient != customClient {
+		t.Error("crlHTTPClient was not set")
+	}
+}
+
+func TestWithServerDANEResolver_Option(t *testing.T) {
+	cfg := &serverConfig{}
+	opt := WithServerDANEResolver(nil)
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithServerDANEResolver() error = %v", err)
+	}
+}
+
+func TestWithPeerLevelStore_Option(t *testing.T) {
+	cfg := &serverConfig{}
+	store := &sync.Map{}
+	opt := WithPeerLevelStore(store)
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithPeerLevelStore() error = %v", err)
+	}
+	if cfg.peerLevels != store {
+		t.Error("peerLevels was not set")
+	}
+}
+
+func TestPeerTrustLevel_NilState(t *testing.T) {
+	store := &sync.Map{}
+	result := PeerTrustLevel(nil, store)
+	if result != nil {
+		t.Errorf("PeerTrustLevel(nil, ...) = %v, want nil", result)
+	}
+}
+
+func TestPeerTrustLevel_NoPeerCerts(t *testing.T) {
+	state := &tls.ConnectionState{
+		PeerCertificates: nil,
+	}
+	store := &sync.Map{}
+	result := PeerTrustLevel(state, store)
+	if result != nil {
+		t.Errorf("PeerTrustLevel(no peers, ...) = %v, want nil", result)
+	}
+}
+
+func TestPeerTrustLevel_NilStore(t *testing.T) {
+	caCert, caKey, _, _ := generateCA(t)
+	certPEM, _ := generateCertWithATIName(t, caCert, caKey, "agent.example.com", "v1.0.0", []string{"agent.example.com"})
+
+	block, _ := pem.Decode(certPEM)
+	cert, _ := x509.ParseCertificate(block.Bytes)
+
+	state := &tls.ConnectionState{
+		PeerCertificates: []*x509.Certificate{cert},
+	}
+	result := PeerTrustLevel(state, nil)
+	if result != nil {
+		t.Errorf("PeerTrustLevel(..., nil) = %v, want nil", result)
+	}
+}
+
+func TestPeerTrustLevel_NotFound(t *testing.T) {
+	caCert, caKey, _, _ := generateCA(t)
+	certPEM, _ := generateCertWithATIName(t, caCert, caKey, "agent.example.com", "v1.0.0", []string{"agent.example.com"})
+
+	block, _ := pem.Decode(certPEM)
+	cert, _ := x509.ParseCertificate(block.Bytes)
+
+	state := &tls.ConnectionState{
+		PeerCertificates: []*x509.Certificate{cert},
+	}
+	store := &sync.Map{}
+	result := PeerTrustLevel(state, store)
+	if result != nil {
+		t.Errorf("PeerTrustLevel(unknown fingerprint) = %v, want nil", result)
+	}
+}
+
+func TestShouldEnableCRL(t *testing.T) {
+	pki := PKIOnly
+	none := PolicyNone
+
+	tests := []struct {
+		name       string
+		cfg        *serverConfig
+		wantEnable bool
+	}{
+		{
+			name:       "explicitly enabled",
+			cfg:        &serverConfig{crlEnabled: boolPtr(true), caBundleFile: "ca.pem", trustLevel: &pki},
+			wantEnable: true,
+		},
+		{
+			name:       "explicitly disabled",
+			cfg:        &serverConfig{crlEnabled: boolPtr(false), caBundleFile: "ca.pem", trustLevel: &pki},
+			wantEnable: false,
+		},
+		{
+			name:       "auto-enable: CA bundle + trust level",
+			cfg:        &serverConfig{caBundleFile: "ca.pem", trustLevel: &pki},
+			wantEnable: true,
+		},
+		{
+			name:       "no CA bundle",
+			cfg:        &serverConfig{trustLevel: &pki},
+			wantEnable: false,
+		},
+		{
+			name:       "no trust level",
+			cfg:        &serverConfig{caBundleFile: "ca.pem"},
+			wantEnable: false,
+		},
+		{
+			name:       "PolicyNone does not auto-enable",
+			cfg:        &serverConfig{caBundleFile: "ca.pem", trustLevel: &none},
+			wantEnable: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldEnableCRL(tt.cfg); got != tt.wantEnable {
+				t.Errorf("shouldEnableCRL() = %v, want %v", got, tt.wantEnable)
+			}
+		})
+	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+func TestNewServerTLSConfig_CRLEnabled(t *testing.T) {
+	bundle := setupTestCertBundle(t)
+
+	_, err := NewServerTLSConfig(
+		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
+		WithClientCA(bundle.CACertFile),
+		WithClientVerifier(PKIOnly),
+		WithCRLCheck(),
+	)
+	if err != nil {
+		t.Fatalf("NewServerTLSConfig(CRL enabled) error = %v", err)
+	}
+}
+
+func TestNewServerTLSConfig_CRLDisabledExplicitly(t *testing.T) {
+	bundle := setupTestCertBundle(t)
+
+	_, err := NewServerTLSConfig(
+		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
+		WithClientCA(bundle.CACertFile),
+		WithClientVerifier(PKIOnly),
+		WithCRLCheckDisabled(),
+	)
+	if err != nil {
+		t.Fatalf("NewServerTLSConfig(CRL disabled) error = %v", err)
+	}
+}
+
+func TestNewServerTLSConfig_CRLAutoEnabled(t *testing.T) {
+	bundle := setupTestCertBundle(t)
+
+	// CA bundle + trust level + not explicitly disabled → auto-enable CRL
+	_, err := NewServerTLSConfig(
+		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
+		WithClientCA(bundle.CACertFile),
+		WithClientVerifier(BadgeRequired),
+	)
+	if err != nil {
+		t.Fatalf("NewServerTLSConfig(CRL auto) error = %v", err)
+	}
+}
+
+func TestWithClientVerifier_InvalidForServer(t *testing.T) {
+	cfg := &serverConfig{}
+	opt := WithClientVerifier(VerificationPolicy(99))
+	err := opt(cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid trust level, got nil")
 	}
 }
 
