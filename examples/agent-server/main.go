@@ -20,13 +20,21 @@ type serverConfig struct {
 }
 
 func parseServerFlags() *serverConfig {
+	return parseServerFlagsFromArgs(flag.CommandLine, nil)
+}
+
+func parseServerFlagsFromArgs(fs *flag.FlagSet, args []string) *serverConfig {
 	cfg := &serverConfig{}
-	cfg.certFile = *flag.String("cert", "server.crt", "Server TLS certificate (public CA signed)")
-	cfg.keyFile = *flag.String("key", "server.key", "Server TLS private key")
-	cfg.caBundle = *flag.String("ca", "", "Optional CA bundle for client cert verification (empty = accept self-signed)")
-	cfg.addr = *flag.String("addr", ":8443", "Listen address")
-	cfg.trustLevel = *flag.String("trust", "pki_only", "Trust level: pki_only, badge, dane")
-	flag.Parse()
+	fs.StringVar(&cfg.certFile, "cert", "server.crt", "Server TLS certificate (public CA signed)")
+	fs.StringVar(&cfg.keyFile, "key", "server.key", "Server TLS private key")
+	fs.StringVar(&cfg.caBundle, "ca", "", "Optional CA bundle for client cert verification (empty = accept self-signed)")
+	fs.StringVar(&cfg.addr, "addr", ":8443", "Listen address")
+	fs.StringVar(&cfg.trustLevel, "trust", "pki_only", "Trust level: pki_only, badge, dane")
+	if args != nil {
+		fs.Parse(args)
+	} else {
+		fs.Parse(nil)
+	}
 	return cfg
 }
 
@@ -86,6 +94,11 @@ func buildMux() *http.ServeMux {
 	return mux
 }
 
+func formatServerStartup(cfg *serverConfig) string {
+	return fmt.Sprintf("ATI Agent Server starting on %s\n  Trust level: %s\n  Cert: %s\n  Endpoints: /hello, /echo",
+		cfg.addr, cfg.trustLevel, cfg.certFile)
+}
+
 func runServer(cfg *serverConfig) error {
 	opts := buildServerOptions(cfg)
 
@@ -102,10 +115,7 @@ func runServer(cfg *serverConfig) error {
 		Handler:   mux,
 	}
 
-	fmt.Printf("ATI Agent Server starting on %s\n", cfg.addr)
-	fmt.Printf("  Trust level: %s\n", cfg.trustLevel)
-	fmt.Printf("  Cert: %s\n", cfg.certFile)
-	fmt.Printf("  Endpoints: /hello, /echo\n")
+	fmt.Println(formatServerStartup(cfg))
 
 	// TLS cert/key already loaded in tlsConfig, pass empty strings to ListenAndServeTLS
 	if err := server.ListenAndServeTLS("", ""); err != nil {

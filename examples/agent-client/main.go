@@ -21,13 +21,21 @@ type clientConfig struct {
 }
 
 func parseClientFlags() *clientConfig {
+	return parseClientFlagsFromArgs(flag.CommandLine, nil)
+}
+
+func parseClientFlagsFromArgs(fs *flag.FlagSet, args []string) *clientConfig {
 	cfg := &clientConfig{}
-	cfg.certFile = *flag.String("cert", "client.crt", "Client identity certificate (self-signed with ati:// URI SAN)")
-	cfg.keyFile = *flag.String("key", "client.key", "Client identity private key")
-	cfg.serverURL = *flag.String("url", "https://dns-test.aliyuncs.com:8443/hello", "Server URL to connect to")
-	cfg.trustLevel = *flag.String("trust", "badge", "Trust level: pki_only, badge, dane")
-	cfg.timeout = *flag.Duration("timeout", 10*time.Second, "Request timeout")
-	flag.Parse()
+	fs.StringVar(&cfg.certFile, "cert", "client.crt", "Client identity certificate (self-signed with ati:// URI SAN)")
+	fs.StringVar(&cfg.keyFile, "key", "client.key", "Client identity private key")
+	fs.StringVar(&cfg.serverURL, "url", "https://dns-test.aliyuncs.com:8443/hello", "Server URL to connect to")
+	fs.StringVar(&cfg.trustLevel, "trust", "badge", "Trust level: pki_only, badge, dane")
+	fs.DurationVar(&cfg.timeout, "timeout", 10*time.Second, "Request timeout")
+	if args != nil {
+		fs.Parse(args)
+	} else {
+		fs.Parse(nil)
+	}
 	return cfg
 }
 
@@ -38,6 +46,8 @@ func buildClientOptions(cfg *clientConfig) []ati.AgentClientOption {
 	}
 
 	switch cfg.trustLevel {
+	case "none":
+		opts = append(opts, ati.WithTrustLevel(ati.PolicyNone))
 	case "pki_only", "pki":
 		opts = append(opts, ati.WithTrustLevel(ati.PKIOnly))
 	case "badge_required", "badge":
@@ -45,10 +55,40 @@ func buildClientOptions(cfg *clientConfig) []ati.AgentClientOption {
 	case "dane_and_badge", "dane":
 		opts = append(opts, ati.WithTrustLevel(ati.DANEAndBadge))
 	default:
-		log.Fatalf("unknown trust level: %s (use pki_only/badge/dane)", cfg.trustLevel)
+		log.Fatalf("unknown trust level: %s (use none/pki_only/badge/dane)", cfg.trustLevel)
 	}
 
 	return opts
+}
+
+func formatCertStatus(status ati.CertStatus) string {
+	return fmt.Sprintf("Identity cert expires: %s (in %d days)", status.ExpiresAt.Format("2006-01-02"), status.DaysRemaining)
+}
+
+func formatResponse(status string, body []byte) string {
+	return fmt.Sprintf("Status: %s\nBody:   %s", status, string(body))
+}
+
+func formatVerificationOutcome(o *ati.TrustOutcome) string {
+	if o == nil {
+		return ""
+	}
+	result := fmt.Sprintf("DNS Discovered:  %v\n", o.DNSDiscovered)
+	result += fmt.Sprintf("CA Chain Valid:  %v\n", o.CAChainValid)
+	result += fmt.Sprintf("SAN Matches:     %v\n", o.SANMatches)
+	result += fmt.Sprintf("Badge Verified:  %v\n", o.BadgeVerified)
+	result += fmt.Sprintf("DANE Verified:   %v\n", o.DANEVerified)
+	result += fmt.Sprintf("Achieved Level:  %s\n", o.AchievedLevel)
+	if o.RequestedLevel != nil {
+		result += fmt.Sprintf("Requested Level: %s\n", o.RequestedLevel)
+	}
+	if o.PeerATIName != "" {
+		result += fmt.Sprintf("Peer ATI Name:   %s\n", o.PeerATIName)
+	}
+	if o.AgentID != "" {
+		result += fmt.Sprintf("Agent ID:        %s\n", o.AgentID)
+	}
+	return result
 }
 
 func runClient(cfg *clientConfig) error {
@@ -59,14 +99,12 @@ func runClient(cfg *clientConfig) error {
 		return fmt.Errorf("failed to create agent client: %w", err)
 	}
 
-	// Check cert status
 	status := client.CertStatus()
-	fmt.Printf("Identity cert expires: %s (in %d days)\n", status.ExpiresAt.Format("2006-01-02"), status.DaysRemaining)
+	fmt.Println(formatCertStatus(status))
 	if status.IsExpired {
 		return fmt.Errorf("identity certificate is expired")
 	}
 
-	// Make request
 	ctx := context.Background()
 	fmt.Printf("\nConnecting to %s ...\n", cfg.serverURL)
 
@@ -79,27 +117,11 @@ func runClient(cfg *clientConfig) error {
 	body, _ := io.ReadAll(resp.Body)
 
 	fmt.Printf("\n=== Response ===\n")
-	fmt.Printf("Status: %s\n", resp.Status)
-	fmt.Printf("Body:   %s\n", string(body))
+	fmt.Println(formatResponse(resp.Status, body))
 
 	if resp.VerificationOutcome != nil {
-		o := resp.VerificationOutcome
 		fmt.Printf("\n=== Trust Verification ===\n")
-		fmt.Printf("DNS Discovered:  %v\n", o.DNSDiscovered)
-		fmt.Printf("CA Chain Valid:  %v\n", o.CAChainValid)
-		fmt.Printf("SAN Matches:     %v\n", o.SANMatches)
-		fmt.Printf("Badge Verified:  %v\n", o.BadgeVerified)
-		fmt.Printf("DANE Verified:   %v\n", o.DANEVerified)
-		fmt.Printf("Achieved Level:  %s\n", o.AchievedLevel)
-		if o.RequestedLevel != nil {
-			fmt.Printf("Requested Level: %s\n", o.RequestedLevel)
-		}
-		if o.PeerATIName != "" {
-			fmt.Printf("Peer ATI Name:   %s\n", o.PeerATIName)
-		}
-		if o.AgentID != "" {
-			fmt.Printf("Agent ID:        %s\n", o.AgentID)
-		}
+		fmt.Print(formatVerificationOutcome(resp.VerificationOutcome))
 	}
 
 	return nil
