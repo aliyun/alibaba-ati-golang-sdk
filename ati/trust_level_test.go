@@ -120,6 +120,7 @@ func TestVerificationPolicy_DisplayName(t *testing.T) {
 		{PolicyBasic, "L1 Basic"},
 		{PolicyEnhanced, "L2 Enhanced"},
 		{PolicyAdvanced, "L3 Advanced"},
+		{VerificationPolicy(99), "Unknown(99)"},
 	}
 	for _, tt := range tests {
 		if got := tt.level.DisplayName(); got != tt.want {
