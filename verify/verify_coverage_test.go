@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/aliyun/alibaba-ati-golang-sdk/models"
-	"github.com/aliyun/alibaba-ati-golang-sdk/verify/scitt"
 )
 
 func TestRewriteTLHost_InvalidURL(t *testing.T) {
@@ -236,7 +235,174 @@ func TestServerVerifier_Prefetch_Success_WithCache(t *testing.T) {
 
 // Suppress unused import warning for slog
 var _ = slog.Default
-var _ = scitt.Headers{}
+
+func TestServerVerifier_TLogError(t *testing.T) {
+	v100 := models.NewVersion(1, 0, 0)
+	badgeURL := "https://tl.atiagent.cn/api/v1/badge"
+	mockResolver := NewMockDNSResolver().
+		WithRecords("tlogerr.example.com", []ATIBadgeRecord{
+			{FormatVersion: "ati-badge1", Version: &v100, URL: badgeURL},
+		})
+
+	mockTLog := NewMockTransparencyLogClient().
+		WithError(badgeURL, &testVerifyError{msg: "TLog unavailable"})
+
+	v := NewServerVerifier(
+		WithDNSResolver(mockResolver),
+		WithTlogClient(mockTLog),
+		WithTrustedTLHost(DefaultTrustedTLHost),
+	)
+
+	fqdn, _ := models.NewFqdn("tlogerr.example.com")
+	cert := &CertIdentity{
+		Fingerprint: CertFingerprintFromBytes([32]byte{1}),
+	}
+
+	outcome := v.Verify(context.Background(), fqdn, cert)
+	if outcome == nil {
+		t.Fatal("expected non-nil outcome")
+	}
+	if outcome.Type != OutcomeTlogError {
+		t.Errorf("expected OutcomeTlogError, got %v", outcome.Type)
+	}
+}
+
+func TestServerVerifier_InvalidAgentStatus(t *testing.T) {
+	v100 := models.NewVersion(1, 0, 0)
+	badgeURL := "https://tl.atiagent.cn/api/v1/badge"
+	fpHex := "0102030000000000000000000000000000000000000000000000000000000000"
+
+	mockResolver := NewMockDNSResolver().
+		WithRecords("revoked.example.com", []ATIBadgeRecord{
+			{FormatVersion: "ati-badge1", Version: &v100, URL: badgeURL},
+		})
+
+	mockTLog := NewMockTransparencyLogClient().
+		WithTLResponse(badgeURL, &models.TLResponse{
+			Status:        "success",
+			SchemaVersion: "1.0",
+			Payload: models.TLPayload{
+				AgentName:   "ati://v1.0.0.revoked.example.com",
+				AgentHost:   "revoked.example.com",
+				AgentStatus: "REVOKED",
+				Certificates: models.TLCertificates{
+					ServerCertFingerprint: "SHA256:" + fpHex,
+				},
+			},
+		})
+
+	v := NewServerVerifier(
+		WithDNSResolver(mockResolver),
+		WithTlogClient(mockTLog),
+		WithTrustedTLHost(DefaultTrustedTLHost),
+	)
+
+	fqdn, _ := models.NewFqdn("revoked.example.com")
+	cert := &CertIdentity{
+		Fingerprint: CertFingerprintFromBytes([32]byte{1, 2, 3}),
+	}
+
+	outcome := v.Verify(context.Background(), fqdn, cert)
+	if outcome == nil {
+		t.Fatal("expected non-nil outcome")
+	}
+	// REVOKED is not valid for connection → should return invalid status outcome
+	if outcome.Type == OutcomeVerified {
+		t.Error("did not expect OutcomeVerified for REVOKED agent")
+	}
+}
+
+func TestServerVerifier_HostnameMismatch_AgentHostVsFqdn(t *testing.T) {
+	v100 := models.NewVersion(1, 0, 0)
+	badgeURL := "https://tl.atiagent.cn/api/v1/badge"
+	fpHex := "0102030000000000000000000000000000000000000000000000000000000000"
+
+	mockResolver := NewMockDNSResolver().
+		WithRecords("actual.example.com", []ATIBadgeRecord{
+			{FormatVersion: "ati-badge1", Version: &v100, URL: badgeURL},
+		})
+
+	mockTLog := NewMockTransparencyLogClient().
+		WithTLResponse(badgeURL, &models.TLResponse{
+			Status:        "success",
+			SchemaVersion: "1.0",
+			Payload: models.TLPayload{
+				AgentName:   "ati://v1.0.0.wrong.example.com",
+				AgentHost:   "wrong.example.com",
+				AgentStatus: "ACTIVE",
+				Certificates: models.TLCertificates{
+					ServerCertFingerprint: "SHA256:" + fpHex,
+				},
+			},
+		})
+
+	v := NewServerVerifier(
+		WithDNSResolver(mockResolver),
+		WithTlogClient(mockTLog),
+		WithTrustedTLHost(DefaultTrustedTLHost),
+	)
+
+	fqdn, _ := models.NewFqdn("actual.example.com")
+	cert := &CertIdentity{
+		Fingerprint: CertFingerprintFromBytes([32]byte{1, 2, 3}),
+	}
+
+	outcome := v.Verify(context.Background(), fqdn, cert)
+	if outcome == nil {
+		t.Fatal("expected non-nil outcome")
+	}
+	// AgentHost doesn't match fqdn → hostname mismatch
+	if outcome.Type == OutcomeVerified {
+		t.Error("did not expect OutcomeVerified for hostname mismatch")
+	}
+}
+
+func TestDANEVerifier_VerifyIdentity_Pass(t *testing.T) {
+	fpBytes := [32]byte{0xde, 0xad}
+	spkiHex := "dead000000000000000000000000000000000000000000000000000000000000"
+
+	mockDANE := NewMockDANEResolver().
+		WithIdentityTLSA("test.example.com", TLSALookupResult{
+			Found:       true,
+			DNSSECValid: true,
+			Records: []TLSARecord{
+				{Usage: 3, Selector: 1, MatchingType: 1, CertHash: spkiHex},
+			},
+		})
+
+	verifier := NewDANEVerifier(mockDANE)
+	fqdn, _ := models.NewFqdn("test.example.com")
+	cert := &CertIdentity{
+		SPKIFingerprint: CertFingerprintFromBytes(fpBytes),
+	}
+
+	outcome := verifier.VerifyIdentity(context.Background(), fqdn, cert)
+	if outcome == nil {
+		t.Fatal("expected non-nil outcome")
+	}
+	if outcome.Type != DANEVerified {
+		t.Errorf("expected DANEVerified, got %v", outcome.Type)
+	}
+}
+
+func TestDANEVerifier_VerifyIdentity_Error(t *testing.T) {
+	mockDANE := NewMockDANEResolver().
+		WithIdentityError("fail.example.com", &testVerifyError{msg: "identity lookup failed"})
+
+	verifier := NewDANEVerifier(mockDANE)
+	fqdn, _ := models.NewFqdn("fail.example.com")
+	cert := &CertIdentity{
+		SPKIFingerprint: CertFingerprintFromBytes([32]byte{1}),
+	}
+
+	outcome := verifier.VerifyIdentity(context.Background(), fqdn, cert)
+	if outcome == nil {
+		t.Fatal("expected non-nil outcome")
+	}
+	if outcome.Type != DANELookupError {
+		t.Errorf("expected DANELookupError, got %v", outcome.Type)
+	}
+}
 
 type testVerifyError struct {
 	msg string
