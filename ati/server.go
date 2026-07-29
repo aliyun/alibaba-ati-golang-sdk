@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
+	"github.com/aliyun/alibaba-ati-golang-sdk/verify/crl"
 )
 
 // ServerOption configures the server-side TLS configuration.
@@ -29,6 +31,9 @@ type serverConfig struct {
 	tlogClient     verify.TransparencyLogClient
 	clientVerifier *verify.ClientVerifier
 	peerLevels     *sync.Map // cert fingerprint → TrustLevel (for auto-detect)
+	crlEnabled     *bool
+	crlChecker     *crl.Checker
+	crlHTTPClient  *http.Client
 }
 
 // WithServerCert sets the server certificate and private key files.
@@ -75,23 +80,36 @@ func WithPeerLevelStore(store *sync.Map) ServerOption {
 	}
 }
 
-// WithServerDANEResolver sets a DANE resolver for TrustFull-level client verification.
-func WithServerDANEResolver(r verify.DANEResolver) ServerOption {
+// WithCRLCheck enables CRL revocation checking for client certificates.
+func WithCRLCheck() ServerOption {
 	return func(c *serverConfig) error {
-		c.daneResolver = r
+		enabled := true
+		c.crlEnabled = &enabled
 		return nil
 	}
 }
 
-// WithServerAliyunDiscovery uses the Aliyun DescribeAtiAgentRegisterInfoMarket API for
-// client discovery (_ati replacement), while badge lookups still use DNS TXT records.
-func WithServerAliyunDiscovery(cfg verify.AliyunATIConfig) ServerOption {
+// WithCRLCheckDisabled explicitly disables CRL revocation checking.
+func WithCRLCheckDisabled() ServerOption {
 	return func(c *serverConfig) error {
-		resolver, err := verify.NewAliyunATIDiscovery(cfg)
-		if err != nil {
-			return fmt.Errorf("aliyun discovery: %w", err)
-		}
-		c.dnsResolver = resolver
+		disabled := false
+		c.crlEnabled = &disabled
+		return nil
+	}
+}
+
+// WithCRLHTTPClient sets a custom HTTP client for CRL downloads.
+func WithCRLHTTPClient(client *http.Client) ServerOption {
+	return func(c *serverConfig) error {
+		c.crlHTTPClient = client
+		return nil
+	}
+}
+
+// WithServerDANEResolver sets a DANE resolver for TrustFull-level client verification.
+func WithServerDANEResolver(r verify.DANEResolver) ServerOption {
+	return func(c *serverConfig) error {
+		c.daneResolver = r
 		return nil
 	}
 }
@@ -123,6 +141,11 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 		return nil, errors.New("server certificate and private key are required: use WithServerCert()")
 	}
 
+	// PolicyNone + CA bundle is a conflicting configuration
+	if cfg.trustLevel != nil && *cfg.trustLevel == PolicyNone && cfg.caBundleFile != "" {
+		return nil, errors.New("PolicyNone cannot be used with WithClientCA()")
+	}
+
 	serverCert, err := tls.LoadX509KeyPair(cfg.serverCertFile, cfg.privateKeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("%s 或 %s 不是有效的证书/密钥对: %w", cfg.serverCertFile, cfg.privateKeyFile, err)
@@ -137,12 +160,15 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 
 	// Determine the TLS client-auth mode from the configured trust level:
 	//   - no trust level        → NoClientCert (plain connection, no mTLS)
+	//   - PolicyNone            → NoClientCert (no client auth)
 	//   - CA bundle provided     → RequireAndVerifyClientCert (CA chain validated)
 	//   - trust level, no bundle → RequireAnyClientCert (trust via Badge/TLog)
 	var clientCAs *x509.CertPool
 	var clientAuth tls.ClientAuthType
 	switch {
 	case cfg.trustLevel == nil:
+		clientAuth = tls.NoClientCert
+	case *cfg.trustLevel == PolicyNone:
 		clientAuth = tls.NoClientCert
 	case cfg.caBundleFile != "":
 		caBundlePEM, readErr := os.ReadFile(cfg.caBundleFile)
@@ -191,6 +217,15 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 	verifyOpts = append(verifyOpts, verify.WithTrustedTLHost(verify.DefaultTrustedTLHost))
 	cfg.clientVerifier = verify.NewClientVerifier(verifyOpts...)
 
+	// Auto-enable CRL when: CA bundle set + trust level configured + not PolicyNone + not explicitly disabled
+	if shouldEnableCRL(cfg) {
+		var fetcherOpts []crl.FetcherOption
+		if cfg.crlHTTPClient != nil {
+			fetcherOpts = append(fetcherOpts, crl.WithHTTPClient(cfg.crlHTTPClient))
+		}
+		cfg.crlChecker = crl.NewChecker(crl.WithFetcher(crl.NewFetcher(fetcherOpts...)))
+	}
+
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
 		ClientCAs:    clientCAs,
@@ -198,9 +233,9 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 		MinVersion:   tls.VersionTLS13,
 	}
 
-	// Only enforce trust verification when a level is configured. With no trust
-	// level the connection is accepted as-is (plain TLS, nothing verified).
-	if cfg.trustLevel != nil {
+	// Only enforce trust verification when a level is configured and not NONE.
+	// With no trust level or NONE the connection is accepted as-is.
+	if cfg.trustLevel != nil && *cfg.trustLevel != PolicyNone {
 		tlsConfig.VerifyConnection = buildVerifyConnection(cfg)
 	}
 
@@ -246,6 +281,18 @@ func buildVerifyConnection(cfg *serverConfig) func(tls.ConnectionState) error {
 		if cfg.trustLevel != nil && *cfg.trustLevel == PKIOnly {
 			slog.Info("[server-verify] trust level: PKI_ONLY — accepting client")
 			return nil
+		}
+
+		// CRL revocation check (after cert validity, before Badge)
+		if cfg.crlChecker != nil {
+			crlResult := cfg.crlChecker.Check(context.Background(), peerCert, cs.PeerCertificates)
+			if crlResult.ShouldReject() {
+				slog.Error("[server-verify] CRL check FAILED", "status", crlResult.Status, "message", crlResult.Message)
+				return fmt.Errorf("CRL check failed: %s", crlResult.Message)
+			}
+			if crlResult.Status == crl.Passed {
+				slog.Info("[server-verify] CRL check PASSED", "cdpURI", crlResult.CDPURI)
+			}
 		}
 
 		certIdentity := verify.CertIdentityFromX509(peerCert)
@@ -382,4 +429,13 @@ func PeerATIName(state *tls.ConnectionState) (*ATIName, error) {
 	}
 
 	return nil, errors.New("no ati:// URI SAN found in peer certificate")
+}
+
+// shouldEnableCRL returns true when CRL checking should be auto-enabled.
+func shouldEnableCRL(cfg *serverConfig) bool {
+	if cfg.crlEnabled != nil {
+		return *cfg.crlEnabled
+	}
+	// Auto-enable when: CA bundle provided and trust level is set and not NONE
+	return cfg.caBundleFile != "" && cfg.trustLevel != nil && *cfg.trustLevel != PolicyNone
 }

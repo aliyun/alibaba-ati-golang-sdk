@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
 )
@@ -37,6 +38,8 @@ type AgentClient struct {
 	tlPublicKey    *ecdsa.PublicKey
 	serverVerifier *verify.ServerVerifier
 	verifyCache    sync.Map // host+fingerprint → *TrustOutcome
+	identityHost   string   // for Badge + identity DANE lookups
+	accessHost     string   // for transport DANE (_443._tcp) lookups
 }
 
 // AgentClientOption configures an AgentClient.
@@ -54,6 +57,8 @@ type agentClientConfig struct {
 	daneResolver     verify.DANEResolver
 	tlogClient       verify.TransparencyLogClient
 	tlPublicKey      *ecdsa.PublicKey
+	identityHost     string // for Badge + identity DANE lookups
+	accessHost       string // for transport DANE (_443._tcp) lookups
 }
 
 // WithIdentityCert sets the client's identity certificate and private key for mTLS.
@@ -123,23 +128,28 @@ func WithTLogClient(t verify.TransparencyLogClient) AgentClientOption {
 	}
 }
 
-// WithAliyunDiscovery uses the Aliyun DescribeAtiAgentRegisterInfoMarket API for
-// agent discovery (_ati replacement), while badge lookups still use DNS TXT records.
-func WithAliyunDiscovery(cfg verify.AliyunATIConfig) AgentClientOption {
-	return func(c *agentClientConfig) error {
-		resolver, err := verify.NewAliyunATIDiscovery(cfg)
-		if err != nil {
-			return fmt.Errorf("aliyun discovery: %w", err)
-		}
-		c.dnsResolver = resolver
-		return nil
-	}
-}
-
 // WithTLPublicKey sets a pre-configured CNNIC TL public key for Gold seal verification.
 func WithTLPublicKey(key *ecdsa.PublicKey) AgentClientOption {
 	return func(c *agentClientConfig) error {
 		c.tlPublicKey = key
+		return nil
+	}
+}
+
+// WithIdentityHost sets the hostname used for Badge and identity DANE lookups.
+// When not set, the connection URL host is used.
+func WithIdentityHost(host string) AgentClientOption {
+	return func(c *agentClientConfig) error {
+		c.identityHost = host
+		return nil
+	}
+}
+
+// WithAccessHost sets the hostname used for transport DANE (_443._tcp) lookups.
+// When not set, the connection URL host is used.
+func WithAccessHost(host string) AgentClientOption {
+	return func(c *agentClientConfig) error {
+		c.accessHost = host
 		return nil
 	}
 }
@@ -167,30 +177,19 @@ func WithTargetVersion(version string) AgentClientOption {
 }
 
 // normalizeVersionExpr validates and normalizes a semver range expression.
-// Returns the API-compatible format (no "v" prefix): "1.0.0", "^1.0.0", "~1.0.0", ">=1.0.0".
+// Returns the API-compatible format: "1.0.0", "^1.0.0", "~1.0.0", ">=1.0.0".
 func normalizeVersionExpr(expr string) (string, error) {
-	prefix := ""
-	semverPart := expr
-
-	switch {
-	case strings.HasPrefix(expr, ">="):
-		prefix = ">="
-		semverPart = expr[2:]
-	case strings.HasPrefix(expr, "^"):
-		prefix = "^"
-		semverPart = expr[1:]
-	case strings.HasPrefix(expr, "~"):
-		prefix = "~"
-		semverPart = expr[1:]
-	}
-
-	v, err := models.ParseVersion(semverPart)
+	// Try to parse as a constraint first to validate the expression
+	_, err := semver.NewConstraint(expr)
 	if err != nil {
-		return "", fmt.Errorf("invalid version expression %q: %w", expr, err)
+		// Try as a plain version
+		v, vErr := semver.NewVersion(expr)
+		if vErr != nil {
+			return "", fmt.Errorf("invalid version expression %q: %w", expr, vErr)
+		}
+		return v.String(), nil
 	}
-
-	// API expects no "v" prefix: "1.0.0", "^1.0.0", etc.
-	return fmt.Sprintf("%s%d.%d.%d", prefix, v.Major, v.Minor, v.Patch), nil
+	return expr, nil
 }
 
 // NewAgentClient creates a new mTLS-based agent client.
@@ -208,6 +207,35 @@ func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
 	if cfg.trustLevel == nil {
 		defaultLevel := BadgeRequired
 		cfg.trustLevel = &defaultLevel
+	}
+
+	// PolicyNone: skip TLS validation entirely (dev/test only)
+	if *cfg.trustLevel == PolicyNone {
+		if cfg.caBundleFile != "" {
+			return nil, errors.New("PolicyNone cannot be used with a CA bundle")
+		}
+		slog.Warn("[ati-client] NONE verification policy: TLS validation disabled (dev/test only)")
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS13,
+		}
+		// Load identity cert if provided (for mTLS handshake)
+		if cfg.identityCertFile != "" && cfg.privateKeyFile != "" {
+			identityCert, err := tls.LoadX509KeyPair(cfg.identityCertFile, cfg.privateKeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("%s 或 %s 不是有效的证书/密钥对: %w", cfg.identityCertFile, cfg.privateKeyFile, err)
+			}
+			tlsConfig.Certificates = []tls.Certificate{identityCert}
+		}
+		transport := &http.Transport{TLSClientConfig: tlsConfig}
+		return &AgentClient{
+			httpClient: &http.Client{
+				Timeout:   cfg.timeout,
+				Transport: transport,
+			},
+			tlsConfig:  tlsConfig,
+			trustLevel: cfg.trustLevel,
+		}, nil
 	}
 
 	if cfg.identityCertFile == "" || cfg.privateKeyFile == "" {
@@ -278,13 +306,6 @@ func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
 		}
 	}
 
-	// Set target version on Aliyun discovery resolver
-	if cfg.targetVersion != "" {
-		if aliyunResolver, ok := resolver.(*verify.AliyunATIDiscovery); ok {
-			aliyunResolver.SetTargetVersion(cfg.targetVersion)
-		}
-	}
-
 	tlogClient := cfg.tlogClient
 	if tlogClient == nil {
 		tlogClient = verify.NewHTTPTransparencyLogClient()
@@ -326,6 +347,8 @@ func NewAgentClient(opts ...AgentClientOption) (*AgentClient, error) {
 		tlogClient:     tlogClient,
 		tlPublicKey:    cfg.tlPublicKey,
 		serverVerifier: serverVerifier,
+		identityHost:   cfg.identityHost,
+		accessHost:     cfg.accessHost,
 	}, nil
 }
 
@@ -421,6 +444,30 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 	explicit := c.trustLevel != nil
 	outcome := &TrustOutcome{RequestedLevel: c.trustLevel}
 
+	// PolicyNone: skip all verification
+	if explicit && *c.trustLevel == PolicyNone {
+		var bodyReader io.Reader
+		if body != nil {
+			jsonBytes, marshalErr := json.Marshal(body)
+			if marshalErr != nil {
+				return nil, fmt.Errorf("failed to marshal request body: %w", marshalErr)
+			}
+			bodyReader = bytes.NewReader(jsonBytes)
+		}
+		req, reqErr := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, doErr := c.httpClient.Do(req)
+		if doErr != nil {
+			return nil, fmt.Errorf("request failed: %w", doErr)
+		}
+		return &Response{Response: resp, VerificationOutcome: outcome}, nil
+	}
+
 	fqdn, fqdnErr := models.NewFqdn(host)
 	if fqdnErr != nil {
 		return nil, fmt.Errorf("invalid hostname %q: %w", host, fqdnErr)
@@ -497,40 +544,48 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 
 	slog.Info("[verify] PKI: TLS handshake", "caChainValid", outcome.CAChainValid, "sanMatches", outcome.SANMatches)
 
-	if outcome.DNSDiscovered && outcome.CAChainValid && outcome.SANMatches {
+	if outcome.DNSDiscovered && outcome.CAChainValid {
 		outcome.AchievedLevel = PKIOnly
 	}
 
 	// --- Badge verification ---
 	shouldBadge := !explicit || *c.trustLevel >= BadgeRequired
 	if shouldBadge && certIdentity != nil {
-		slog.Info("[verify] Badge: starting verification", "fqdn", fqdn.String())
-		badgeOutcome := c.serverVerifier.Verify(ctx, fqdn, certIdentity)
-		outcome.BadgeOutcome = badgeOutcome
-		slog.Info("[verify] Badge: result", "success", badgeOutcome.IsSuccess(), "outcome", badgeOutcome.ToError())
-		if badgeOutcome.IsSuccess() {
-			outcome.BadgeVerified = true
-			outcome.AchievedLevel = BadgeRequired
-		} else if explicit && *c.trustLevel >= BadgeRequired {
-			resp.Body.Close()
-			return nil, fmt.Errorf("badge verification failed for %s: %v", host, badgeOutcome.ToError())
+		badgeHost := c.resolveIdentityHost(host)
+		badgeFqdn, badgeFqdnErr := models.NewFqdn(badgeHost)
+		if badgeFqdnErr == nil {
+			slog.Info("[verify] Badge: starting verification", "fqdn", badgeFqdn.String())
+			badgeOutcome := c.serverVerifier.Verify(ctx, badgeFqdn, certIdentity)
+			outcome.BadgeOutcome = badgeOutcome
+			slog.Info("[verify] Badge: result", "success", badgeOutcome.IsSuccess(), "outcome", badgeOutcome.ToError())
+			if badgeOutcome.IsSuccess() {
+				outcome.BadgeVerified = true
+				outcome.AchievedLevel = BadgeRequired
+			} else if explicit && *c.trustLevel >= BadgeRequired {
+				resp.Body.Close()
+				return nil, fmt.Errorf("badge verification failed for %s: %v", badgeHost, badgeOutcome.ToError())
+			}
 		}
 	}
 
 	// --- DANE/Full verification ---
 	shouldDANE := !explicit || *c.trustLevel >= DANEAndBadge
 	if shouldDANE && outcome.BadgeVerified && c.daneResolver != nil && certIdentity != nil {
-		slog.Info("[verify] DANE: starting TLSA verification", "fqdn", fqdn.String(), "port", 443)
-		daneVerifier := verify.NewDANEVerifier(c.daneResolver)
-		daneOutcome := daneVerifier.Verify(ctx, fqdn, 443, certIdentity)
-		outcome.DANEDetails = daneOutcome
-		slog.Info("[verify] DANE: result", "type", daneOutcome.Type.String(), "pass", daneOutcome.IsPass(), "error", daneOutcome.Error)
-		if daneOutcome.IsPass() {
-			outcome.DANEVerified = true
-			outcome.AchievedLevel = DANEAndBadge
-		} else if daneOutcome.IsReject() && explicit {
-			resp.Body.Close()
-			return nil, fmt.Errorf("DANE verification failed for %s: %v", host, daneOutcome.Error)
+		daneHost := c.resolveAccessHost(host)
+		daneFqdn, daneFqdnErr := models.NewFqdn(daneHost)
+		if daneFqdnErr == nil {
+			slog.Info("[verify] DANE: starting TLSA verification", "fqdn", daneFqdn.String(), "port", 443)
+			daneVerifier := verify.NewDANEVerifier(c.daneResolver)
+			daneOutcome := daneVerifier.Verify(ctx, daneFqdn, 443, certIdentity)
+			outcome.DANEDetails = daneOutcome
+			slog.Info("[verify] DANE: result", "type", daneOutcome.Type.String(), "pass", daneOutcome.IsPass(), "error", daneOutcome.Error)
+			if daneOutcome.IsPass() {
+				outcome.DANEVerified = true
+				outcome.AchievedLevel = DANEAndBadge
+			} else if daneOutcome.IsReject() && explicit {
+				resp.Body.Close()
+				return nil, fmt.Errorf("DANE verification failed for %s: %v", daneHost, daneOutcome.Error)
+			}
 		}
 	}
 
@@ -578,6 +633,20 @@ func (c *AgentClient) checkDNSDiscovery(ctx context.Context, fqdn models.Fqdn) (
 		return true, result.Records[0].ID
 	}
 	return true, ""
+}
+
+func (c *AgentClient) resolveIdentityHost(connectionHost string) string {
+	if c.identityHost != "" {
+		return c.identityHost
+	}
+	return connectionHost
+}
+
+func (c *AgentClient) resolveAccessHost(connectionHost string) string {
+	if c.accessHost != "" {
+		return c.accessHost
+	}
+	return connectionHost
 }
 
 // buildClientVerifyConnection creates a VerifyConnection callback for the client TLS config.

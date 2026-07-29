@@ -2,10 +2,8 @@ package ati
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 
-	"github.com/aliyun/alibaba-ati-golang-sdk/models"
+	"github.com/Masterminds/semver/v3"
 	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
 )
 
@@ -41,12 +39,16 @@ func resolveExact(records []*verify.ATIRecord, requested string) (*verify.ATIRec
 	if requested == "" {
 		return nil, fmt.Errorf("EXACT policy requires a version")
 	}
-	reqVersion, err := models.ParseVersion(requested)
+	reqVersion, err := semver.NewVersion(requested)
 	if err != nil {
 		return nil, fmt.Errorf("invalid requested version %q: %w", requested, err)
 	}
 	for _, r := range records {
-		if r.Version.Compare(reqVersion) == 0 {
+		v, vErr := semver.NewVersion(r.Version.String())
+		if vErr != nil {
+			continue
+		}
+		if v.Equal(reqVersion) {
 			return r, nil
 		}
 	}
@@ -55,10 +57,19 @@ func resolveExact(records []*verify.ATIRecord, requested string) (*verify.ATIRec
 
 func resolveLatest(records []*verify.ATIRecord) (*verify.ATIRecord, error) {
 	var best *verify.ATIRecord
+	var bestVer *semver.Version
 	for _, r := range records {
-		if best == nil || r.Version.Compare(best.Version) > 0 {
-			best = r
+		v, err := semver.NewVersion(r.Version.String())
+		if err != nil {
+			continue
 		}
+		if bestVer == nil || v.GreaterThan(bestVer) {
+			best = r
+			bestVer = v
+		}
+	}
+	if best == nil {
+		return nil, fmt.Errorf("no valid semver records found")
 	}
 	return best, nil
 }
@@ -68,44 +79,44 @@ func resolveLatestCompatible(records []*verify.ATIRecord, requested string) (*ve
 		return resolveLatest(records)
 	}
 
-	// Parse semver range: "^1.2.0" means >=1.2.0 <2.0.0
-	major, err := parseMajorFromRange(requested)
+	constraint, err := semver.NewConstraint(requested)
 	if err != nil {
-		return resolveLatest(records)
+		return findExact(records, requested)
 	}
 
 	var best *verify.ATIRecord
+	var bestVer *semver.Version
 	for _, r := range records {
-		parts := strings.Split(r.Version.String(), ".")
-		if len(parts) < 1 {
+		v, vErr := semver.NewVersion(r.Version.String())
+		if vErr != nil {
 			continue
 		}
-		vStr := strings.TrimPrefix(parts[0], "v")
-		recordMajor, parseErr := strconv.Atoi(vStr)
-		if parseErr != nil {
-			continue
-		}
-		if recordMajor == major {
-			if best == nil || r.Version.Compare(best.Version) > 0 {
+		if constraint.Check(v) {
+			if bestVer == nil || v.GreaterThan(bestVer) {
 				best = r
+				bestVer = v
 			}
 		}
 	}
-
 	if best == nil {
-		return nil, fmt.Errorf("no compatible version found for major %d", major)
+		return nil, fmt.Errorf("no records satisfy constraint %q", requested)
 	}
 	return best, nil
 }
 
-func parseMajorFromRange(rangeStr string) (int, error) {
-	s := strings.TrimPrefix(rangeStr, "^")
-	s = strings.TrimPrefix(s, "~")
-	s = strings.TrimPrefix(s, ">=")
-	s = strings.TrimPrefix(s, "v")
-	parts := strings.Split(s, ".")
-	if len(parts) == 0 {
-		return 0, fmt.Errorf("invalid range: %s", rangeStr)
+func findExact(records []*verify.ATIRecord, requested string) (*verify.ATIRecord, error) {
+	reqVer, err := semver.NewVersion(requested)
+	if err != nil {
+		return nil, fmt.Errorf("invalid version expression %q: %w", requested, err)
 	}
-	return strconv.Atoi(parts[0])
+	for _, r := range records {
+		v, vErr := semver.NewVersion(r.Version.String())
+		if vErr != nil {
+			continue
+		}
+		if v.Equal(reqVer) {
+			return r, nil
+		}
+	}
+	return nil, fmt.Errorf("exact version %s not found", requested)
 }
