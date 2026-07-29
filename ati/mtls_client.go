@@ -179,15 +179,15 @@ func WithTargetVersion(version string) AgentClientOption {
 // normalizeVersionExpr validates and normalizes a semver range expression.
 // Returns the API-compatible format: "1.0.0", "^1.0.0", "~1.0.0", ">=1.0.0".
 func normalizeVersionExpr(expr string) (string, error) {
-	// Try to parse as a constraint first to validate the expression
-	_, err := semver.NewConstraint(expr)
-	if err != nil {
-		// Try as a plain version
-		v, vErr := semver.NewVersion(expr)
-		if vErr != nil {
-			return "", fmt.Errorf("invalid version expression %q: %w", expr, vErr)
-		}
+	// Try as a plain version first to strip the v prefix (e.g. "v1.2.3" → "1.2.3")
+	v, err := semver.NewVersion(expr)
+	if err == nil {
 		return v.String(), nil
+	}
+	// Try to parse as a constraint (range expressions like "^1.0.0", "~1.0.0", ">=1.0.0")
+	_, err = semver.NewConstraint(expr)
+	if err != nil {
+		return "", fmt.Errorf("invalid version expression %q: %w", expr, err)
 	}
 	return expr, nil
 }
