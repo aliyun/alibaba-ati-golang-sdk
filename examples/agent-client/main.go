@@ -12,20 +12,32 @@ import (
 	"github.com/aliyun/alibaba-ati-golang-sdk/ati"
 )
 
-func main() {
-	certFile := flag.String("cert", "client.crt", "Client identity certificate (self-signed with ati:// URI SAN)")
-	keyFile := flag.String("key", "client.key", "Client identity private key")
-	serverURL := flag.String("url", "https://dns-test.aliyuncs.com:8443/hello", "Server URL to connect to")
-	trustLevel := flag.String("trust", "badge", "Trust level: pki_only, badge, dane")
-	timeout := flag.Duration("timeout", 10*time.Second, "Request timeout")
-	flag.Parse()
+type clientConfig struct {
+	certFile   string
+	keyFile    string
+	serverURL  string
+	trustLevel string
+	timeout    time.Duration
+}
 
+func parseClientFlags() *clientConfig {
+	cfg := &clientConfig{}
+	cfg.certFile = *flag.String("cert", "client.crt", "Client identity certificate (self-signed with ati:// URI SAN)")
+	cfg.keyFile = *flag.String("key", "client.key", "Client identity private key")
+	cfg.serverURL = *flag.String("url", "https://dns-test.aliyuncs.com:8443/hello", "Server URL to connect to")
+	cfg.trustLevel = *flag.String("trust", "badge", "Trust level: pki_only, badge, dane")
+	cfg.timeout = *flag.Duration("timeout", 10*time.Second, "Request timeout")
+	flag.Parse()
+	return cfg
+}
+
+func buildClientOptions(cfg *clientConfig) []ati.AgentClientOption {
 	opts := []ati.AgentClientOption{
-		ati.WithIdentityCert(*certFile, *keyFile),
-		ati.WithClientTimeout(*timeout),
+		ati.WithIdentityCert(cfg.certFile, cfg.keyFile),
+		ati.WithClientTimeout(cfg.timeout),
 	}
 
-	switch *trustLevel {
+	switch cfg.trustLevel {
 	case "pki_only", "pki":
 		opts = append(opts, ati.WithTrustLevel(ati.PKIOnly))
 	case "badge_required", "badge":
@@ -33,28 +45,34 @@ func main() {
 	case "dane_and_badge", "dane":
 		opts = append(opts, ati.WithTrustLevel(ati.DANEAndBadge))
 	default:
-		log.Fatalf("unknown trust level: %s (use pki_only/badge/dane)", *trustLevel)
+		log.Fatalf("unknown trust level: %s (use pki_only/badge/dane)", cfg.trustLevel)
 	}
+
+	return opts
+}
+
+func runClient(cfg *clientConfig) error {
+	opts := buildClientOptions(cfg)
 
 	client, err := ati.NewAgentClient(opts...)
 	if err != nil {
-		log.Fatalf("Failed to create agent client: %v", err)
+		return fmt.Errorf("failed to create agent client: %w", err)
 	}
 
 	// Check cert status
 	status := client.CertStatus()
 	fmt.Printf("Identity cert expires: %s (in %d days)\n", status.ExpiresAt.Format("2006-01-02"), status.DaysRemaining)
 	if status.IsExpired {
-		log.Fatal("Identity certificate is expired!")
+		return fmt.Errorf("identity certificate is expired")
 	}
 
 	// Make request
 	ctx := context.Background()
-	fmt.Printf("\nConnecting to %s ...\n", *serverURL)
+	fmt.Printf("\nConnecting to %s ...\n", cfg.serverURL)
 
-	resp, err := client.Get(ctx, *serverURL)
+	resp, err := client.Get(ctx, cfg.serverURL)
 	if err != nil {
-		log.Fatalf("Request failed: %v", err)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -82,5 +100,14 @@ func main() {
 		if o.AgentID != "" {
 			fmt.Printf("Agent ID:        %s\n", o.AgentID)
 		}
+	}
+
+	return nil
+}
+
+func main() {
+	cfg := parseClientFlags()
+	if err := runClient(cfg); err != nil {
+		log.Fatal(err)
 	}
 }
