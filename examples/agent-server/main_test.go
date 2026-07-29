@@ -300,6 +300,47 @@ func TestRunServer_InvalidCert(t *testing.T) {
 	}
 }
 
+func TestBuildMux_HelloEndpoint_WithATICert(t *testing.T) {
+	mux := buildMux()
+
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	atiURI, _ := url.Parse("ati://v1.0.0.agent.example.com")
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "agent.example.com"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		DNSNames:     []string{"agent.example.com"},
+		URIs:         []*url.URL{atiURI},
+	}
+	certDER, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	peerCert, _ := x509.ParseCertificate(certDER)
+
+	req := httptest.NewRequest(http.MethodGet, "/hello", nil)
+	req.TLS = &tls.ConnectionState{
+		PeerCertificates: []*x509.Certificate{peerCert},
+	}
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp["peer_ati_name"] == nil {
+		t.Error("expected peer_ati_name in response")
+	}
+	if resp["peer_host"] == nil {
+		t.Error("expected peer_host in response")
+	}
+}
+
 func TestRunServer_ValidCert_BadPort(t *testing.T) {
 	certFile, keyFile := generateTestServerCert(t)
 	cfg := &serverConfig{
