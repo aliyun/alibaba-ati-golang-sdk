@@ -185,11 +185,8 @@ func TestCertIdentityFromPEM(t *testing.T) {
 	t.Run("raw PEM with + in base64 hits QueryUnescape corruption", func(t *testing.T) {
 		// Documents an implementation quirk: url.QueryUnescape treats '+' as
 		// a space. Raw PEM containing '+' in base64 is therefore mangled and
-		// pem.Decode fails, returning the "failed to decode PEM block" error.
-		// (The documented input form is URL-encoded PEM, where '+' is sent as
-		// %2B, so this only affects callers passing raw PEM.) The success
-		// path through pem.Decode + CertIdentityFromDER is covered by the
-		// url-encoded subtest above.
+		// either pem.Decode fails or x509.ParseCertificate fails with a
+		// malformed certificate error.
 		if !strings.Contains(rawPEM, "+") {
 			t.Skip("generated cert base64 contains no '+'; cannot exercise this path")
 		}
@@ -197,8 +194,8 @@ func TestCertIdentityFromPEM(t *testing.T) {
 		if err == nil {
 			t.Skip("raw PEM with '+' decoded anyway; not mangleable in this position")
 		}
-		if !strings.Contains(err.Error(), "PEM") {
-			t.Errorf("error should mention PEM, got: %v", err)
+		if !strings.Contains(err.Error(), "PEM") && !strings.Contains(err.Error(), "certificate") {
+			t.Errorf("error should mention PEM or certificate, got: %v", err)
 		}
 	})
 
