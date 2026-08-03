@@ -124,7 +124,13 @@ func (f *Fetcher) Fetch(ctx context.Context, cdpURI string) ([]byte, error) {
 	rl, parseErr := Parse(data)
 	if parseErr == nil && !rl.NextUpdate.IsZero() {
 		nextUpdateTTL := time.Until(rl.NextUpdate)
-		if nextUpdateTTL > 0 && nextUpdateTTL < ttl {
+		switch {
+		case nextUpdateTTL <= 0:
+			// NextUpdate has already passed: the CRL is stale, so force an
+			// immediate re-fetch on the next call instead of caching it for
+			// defaultMaxAge (matches Java CrlFetcher.computeCacheTtl).
+			ttl = 0
+		case nextUpdateTTL < ttl:
 			ttl = nextUpdateTTL
 		}
 	}

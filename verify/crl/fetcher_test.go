@@ -192,6 +192,35 @@ func TestFetcher_Fetch_ResponseTooLarge(t *testing.T) {
 	}
 }
 
+func TestFetcher_Fetch_ExpiredNextUpdate_ForcesImmediateRefetch(t *testing.T) {
+	ca, caKey := generateFetcherTestCA(t)
+	// NextUpdate is already in the past: the CRL is stale on arrival.
+	crlBytes := generateFetcherTestCRLWithNextUpdate(t, ca, caKey, time.Now().Add(-1*time.Hour))
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusOK)
+		w.Write(crlBytes)
+	}))
+	defer server.Close()
+
+	// A long maxAge would previously mask the bug: an expired CRL fell back
+	// to caching for defaultMaxAge instead of ttl=0.
+	f := NewFetcher(WithHTTPClient(server.Client()), WithMaxAge(12*time.Hour), WithAllowPrivateNetworks(true))
+
+	if _, err := f.Fetch(context.Background(), server.URL); err != nil {
+		t.Fatalf("first Fetch() error = %v", err)
+	}
+	if _, err := f.Fetch(context.Background(), server.URL); err != nil {
+		t.Fatalf("second Fetch() error = %v", err)
+	}
+
+	if callCount != 2 {
+		t.Errorf("server called %d times, want 2 (expired CRL must not be cached for maxAge)", callCount)
+	}
+}
+
 func TestCachedEntry_IsExpired(t *testing.T) {
 	entry := &cachedEntry{
 		data:      []byte("test"),
@@ -242,10 +271,15 @@ func generateFetcherTestCA(t *testing.T) (*x509.Certificate, *ecdsa.PrivateKey) 
 
 func generateFetcherTestCRL(t *testing.T, issuer *x509.Certificate, issuerKey *ecdsa.PrivateKey) []byte {
 	t.Helper()
+	return generateFetcherTestCRLWithNextUpdate(t, issuer, issuerKey, time.Now().Add(24*time.Hour))
+}
+
+func generateFetcherTestCRLWithNextUpdate(t *testing.T, issuer *x509.Certificate, issuerKey *ecdsa.PrivateKey, nextUpdate time.Time) []byte {
+	t.Helper()
 	template := &x509.RevocationList{
 		Number:     big.NewInt(1),
-		ThisUpdate: time.Now().Add(-1 * time.Hour),
-		NextUpdate: time.Now().Add(24 * time.Hour),
+		ThisUpdate: nextUpdate.Add(-1 * time.Hour),
+		NextUpdate: nextUpdate,
 	}
 
 	crlBytes, err := x509.CreateRevocationList(rand.Reader, template, issuer, issuerKey)
