@@ -31,7 +31,7 @@ func TestResult_ShouldReject(t *testing.T) {
 		{"revoked rejects", Result{Status: Revoked}, true},
 		{"passed does not reject", Result{Status: Passed}, false},
 		{"skipped does not reject", Result{Status: Skipped}, false},
-		{"failed does not reject", Result{Status: Failed}, false},
+		{"failed rejects (fail-closed per R6.3)", Result{Status: Failed}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

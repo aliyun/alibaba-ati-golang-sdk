@@ -29,7 +29,7 @@ func parseServerFlagsFromArgs(fs *flag.FlagSet, args []string) *serverConfig {
 	fs.StringVar(&cfg.keyFile, "key", "server.key", "Server TLS private key")
 	fs.StringVar(&cfg.caBundle, "ca", "", "Optional CA bundle for client cert verification (empty = accept self-signed)")
 	fs.StringVar(&cfg.addr, "addr", ":8443", "Listen address")
-	fs.StringVar(&cfg.trustLevel, "trust", "pki_only", "Trust level: pki_only, badge, dane")
+	fs.StringVar(&cfg.trustLevel, "trust", "pki_only", "Trust level: none, pki_only, badge, dane")
 	if args != nil {
 		fs.Parse(args)
 	} else {
@@ -48,14 +48,16 @@ func buildServerOptions(cfg *serverConfig) []ati.ServerOption {
 	}
 
 	switch cfg.trustLevel {
-	case "pki_only", "pki", "none":
+	case "none":
+		opts = append(opts, ati.WithClientVerifier(ati.PolicyNone))
+	case "pki_only", "pki":
 		opts = append(opts, ati.WithClientVerifier(ati.PKIOnly))
 	case "badge_required", "badge":
 		opts = append(opts, ati.WithClientVerifier(ati.BadgeRequired))
 	case "dane_and_badge", "dane":
 		opts = append(opts, ati.WithClientVerifier(ati.DANEAndBadge))
 	default:
-		log.Fatalf("unknown trust level: %s (use pki_only/badge/dane)", cfg.trustLevel)
+		log.Fatalf("unknown trust level: %s (use none/pki_only/badge/dane)", cfg.trustLevel)
 	}
 
 	return opts

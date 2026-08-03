@@ -68,7 +68,7 @@ func TestChecker_Check_IssuerNotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	f := NewFetcher(WithHTTPClient(server.Client()))
+	f := NewFetcher(WithHTTPClient(server.Client()), WithAllowPrivateNetworks(true))
 	c := NewChecker(WithFetcher(f))
 
 	leaf := &x509.Certificate{
@@ -93,7 +93,7 @@ func TestChecker_Check_FetchFails(t *testing.T) {
 	}))
 	defer server.Close()
 
-	f := NewFetcher(WithHTTPClient(server.Client()))
+	f := NewFetcher(WithHTTPClient(server.Client()), WithAllowPrivateNetworks(true))
 	c := NewChecker(WithFetcher(f))
 
 	ca, caKey := generateCheckerTestCA(t)
@@ -115,7 +115,7 @@ func TestChecker_Check_Passed(t *testing.T) {
 	}))
 	defer server.Close()
 
-	f := NewFetcher(WithHTTPClient(server.Client()))
+	f := NewFetcher(WithHTTPClient(server.Client()), WithAllowPrivateNetworks(true))
 	c := NewChecker(WithFetcher(f))
 
 	leaf := generateCheckerTestLeaf(t, ca, caKey, server.URL)
@@ -140,7 +140,7 @@ func TestChecker_Check_Revoked(t *testing.T) {
 	}))
 	defer server.Close()
 
-	f := NewFetcher(WithHTTPClient(server.Client()))
+	f := NewFetcher(WithHTTPClient(server.Client()), WithAllowPrivateNetworks(true))
 	c := NewChecker(WithFetcher(f))
 
 	leaf := generateCheckerTestLeafWithSerial(t, ca, caKey, server.URL, revokedSerial)
@@ -163,7 +163,7 @@ func TestChecker_Check_ValidationFailed_BadSignature(t *testing.T) {
 	}))
 	defer server.Close()
 
-	f := NewFetcher(WithHTTPClient(server.Client()))
+	f := NewFetcher(WithHTTPClient(server.Client()), WithAllowPrivateNetworks(true))
 	c := NewChecker(WithFetcher(f))
 
 	leaf := generateCheckerTestLeaf(t, ca, caKey, server.URL)

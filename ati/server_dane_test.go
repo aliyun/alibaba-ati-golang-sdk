@@ -275,7 +275,7 @@ func TestBuildVerifyConnection_CRL_Reject(t *testing.T) {
 	leafCert, _ := x509.ParseCertificate(leafDER)
 
 	level := BadgeRequired
-	checker := crl.NewChecker(crl.WithFetcher(crl.NewFetcher(crl.WithHTTPClient(crlServer.Client()))))
+	checker := crl.NewChecker(crl.WithFetcher(crl.NewFetcher(crl.WithHTTPClient(crlServer.Client()), crl.WithAllowPrivateNetworks(true))))
 	cfg := &serverConfig{
 		trustLevel:     &level,
 		clientVerifier: verify.NewClientVerifier(),
@@ -291,6 +291,76 @@ func TestBuildVerifyConnection_CRL_Reject(t *testing.T) {
 	err = verifyFn(cs)
 	if err == nil {
 		t.Fatal("expected CRL rejection error")
+	}
+	if !strings.Contains(err.Error(), "CRL check failed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestBuildVerifyConnection_CRL_FetchFail_Reject verifies fail-closed behavior
+// per spec R6.3: when the CDP URI cannot be fetched (e.g. the server errors),
+// the connection must be rejected, not silently allowed through.
+func TestBuildVerifyConnection_CRL_FetchFail_Reject(t *testing.T) {
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("CA key gen: %v", err)
+	}
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CRL CA"},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("CA cert: %v", err)
+	}
+	caCert, _ := x509.ParseCertificate(caDER)
+
+	leafSerial := big.NewInt(43)
+	leafKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+
+	// CRL server that always errors — simulates fetch failure.
+	crlServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer crlServer.Close()
+
+	leafTemplate := &x509.Certificate{
+		SerialNumber:          leafSerial,
+		Subject:               pkix.Name{CommonName: "client.example.com"},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		DNSNames:              []string{"client.example.com"},
+		URIs:                  []*url.URL{{Scheme: "ati", Host: "client.example.com", Path: "/v1.0.0"}},
+		CRLDistributionPoints: []string{crlServer.URL},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("leaf cert: %v", err)
+	}
+	leafCert, _ := x509.ParseCertificate(leafDER)
+
+	level := BadgeRequired
+	checker := crl.NewChecker(crl.WithFetcher(crl.NewFetcher(crl.WithHTTPClient(crlServer.Client()), crl.WithAllowPrivateNetworks(true))))
+	cfg := &serverConfig{
+		trustLevel:     &level,
+		clientVerifier: verify.NewClientVerifier(),
+		peerLevels:     &sync.Map{},
+		crlChecker:     checker,
+	}
+
+	verifyFn := buildVerifyConnection(cfg)
+	cs := tls.ConnectionState{
+		PeerCertificates: []*x509.Certificate{leafCert, caCert},
+	}
+
+	err = verifyFn(cs)
+	if err == nil {
+		t.Fatal("expected CRL fetch-failure to reject the connection (fail-closed)")
 	}
 	if !strings.Contains(err.Error(), "CRL check failed") {
 		t.Errorf("unexpected error: %v", err)

@@ -248,6 +248,17 @@ func CertIdentityFromDER(der []byte) (*CertIdentity, error) {
 // CertIdentityFromPEM parses a PEM-encoded certificate and extracts identity.
 // Accepts both raw PEM and URL-encoded PEM (as forwarded by Nginx via $ssl_client_escaped_cert).
 func CertIdentityFromPEM(pemData string) (*CertIdentity, error) {
+	// Try the input as-is first. Raw PEM's base64 body commonly contains '+',
+	// which url.QueryUnescape would otherwise misinterpret as a space and
+	// corrupt; unconditionally unescaping first broke that common case. Only
+	// fall back to QueryUnescape (for the documented Nginx-forwarded form,
+	// which won't parse as PEM directly) when the raw input isn't valid PEM.
+	if block, _ := pem.Decode([]byte(pemData)); block != nil {
+		if ident, err := CertIdentityFromDER(block.Bytes); err == nil {
+			return ident, nil
+		}
+	}
+
 	decoded, err := url.QueryUnescape(pemData)
 	if err != nil {
 		decoded = pemData

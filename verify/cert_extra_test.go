@@ -182,20 +182,21 @@ func TestCertIdentityFromPEM(t *testing.T) {
 		}
 	})
 
-	t.Run("raw PEM with + in base64 hits QueryUnescape corruption", func(t *testing.T) {
-		// Documents an implementation quirk: url.QueryUnescape treats '+' as
-		// a space. Raw PEM containing '+' in base64 is therefore mangled and
-		// either pem.Decode fails or x509.ParseCertificate fails with a
-		// malformed certificate error.
+	t.Run("raw PEM with + in base64 decodes correctly (regression: QueryUnescape must not run first)", func(t *testing.T) {
+		// Regression test for a fixed defect: CertIdentityFromPEM used to run
+		// url.QueryUnescape unconditionally, which mangled '+' (common in
+		// base64) into a space before pem.Decode ever saw it. The fix tries
+		// the raw input first and only falls back to QueryUnescape for the
+		// documented Nginx-escaped form.
 		if !strings.Contains(rawPEM, "+") {
-			t.Skip("generated cert base64 contains no '+'; cannot exercise this path")
+			t.Skip("generated cert base64 contains no '+' in this run; cannot exercise this path")
 		}
-		_, err := CertIdentityFromPEM(rawPEM)
-		if err == nil {
-			t.Skip("raw PEM with '+' decoded anyway; not mangleable in this position")
+		ident, err := CertIdentityFromPEM(rawPEM)
+		if err != nil {
+			t.Fatalf("CertIdentityFromPEM() on raw PEM containing '+' should succeed, got error: %v", err)
 		}
-		if !strings.Contains(err.Error(), "PEM") && !strings.Contains(err.Error(), "certificate") {
-			t.Errorf("error should mention PEM or certificate, got: %v", err)
+		if ident.CommonName == nil || *ident.CommonName != "pem.example.com" {
+			t.Errorf("CommonName = %v, want pem.example.com", ident.CommonName)
 		}
 	})
 

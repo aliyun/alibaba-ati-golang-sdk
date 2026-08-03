@@ -395,6 +395,9 @@ type TrustOutcome struct {
 type BronzeOutcome = TrustOutcome
 
 // IsVerified returns true if all PKI-level checks passed.
+// Note: this intentionally still requires SANMatches, unlike the AchievedLevel
+// PKIOnly assignment below in Do() — see the comment there for why the two
+// diverge.
 func (o *TrustOutcome) IsVerified() bool {
 	return o.DNSDiscovered && o.CAChainValid && o.SANMatches
 }
@@ -545,6 +548,16 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 	slog.Info("[verify] PKI: TLS handshake", "caChainValid", outcome.CAChainValid, "sanMatches", outcome.SANMatches)
 
 	if outcome.DNSDiscovered && outcome.CAChainValid {
+		// Deliberately does not also require outcome.SANMatches here (unlike
+		// TrustOutcome.IsVerified()). SANMatches is our own strings.EqualFold
+		// check of the connection's accessHost against DNSNames, which does
+		// not account for the dual-hostname model (identityHost vs
+		// accessHost) or wildcard SANs. Go's tls.Client already performs its
+		// own hostname verification during the handshake (InsecureSkipVerify
+		// is never set), so a real SAN mismatch fails the connection before
+		// this code runs — this relaxation cannot let an unverified host
+		// through, it only avoids a false negative on AchievedLevel from our
+		// stricter manual check.
 		outcome.AchievedLevel = PKIOnly
 	}
 

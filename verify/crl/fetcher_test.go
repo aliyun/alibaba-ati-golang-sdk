@@ -58,7 +58,7 @@ func TestFetcher_Fetch_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	f := NewFetcher(WithHTTPClient(server.Client()))
+	f := NewFetcher(WithHTTPClient(server.Client()), WithAllowPrivateNetworks(true))
 	data, err := f.Fetch(context.Background(), server.URL)
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
@@ -80,7 +80,7 @@ func TestFetcher_Fetch_Caching(t *testing.T) {
 	}))
 	defer server.Close()
 
-	f := NewFetcher(WithHTTPClient(server.Client()), WithMaxAge(1*time.Hour))
+	f := NewFetcher(WithHTTPClient(server.Client()), WithMaxAge(1*time.Hour), WithAllowPrivateNetworks(true))
 
 	// First fetch
 	_, err := f.Fetch(context.Background(), server.URL)
@@ -105,7 +105,7 @@ func TestFetcher_Fetch_HTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	f := NewFetcher(WithHTTPClient(server.Client()))
+	f := NewFetcher(WithHTTPClient(server.Client()), WithAllowPrivateNetworks(true))
 	_, err := f.Fetch(context.Background(), server.URL)
 	if err == nil {
 		t.Fatal("expected error for HTTP 500, got nil")
@@ -135,13 +135,60 @@ func TestFetcher_Fetch_NonParsableCRL_StillCached(t *testing.T) {
 	}))
 	defer server.Close()
 
-	f := NewFetcher(WithHTTPClient(server.Client()))
+	f := NewFetcher(WithHTTPClient(server.Client()), WithAllowPrivateNetworks(true))
 	data, err := f.Fetch(context.Background(), server.URL)
 	if err != nil {
 		t.Fatalf("Fetch() error = %v (should succeed even with non-parsable CRL body)", err)
 	}
 	if string(data) != "not a valid CRL but still bytes" {
 		t.Errorf("got %q", string(data))
+	}
+}
+
+func TestFetcher_Fetch_SSRFGuard_BlocksLoopbackByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be invoked; SSRF guard must reject before the request is sent")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// No WithAllowPrivateNetworks(true) — guard is on by default, and the
+	// httptest server listens on a loopback address.
+	f := NewFetcher(WithHTTPClient(server.Client()))
+	_, err := f.Fetch(context.Background(), server.URL)
+	if err == nil {
+		t.Fatal("expected SSRF guard to reject a loopback CDP URI, got nil error")
+	}
+}
+
+func TestFetcher_Fetch_SSRFGuard_AllowPrivateNetworksOverride(t *testing.T) {
+	ca, caKey := generateFetcherTestCA(t)
+	crlBytes := generateFetcherTestCRL(t, ca, caKey)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(crlBytes)
+	}))
+	defer server.Close()
+
+	f := NewFetcher(WithHTTPClient(server.Client()), WithAllowPrivateNetworks(true))
+	if _, err := f.Fetch(context.Background(), server.URL); err != nil {
+		t.Fatalf("Fetch() with WithAllowPrivateNetworks(true) error = %v", err)
+	}
+}
+
+func TestFetcher_Fetch_ResponseTooLarge(t *testing.T) {
+	oversized := make([]byte, maxCRLBodySize+1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(oversized)
+	}))
+	defer server.Close()
+
+	f := NewFetcher(WithHTTPClient(server.Client()), WithAllowPrivateNetworks(true))
+	_, err := f.Fetch(context.Background(), server.URL)
+	if err == nil {
+		t.Fatal("expected error for oversized CRL response, got nil")
 	}
 }
 

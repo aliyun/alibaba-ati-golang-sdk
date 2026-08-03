@@ -32,7 +32,11 @@ type Result struct {
 	CDPURI  string
 }
 
-// ShouldReject returns true if the connection should be rejected based on this result.
+// ShouldReject returns true if the connection should be rejected based on this
+// result. Per spec R6.1/R6.3, CRL checking is fail-closed: only a chain with no
+// CDP at all (Skipped) is allowed through unchecked. A serial found in the CRL
+// (Revoked) or any inability to complete the check (Failed — covers invalid CDP
+// URI, fetch error, signature/parse error) must reject the connection.
 func (r Result) ShouldReject() bool {
-	return r.Status == Revoked
+	return r.Status == Revoked || r.Status == Failed
 }
