@@ -17,15 +17,15 @@ func TestParseATIBadgeRecord(t *testing.T) {
 	}{
 		{
 			name:        "valid with version",
-			txt:         "v=ati-badge1; version=v1.0.0; url=https://tl.ansagent.cn:8180/ans/api/v1/v1/agents/7b93c61c-e261-488c-89a3-f948119be0a0",
+			txt:         "v=ati-badge1; version=v1.0.0; url=https://tl.atiagent.cn/api/v1/v1/agents/7b93c61c-e261-488c-89a3-f948119be0a0",
 			wantErr:     false,
 			wantFormat:  "ati-badge1",
 			wantVersion: ptr(models.NewVersion(1, 0, 0)),
-			wantURL:     "https://tl.ansagent.cn:8180/ans/api/v1/v1/agents/7b93c61c-e261-488c-89a3-f948119be0a0",
+			wantURL:     "https://tl.atiagent.cn/api/v1/v1/agents/7b93c61c-e261-488c-89a3-f948119be0a0",
 		},
 		{
 			name:    "ati-badge1 without version is error",
-			txt:     "v=ati-badge1; url=https://tl.ansagent.cn:8180/ans/api/v1/v1/agents/835a27a8-6b20-4439-915e-668a9d36e469",
+			txt:     "v=ati-badge1; url=https://tl.atiagent.cn/api/v1/v1/agents/835a27a8-6b20-4439-915e-668a9d36e469",
 			wantErr: true,
 		},
 		{
@@ -71,27 +71,27 @@ func TestParseATIBadgeRecord(t *testing.T) {
 		},
 		{
 			name:        "ra-badge1 format version",
-			txt:         "v=ra-badge1; version=v1.0.0; url=https://tl.ansagent.cn:8180/ans/api/v1/v1/agents/test-id",
+			txt:         "v=ra-badge1; version=v1.0.0; url=https://tl.atiagent.cn/api/v1/v1/agents/test-id",
 			wantErr:     false,
 			wantFormat:  "ra-badge1",
 			wantVersion: ptr(models.NewVersion(1, 0, 0)),
-			wantURL:     "https://tl.ansagent.cn:8180/ans/api/v1/v1/agents/test-id",
+			wantURL:     "https://tl.atiagent.cn/api/v1/v1/agents/test-id",
 		},
 		{
 			name:        "ra-badge1 without version",
-			txt:         "v=ra-badge1; url=https://tl.ansagent.cn:8180/ans/api/v1/v1/agents/test-id",
+			txt:         "v=ra-badge1; url=https://tl.atiagent.cn/api/v1/v1/agents/test-id",
 			wantErr:     false,
 			wantFormat:  "ra-badge1",
 			wantVersion: nil,
-			wantURL:     "https://tl.ansagent.cn:8180/ans/api/v1/v1/agents/test-id",
+			wantURL:     "https://tl.atiagent.cn/api/v1/v1/agents/test-id",
 		},
 		{
 			name:        "bare semver without v prefix",
-			txt:         "v=ra-badge1; version=1.0.0; url=https://tl.ansagent.cn:8180/ans/api/v1/v1/agents/test-id",
+			txt:         "v=ra-badge1; version=1.0.0; url=https://tl.atiagent.cn/api/v1/v1/agents/test-id",
 			wantErr:     false,
 			wantFormat:  "ra-badge1",
 			wantVersion: ptr(models.NewVersion(1, 0, 0)),
-			wantURL:     "https://tl.ansagent.cn:8180/ans/api/v1/v1/agents/test-id",
+			wantURL:     "https://tl.atiagent.cn/api/v1/v1/agents/test-id",
 		},
 		{
 			name:    "unsupported format version",

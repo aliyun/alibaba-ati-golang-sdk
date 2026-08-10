@@ -10,7 +10,7 @@ import (
 	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
-const defaultCNNICTLBaseURL = "https://tl.ansagent.cn:8180/ans/api/v1"
+const defaultCNNICTLBaseURL = "https://tl.atiagent.cn/api/v1"
 
 // GoldVerifierConfig configures the Gold verification behavior.
 type GoldVerifierConfig struct {
