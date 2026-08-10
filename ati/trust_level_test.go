@@ -12,7 +12,7 @@ func TestVerificationPolicy_String(t *testing.T) {
 		{PolicyEnhanced, "ENHANCED"},
 		{PolicyAdvanced, "ADVANCED"},
 		{VerificationPolicy(99), "VerificationPolicy(99)"},
-		{VerificationPolicy(-1), "VerificationPolicy(-1)"},
+		{VerificationPolicy(-2), "VerificationPolicy(-2)"},
 	}
 
 	for _, tt := range tests {
@@ -26,17 +26,17 @@ func TestVerificationPolicy_String(t *testing.T) {
 }
 
 func TestVerificationPolicy_Constants(t *testing.T) {
-	if PolicyNone != 0 {
-		t.Errorf("PolicyNone = %d, want 0", PolicyNone)
+	if PolicyNone != -1 {
+		t.Errorf("PolicyNone = %d, want -1", PolicyNone)
 	}
-	if PolicyBasic != 1 {
-		t.Errorf("PolicyBasic = %d, want 1", PolicyBasic)
+	if PolicyBasic != 0 {
+		t.Errorf("PolicyBasic = %d, want 0", PolicyBasic)
 	}
-	if PolicyEnhanced != 2 {
-		t.Errorf("PolicyEnhanced = %d, want 2", PolicyEnhanced)
+	if PolicyEnhanced != 1 {
+		t.Errorf("PolicyEnhanced = %d, want 1", PolicyEnhanced)
 	}
-	if PolicyAdvanced != 3 {
-		t.Errorf("PolicyAdvanced = %d, want 3", PolicyAdvanced)
+	if PolicyAdvanced != 2 {
+		t.Errorf("PolicyAdvanced = %d, want 2", PolicyAdvanced)
 	}
 }
 
@@ -82,7 +82,7 @@ func TestVerificationPolicy_ValidForClient(t *testing.T) {
 		{PolicyBasic, true},
 		{PolicyEnhanced, true},
 		{PolicyAdvanced, true},
-		{VerificationPolicy(-1), false},
+		{VerificationPolicy(-2), false},
 		{VerificationPolicy(99), false},
 	}
 	for _, tt := range tests {
@@ -101,7 +101,7 @@ func TestVerificationPolicy_ValidForServer(t *testing.T) {
 		{PolicyBasic, true},
 		{PolicyEnhanced, true},
 		{PolicyAdvanced, true},
-		{VerificationPolicy(-1), false},
+		{VerificationPolicy(-2), false},
 		{VerificationPolicy(99), false},
 	}
 	for _, tt := range tests {

@@ -17,7 +17,7 @@ func TestInit_DefaultTrustLevel(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
-	cfg := Config{} // TrustLevel == 0
+	cfg := Config{} // TrustLevel == 0 == PolicyBasic (safe zero-value default)
 	if err := Init(cfg); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -26,8 +26,8 @@ func TestInit_DefaultTrustLevel(t *testing.T) {
 	if got == nil {
 		t.Fatal("GetConfig() = nil after Init")
 	}
-	if got.TrustLevel != BadgeRequired {
-		t.Errorf("TrustLevel = %s, want %s (BadgeRequired)", got.TrustLevel, BadgeRequired)
+	if got.TrustLevel != PolicyBasic {
+		t.Errorf("TrustLevel = %s, want %s (PolicyBasic, zero-value safe default)", got.TrustLevel, PolicyBasic)
 	}
 }
 
@@ -209,7 +209,7 @@ func TestInit_DoesNotMutateOriginalConfig(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
-	original := Config{TrustLevel: 0} // should default inside Init
+	original := Config{TrustLevel: 0} // PolicyBasic (zero-value safe default)
 	if err := Init(original); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -219,13 +219,13 @@ func TestInit_DoesNotMutateOriginalConfig(t *testing.T) {
 		t.Errorf("Init mutated the caller's Config: TrustLevel = %s, want 0", original.TrustLevel)
 	}
 
-	// But the stored global config should have the default.
+	// The stored global config preserves PolicyBasic (zero value = safe default).
 	got := GetConfig()
 	if got == nil {
 		t.Fatal("GetConfig() = nil after Init")
 	}
-	if got.TrustLevel != BadgeRequired {
-		t.Errorf("stored TrustLevel = %s, want %s", got.TrustLevel, BadgeRequired)
+	if got.TrustLevel != PolicyBasic {
+		t.Errorf("stored TrustLevel = %s, want %s", got.TrustLevel, PolicyBasic)
 	}
 }
 

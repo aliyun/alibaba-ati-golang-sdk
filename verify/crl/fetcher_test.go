@@ -33,8 +33,8 @@ func TestNewFetcher_Default(t *testing.T) {
 func TestNewFetcher_WithHTTPClient(t *testing.T) {
 	customClient := &http.Client{Timeout: 5 * time.Second}
 	f := NewFetcher(WithHTTPClient(customClient))
-	if f.httpClient != customClient {
-		t.Error("httpClient was not set by WithHTTPClient")
+	if f.httpClient.Timeout != 5*time.Second {
+		t.Errorf("httpClient timeout = %v, want 5s (WithHTTPClient should preserve timeout)", f.httpClient.Timeout)
 	}
 }
 

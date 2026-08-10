@@ -6,10 +6,13 @@ import "fmt"
 type VerificationPolicy int
 
 const (
-	PolicyNone     VerificationPolicy = iota // L0: no verification (dev/test only)
-	PolicyBasic                              // L1: PKI certificate validity only
-	PolicyEnhanced                           // L2: PKI + Badge verification
-	PolicyAdvanced                           // L3: PKI + Badge + DANE verification
+	// PolicyBasic is the zero-value default (fail-safe). Preserves backward
+	// compatibility with the old PKIOnly=0 enum so that any persisted integer
+	// 0 still means "PKI verification", not "no verification".
+	PolicyBasic    VerificationPolicy = 0  // L1: PKI certificate validity only
+	PolicyEnhanced VerificationPolicy = 1  // L2: PKI + Badge verification
+	PolicyAdvanced VerificationPolicy = 2  // L3: PKI + Badge + DANE verification
+	PolicyNone     VerificationPolicy = -1 // L0: no verification (dev/test only, explicit opt-in required)
 )
 
 // DisplayName returns the console display label for the policy.
@@ -40,12 +43,12 @@ func (p VerificationPolicy) HasDANEVerification() bool {
 
 // ValidForClient reports whether the policy is valid for a client.
 func (p VerificationPolicy) ValidForClient() bool {
-	return p >= PolicyNone && p <= PolicyAdvanced
+	return p == PolicyNone || (p >= PolicyBasic && p <= PolicyAdvanced)
 }
 
 // ValidForServer reports whether the policy is valid for a server.
 func (p VerificationPolicy) ValidForServer() bool {
-	return p >= PolicyNone && p <= PolicyAdvanced
+	return p == PolicyNone || (p >= PolicyBasic && p <= PolicyAdvanced)
 }
 
 func (p VerificationPolicy) String() string {

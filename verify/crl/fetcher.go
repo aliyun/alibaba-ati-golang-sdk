@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
 )
@@ -77,6 +76,9 @@ func NewFetcher(opts ...FetcherOption) *Fetcher {
 	for _, opt := range opts {
 		opt(f)
 	}
+	if !f.allowPrivateNetworks {
+		f.installSSRFSafeTransport()
+	}
 	return f
 }
 
@@ -89,12 +91,6 @@ func (f *Fetcher) Fetch(ctx context.Context, cdpURI string) ([]byte, error) {
 		return entry.data, nil
 	}
 	f.mu.Unlock()
-
-	if !f.allowPrivateNetworks {
-		if err := guardAgainstSSRF(cdpURI); err != nil {
-			return nil, fmt.Errorf("crl fetch: %w", err)
-		}
-	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cdpURI, nil)
 	if err != nil {
@@ -146,32 +142,65 @@ func (f *Fetcher) Fetch(ctx context.Context, cdpURI string) ([]byte, error) {
 	return data, nil
 }
 
-// guardAgainstSSRF rejects CDP URIs whose host resolves to a loopback,
-// private, link-local (which covers cloud metadata endpoints such as
-// 169.254.169.254), or otherwise non-routable address. CDP URIs are read from
-// the CRLDistributionPoints extension of the peer's certificate chain — an
-// input the connecting peer can influence — so the fetch target must not be
-// assumed to point only at public CRL infrastructure.
-func guardAgainstSSRF(rawURL string) error {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid CDP URI %q: %w", rawURL, err)
-	}
-	host := u.Hostname()
-	if host == "" {
-		return fmt.Errorf("CDP URI %q has no host", rawURL)
+// installSSRFSafeTransport installs a custom DialContext on the HTTP client's
+// transport that validates resolved IPs at connection time, eliminating the
+// TOCTOU / DNS-rebinding window that exists when IP validation and connection
+// happen in separate DNS resolution steps.
+func (f *Fetcher) installSSRFSafeTransport() {
+	var baseTransport http.RoundTripper
+	if f.httpClient.Transport != nil {
+		baseTransport = f.httpClient.Transport
+	} else {
+		baseTransport = http.DefaultTransport
 	}
 
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		return fmt.Errorf("cannot resolve CDP host %q: %w", host, err)
+	var transport *http.Transport
+	if t, ok := baseTransport.(*http.Transport); ok {
+		transport = t.Clone()
+	} else {
+		transport = http.DefaultTransport.(*http.Transport).Clone()
 	}
-	for _, ip := range ips {
-		if isDisallowedTarget(ip) {
-			return fmt.Errorf("CDP host %q resolves to disallowed address %s", host, ip)
+
+	baseDialContext := transport.DialContext
+	if baseDialContext == nil {
+		baseDialContext = (&net.Dialer{}).DialContext
+	}
+
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("crl fetch SSRF guard: invalid address %q: %w", addr, err)
 		}
+
+		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("crl fetch SSRF guard: cannot resolve %q: %w", host, err)
+		}
+
+		for _, ipAddr := range ips {
+			if isDisallowedTarget(ipAddr.IP) {
+				return nil, fmt.Errorf("crl fetch SSRF guard: host %q resolves to disallowed address %s", host, ipAddr.IP)
+			}
+		}
+
+		// Dial each validated IP in order, eliminating the DNS rebinding window.
+		var lastErr error
+		for _, ipAddr := range ips {
+			conn, dialErr := baseDialContext(ctx, network, net.JoinHostPort(ipAddr.IP.String(), port))
+			if dialErr == nil {
+				return conn, nil
+			}
+			lastErr = dialErr
+		}
+		return nil, lastErr
 	}
-	return nil
+
+	f.httpClient = &http.Client{
+		Transport:     transport,
+		Timeout:       f.httpClient.Timeout,
+		CheckRedirect: f.httpClient.CheckRedirect,
+		Jar:           f.httpClient.Jar,
+	}
 }
 
 func isDisallowedTarget(ip net.IP) bool {
