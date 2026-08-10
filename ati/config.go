@@ -13,7 +13,7 @@ type Config struct {
 	IdentityCertFile string     // Path to identity certificate PEM
 	IdentityKeyFile  string     // Path to identity private key PEM
 	CARootFile       string     // Path to custom CA root certificate (optional, uses system CA if empty)
-	TrustLevel       TrustLevel // Trust level (zero-value = PolicyBasic, a safe PKI-only default)
+	TrustLevel       TrustLevel // Trust level (zero-value is elevated to PolicyEnhanced by Init for backward compat)
 	DNSServer        string     // DNS server for DANE/TLSA lookups (host or host:port). Empty = system resolver.
 }
 
@@ -23,7 +23,12 @@ var (
 )
 
 // Init initializes the ATI SDK with global configuration.
+// When TrustLevel is not explicitly set (zero-value), it defaults to PolicyEnhanced
+// to preserve backward compatibility with the previous BadgeRequired default.
 func Init(cfg Config) error {
+	if cfg.TrustLevel == PolicyBasic {
+		cfg.TrustLevel = PolicyEnhanced
+	}
 	configMu.Lock()
 	globalConfig = &cfg
 	configMu.Unlock()

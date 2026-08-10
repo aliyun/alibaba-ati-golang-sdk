@@ -17,7 +17,7 @@ func TestInit_DefaultTrustLevel(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
-	cfg := Config{} // TrustLevel == 0 == PolicyBasic (safe zero-value default)
+	cfg := Config{} // TrustLevel == 0; Init elevates to PolicyEnhanced for backward compat
 	if err := Init(cfg); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -26,8 +26,8 @@ func TestInit_DefaultTrustLevel(t *testing.T) {
 	if got == nil {
 		t.Fatal("GetConfig() = nil after Init")
 	}
-	if got.TrustLevel != PolicyBasic {
-		t.Errorf("TrustLevel = %s, want %s (PolicyBasic, zero-value safe default)", got.TrustLevel, PolicyBasic)
+	if got.TrustLevel != PolicyEnhanced {
+		t.Errorf("TrustLevel = %s, want %s (zero-value elevated to PolicyEnhanced)", got.TrustLevel, PolicyEnhanced)
 	}
 }
 
@@ -53,6 +53,7 @@ func TestInit_ExplicitPKIOnlyTrustLevel(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
+	// PKIOnly == PolicyBasic == 0; Init elevates zero-value to PolicyEnhanced
 	cfg := Config{TrustLevel: PKIOnly}
 	if err := Init(cfg); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -62,8 +63,8 @@ func TestInit_ExplicitPKIOnlyTrustLevel(t *testing.T) {
 	if got == nil {
 		t.Fatal("GetConfig() = nil after Init")
 	}
-	if got.TrustLevel != PKIOnly {
-		t.Errorf("TrustLevel = %s, want %s (PKIOnly)", got.TrustLevel, PKIOnly)
+	if got.TrustLevel != PolicyEnhanced {
+		t.Errorf("TrustLevel = %s, want %s (PKIOnly/zero-value elevated to PolicyEnhanced)", got.TrustLevel, PolicyEnhanced)
 	}
 }
 
@@ -209,23 +210,23 @@ func TestInit_DoesNotMutateOriginalConfig(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
-	original := Config{TrustLevel: 0} // PolicyBasic (zero-value safe default)
+	original := Config{TrustLevel: 0} // PolicyBasic (zero-value)
 	if err := Init(original); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 
-	// The caller's struct should not have been mutated.
+	// The caller's struct should not have been mutated (Init takes by value).
 	if original.TrustLevel != 0 {
 		t.Errorf("Init mutated the caller's Config: TrustLevel = %s, want 0", original.TrustLevel)
 	}
 
-	// The stored global config preserves PolicyBasic (zero value = safe default).
+	// The stored global config has zero-value elevated to PolicyEnhanced.
 	got := GetConfig()
 	if got == nil {
 		t.Fatal("GetConfig() = nil after Init")
 	}
-	if got.TrustLevel != PolicyBasic {
-		t.Errorf("stored TrustLevel = %s, want %s", got.TrustLevel, PolicyBasic)
+	if got.TrustLevel != PolicyEnhanced {
+		t.Errorf("stored TrustLevel = %s, want %s", got.TrustLevel, PolicyEnhanced)
 	}
 }
 
