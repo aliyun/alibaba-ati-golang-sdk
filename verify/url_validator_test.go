@@ -8,7 +8,7 @@ import (
 
 func TestRewriteBadgeURLHost_WithPort(t *testing.T) {
 	rawURL := "https://rogue.example.com:8443/badge/abc123"
-	trustedHost := "tl.atiagent.cn"
+	trustedHost := "ati-tl.cnnic.cn:8180"
 
 	result, err := RewriteBadgeURLHost(rawURL, trustedHost)
 	if err != nil {
@@ -30,7 +30,7 @@ func TestRewriteBadgeURLHost_WithPort(t *testing.T) {
 
 func TestRewriteBadgeURLHost_WithoutPort(t *testing.T) {
 	rawURL := "https://rogue.example.com/badge/abc123"
-	trustedHost := "tl.atiagent.cn"
+	trustedHost := "ati-tl.cnnic.cn:8180"
 
 	result, err := RewriteBadgeURLHost(rawURL, trustedHost)
 	if err != nil {
@@ -52,7 +52,7 @@ func TestRewriteBadgeURLHost_WithoutPort(t *testing.T) {
 
 func TestRewriteBadgeURLHost_PathAndQueryPreserved(t *testing.T) {
 	rawURL := "https://rogue.example.com:8443/path/to/badge?id=abc123&format=json"
-	trustedHost := "tl.atiagent.cn"
+	trustedHost := "ati-tl.cnnic.cn:8180"
 
 	result, err := RewriteBadgeURLHost(rawURL, trustedHost)
 	if err != nil {
@@ -81,7 +81,7 @@ func TestRewriteBadgeURLHost_PathAndQueryPreserved(t *testing.T) {
 func TestRewriteBadgeURLHost_InvalidURL(t *testing.T) {
 	// url.Parse is fairly lenient; use a control character to force a parse error.
 	invalidURL := "ht\x7fps://[::1"
-	trustedHost := "tl.atiagent.cn"
+	trustedHost := "ati-tl.cnnic.cn:8180"
 
 	_, err := RewriteBadgeURLHost(invalidURL, trustedHost)
 	if err == nil {
@@ -94,7 +94,7 @@ func TestRewriteBadgeURLHost_InvalidURL(t *testing.T) {
 
 func TestRewriteBadgeURLHost_HTTPScheme(t *testing.T) {
 	rawURL := "http://rogue.example.com:8080/badge/abc123"
-	trustedHost := "tl.atiagent.cn"
+	trustedHost := "ati-tl.cnnic.cn:8180"
 
 	result, err := RewriteBadgeURLHost(rawURL, trustedHost)
 	if err != nil {
@@ -119,7 +119,7 @@ func TestRewriteBadgeURLHost_HTTPScheme(t *testing.T) {
 
 func TestRewriteBadgeURLHost_HTTPSScheme(t *testing.T) {
 	rawURL := "https://rogue.example.com:443/badge/abc123"
-	trustedHost := "tl.atiagent.cn"
+	trustedHost := "ati-tl.cnnic.cn:8180"
 
 	result, err := RewriteBadgeURLHost(rawURL, trustedHost)
 	if err != nil {
@@ -145,7 +145,7 @@ func TestRewriteBadgeURLHost_HTTPSScheme(t *testing.T) {
 func TestRewriteBadgeURLHost_EmptyHost(t *testing.T) {
 	// Even with an empty original host, the trusted host replaces it.
 	rawURL := "/badge/abc123"
-	trustedHost := "tl.atiagent.cn"
+	trustedHost := "ati-tl.cnnic.cn:8180"
 
 	result, err := RewriteBadgeURLHost(rawURL, trustedHost)
 	if err != nil {

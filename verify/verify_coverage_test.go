@@ -238,7 +238,7 @@ var _ = slog.Default
 
 func TestServerVerifier_TLogError(t *testing.T) {
 	v100 := models.NewVersion(1, 0, 0)
-	badgeURL := "https://tl.atiagent.cn/api/v1/badge"
+	badgeURL := "https://ati-tl.cnnic.cn:8180/api/v1/badge"
 	mockResolver := NewMockDNSResolver().
 		WithRecords("tlogerr.example.com", []ATIBadgeRecord{
 			{FormatVersion: "ati-badge1", Version: &v100, URL: badgeURL},
@@ -269,7 +269,7 @@ func TestServerVerifier_TLogError(t *testing.T) {
 
 func TestServerVerifier_InvalidAgentStatus(t *testing.T) {
 	v100 := models.NewVersion(1, 0, 0)
-	badgeURL := "https://tl.atiagent.cn/api/v1/badge"
+	badgeURL := "https://ati-tl.cnnic.cn:8180/api/v1/badge"
 	fpHex := "0102030000000000000000000000000000000000000000000000000000000000"
 
 	mockResolver := NewMockDNSResolver().
@@ -314,7 +314,7 @@ func TestServerVerifier_InvalidAgentStatus(t *testing.T) {
 
 func TestServerVerifier_HostnameMismatch_AgentHostVsFqdn(t *testing.T) {
 	v100 := models.NewVersion(1, 0, 0)
-	badgeURL := "https://tl.atiagent.cn/api/v1/badge"
+	badgeURL := "https://ati-tl.cnnic.cn:8180/api/v1/badge"
 	fpHex := "0102030000000000000000000000000000000000000000000000000000000000"
 
 	mockResolver := NewMockDNSResolver().
