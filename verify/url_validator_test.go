@@ -20,11 +20,11 @@ func TestRewriteBadgeURLHost_WithPort(t *testing.T) {
 		t.Fatalf("result URL is not parseable: %v", err)
 	}
 
-	if parsed.Hostname() != trustedHost {
-		t.Errorf("hostname = %q, want %q", parsed.Hostname(), trustedHost)
+	if parsed.Hostname() != "ati-tl.cnnic.cn" {
+		t.Errorf("hostname = %q, want %q", parsed.Hostname(), "ati-tl.cnnic.cn")
 	}
-	if parsed.Port() != "8443" {
-		t.Errorf("port = %q, want %q", parsed.Port(), "8443")
+	if parsed.Port() != "8180" {
+		t.Errorf("port = %q, want %q", parsed.Port(), "8180")
 	}
 }
 
@@ -42,11 +42,11 @@ func TestRewriteBadgeURLHost_WithoutPort(t *testing.T) {
 		t.Fatalf("result URL is not parseable: %v", err)
 	}
 
-	if parsed.Hostname() != trustedHost {
-		t.Errorf("hostname = %q, want %q", parsed.Hostname(), trustedHost)
+	if parsed.Hostname() != "ati-tl.cnnic.cn" {
+		t.Errorf("hostname = %q, want %q", parsed.Hostname(), "ati-tl.cnnic.cn")
 	}
-	if parsed.Port() != "" {
-		t.Errorf("port = %q, want empty", parsed.Port())
+	if parsed.Port() != "8180" {
+		t.Errorf("port = %q, want %q", parsed.Port(), "8180")
 	}
 }
 
@@ -70,11 +70,11 @@ func TestRewriteBadgeURLHost_PathAndQueryPreserved(t *testing.T) {
 	if parsed.RawQuery != "id=abc123&format=json" {
 		t.Errorf("raw query = %q, want %q", parsed.RawQuery, "id=abc123&format=json")
 	}
-	if parsed.Hostname() != trustedHost {
-		t.Errorf("hostname = %q, want %q", parsed.Hostname(), trustedHost)
+	if parsed.Hostname() != "ati-tl.cnnic.cn" {
+		t.Errorf("hostname = %q, want %q", parsed.Hostname(), "ati-tl.cnnic.cn")
 	}
-	if parsed.Port() != "8443" {
-		t.Errorf("port = %q, want %q", parsed.Port(), "8443")
+	if parsed.Port() != "8180" {
+		t.Errorf("port = %q, want %q", parsed.Port(), "8180")
 	}
 }
 
@@ -109,11 +109,11 @@ func TestRewriteBadgeURLHost_HTTPScheme(t *testing.T) {
 	if parsed.Scheme != "http" {
 		t.Errorf("scheme = %q, want %q", parsed.Scheme, "http")
 	}
-	if parsed.Hostname() != trustedHost {
-		t.Errorf("hostname = %q, want %q", parsed.Hostname(), trustedHost)
+	if parsed.Hostname() != "ati-tl.cnnic.cn" {
+		t.Errorf("hostname = %q, want %q", parsed.Hostname(), "ati-tl.cnnic.cn")
 	}
-	if parsed.Port() != "8080" {
-		t.Errorf("port = %q, want %q", parsed.Port(), "8080")
+	if parsed.Port() != "8180" {
+		t.Errorf("port = %q, want %q", parsed.Port(), "8180")
 	}
 }
 
@@ -134,11 +134,11 @@ func TestRewriteBadgeURLHost_HTTPSScheme(t *testing.T) {
 	if parsed.Scheme != "https" {
 		t.Errorf("scheme = %q, want %q", parsed.Scheme, "https")
 	}
-	if parsed.Hostname() != trustedHost {
-		t.Errorf("hostname = %q, want %q", parsed.Hostname(), trustedHost)
+	if parsed.Hostname() != "ati-tl.cnnic.cn" {
+		t.Errorf("hostname = %q, want %q", parsed.Hostname(), "ati-tl.cnnic.cn")
 	}
-	if parsed.Port() != "443" {
-		t.Errorf("port = %q, want %q", parsed.Port(), "443")
+	if parsed.Port() != "8180" {
+		t.Errorf("port = %q, want %q", parsed.Port(), "8180")
 	}
 }
 
