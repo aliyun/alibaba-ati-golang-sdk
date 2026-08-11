@@ -9,15 +9,23 @@ import (
 )
 
 // ATIRecord represents a parsed _ati TXT DNS record.
-// Format: v=ati1; id={agentId}; ra=aliyun; version=v1.0.0; p=a2a; url=https://...
-// Also accepts: ver= (alias for version=), proto= (alias for p=)
+//
+// New format (dual-hostname, one TXT per protocol):
+//
+//	v=ati1; av=v1.0.0; p=a2a; u=https://platform.example.com/agents/{AgentID}/a2a
+//
+// Legacy format:
+//
+//	v=ati1; id={agentId}; ra=aliyun; version=v1.0.0; p=a2a; url=https://...
+//
+// Field aliases: av ↔ version/ver, u ↔ url, proto ↔ p.
 type ATIRecord struct {
-	ID       string         // Agent ID (e.g., d6c78fcb-...)
+	ID       string         // Agent ID (explicit id= field, or extracted from URL path)
 	RA       string         // Registration Authority identifier (e.g., aliyun)
 	Version  models.Version // Semver version
 	Mode     ATIRecordMode  // card or direct (inferred from url presence if not set)
 	Protocol string         // Protocol filter (mcp/a2a/openapi), empty means wildcard
-	URL      string         // Metadata endpoint URL
+	URL      string         // Endpoint URL
 }
 
 // ATIRecordMode represents the mode field of an _ati TXT record.
@@ -40,7 +48,7 @@ func (m ATIRecordMode) String() string {
 }
 
 // ParseATIRecord parses an _ati TXT record string.
-// Supports both canonical field names (version, p) and aliases (ver, proto).
+// Supports both new format (av, u) and legacy field names (version/ver, url), plus proto as alias for p.
 func ParseATIRecord(txt string) (*ATIRecord, error) {
 	fields := parseSemicolonFields(txt)
 
@@ -52,12 +60,16 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 	id := fields["id"]
 	ra := fields["ra"]
 
-	versionStr := fields["version"]
+	// Version resolution order: av > version > ver
+	versionStr := fields["av"]
+	if versionStr == "" {
+		versionStr = fields["version"]
+	}
 	if versionStr == "" {
 		versionStr = fields["ver"]
 	}
 	if versionStr == "" {
-		return nil, errors.New("missing required field: version (or ver)")
+		return nil, errors.New("missing required field: av (or version/ver)")
 	}
 	version, err := models.ParseVersion(versionStr)
 	if err != nil {
@@ -69,7 +81,16 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 		protocol = fields["proto"]
 	}
 
-	url := fields["url"]
+	// URL resolution order: u > url
+	recordURL := fields["u"]
+	if recordURL == "" {
+		recordURL = fields["url"]
+	}
+
+	// Extract agent ID from URL path if not explicitly provided
+	if id == "" && recordURL != "" {
+		id = extractAgentIDFromURL(recordURL)
+	}
 
 	var mode ATIRecordMode
 	if modeStr, ok := fields["mode"]; ok {
@@ -81,7 +102,7 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 		default:
 			return nil, fmt.Errorf("invalid mode %q: must be 'card' or 'direct'", modeStr)
 		}
-	} else if url != "" {
+	} else if recordURL != "" {
 		mode = ATIRecordModeCard
 	} else {
 		mode = ATIRecordModeDirect
@@ -93,8 +114,27 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 		Version:  version,
 		Mode:     mode,
 		Protocol: protocol,
-		URL:      url,
+		URL:      recordURL,
 	}, nil
+}
+
+// extractAgentIDFromURL extracts the agent ID from a URL path containing /agents/{id}/.
+// Returns empty string if the pattern is not found.
+func extractAgentIDFromURL(rawURL string) string {
+	const marker = "/agents/"
+	idx := strings.Index(rawURL, marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := rawURL[idx+len(marker):]
+	// Take everything up to the next slash (or end of string)
+	if slashIdx := strings.Index(rest, "/"); slashIdx > 0 {
+		return rest[:slashIdx]
+	}
+	if rest != "" {
+		return rest
+	}
+	return ""
 }
 
 // parseSemicolonFields splits "k1=v1; k2=v2; ..." into a map.
