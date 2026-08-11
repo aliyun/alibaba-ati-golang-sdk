@@ -18,12 +18,12 @@ import (
 //
 //	v=ati1; id={agentId}; ra=aliyun; version=v1.0.0; p=a2a; url=https://...
 //
-// Field aliases: av ↔ version/ver, u ↔ url, proto ↔ p.
+// Field aliases: av ↔ version/ver, u ↔ url, proto ↔ p, mode ↔ m.
 type ATIRecord struct {
 	ID       string         // Agent ID (explicit id= field, or extracted from URL path)
 	RA       string         // Registration Authority identifier (e.g., aliyun)
 	Version  models.Version // Semver version
-	Mode     ATIRecordMode  // card or direct (inferred from url presence if not set)
+	Mode     ATIRecordMode  // card or direct (default: direct)
 	Protocol string         // Protocol filter (mcp/a2a/openapi), empty means wildcard
 	URL      string         // Endpoint URL
 }
@@ -92,8 +92,13 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 		id = extractAgentIDFromURL(recordURL)
 	}
 
+	// Mode resolution order: mode > m; default is always direct
 	var mode ATIRecordMode
-	if modeStr, ok := fields["mode"]; ok {
+	modeStr := fields["mode"]
+	if modeStr == "" {
+		modeStr = fields["m"]
+	}
+	if modeStr != "" {
 		switch modeStr {
 		case "card":
 			mode = ATIRecordModeCard
@@ -102,8 +107,6 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 		default:
 			return nil, fmt.Errorf("invalid mode %q: must be 'card' or 'direct'", modeStr)
 		}
-	} else if recordURL != "" {
-		mode = ATIRecordModeCard
 	} else {
 		mode = ATIRecordModeDirect
 	}
