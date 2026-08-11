@@ -516,17 +516,17 @@ Agent discovery uses DNS `_ati` TXT records. The SDK automatically performs disc
 ### TXT Record Format
 
 ```
-_ati.<host>  TXT  "v=ati1; id=<agentId>; ra=aliyun; version=v1.2.0; p=a2a; url=https://ati-tl.cnnic.cn:8180/api/v1/agents/<agentId>"
+_ati.<host>  TXT  "v=ati1; id=<agentId>; ra=aliyun; av=1.2.0; p=a2a; u=https://ati-tl.cnnic.cn:8180/api/v1/agents/<agentId>"
 ```
 
 | Field | Alias | Required | Description |
 |-------|-------|----------|-------------|
 | `v` | — | Yes | Magic header, must be `ati1` |
-| `version` | `ver` | Yes | Agent version (SemVer format) |
-| `id` | — | No | Agent ID |
+| `version` | `av`, `ver` | Yes | Agent version (SemVer format). Resolution order: `av` > `version` > `ver` |
+| `id` | — | No | Agent ID. Auto-extracted from `url` path (`/agents/{id}`) if omitted |
 | `ra` | — | No | Registration Authority (e.g., `aliyun`) |
 | `p` | `proto` | No | Protocol filter (`mcp`/`a2a`/`openapi`), empty = wildcard |
-| `url` | — | No | Metadata endpoint URL |
+| `url` | `u` | No | Metadata endpoint URL. Resolution order: `u` > `url` |
 | `mode` | — | No | `card` (default when url present) or `direct` |
 
 ### Usage
@@ -555,7 +555,7 @@ client, err := ati.NewAgentClient(
 
 Matching logic:
 
-1. Parse all `version` fields from `_ati` DNS TXT records
+1. Parse all version fields (`av`/`version`/`ver`) from `_ati` DNS TXT records
 2. Filter records matching the SemVer constraint
 3. Select the highest version among matches
 4. Return error if no match found

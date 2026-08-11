@@ -516,11 +516,18 @@ Agent 服务发现通过 DNS `_ati` TXT 记录完成。SDK 在客户端创建和
 ### TXT 记录格式
 
 ```
-_ati.<host>  TXT  "av=1.2.0;ep=https://target:8443;..."
+_ati.<host>  TXT  "v=ati1; id=<agentId>; ra=aliyun; av=1.2.0; p=a2a; u=https://ati-tl.cnnic.cn:8180/api/v1/agents/<agentId>"
 ```
 
-- `av` — Agent 版本号（SemVer 格式）
-- `ep` — Agent 端点地址
+| 字段 | 别名 | 必填 | 说明 |
+|------|------|------|------|
+| `v` | — | 是 | 魔术头，必须为 `ati1` |
+| `version` | `av`, `ver` | 是 | Agent 版本号（SemVer 格式）。解析优先级：`av` > `version` > `ver` |
+| `id` | — | 否 | Agent ID。若未提供，自动从 `url` 路径中提取（`/agents/{id}`） |
+| `ra` | — | 否 | 注册机构（如 `aliyun`） |
+| `p` | `proto` | 否 | 协议过滤器（`mcp`/`a2a`/`openapi`），为空则通配 |
+| `url` | `u` | 否 | 元数据端点 URL。解析优先级：`u` > `url` |
+| `mode` | — | 否 | `card`（url 存在时默认）或 `direct` |
 
 ### 使用方式
 
@@ -548,7 +555,7 @@ client, err := ati.NewAgentClient(
 
 匹配逻辑：
 
-1. 从 DNS TXT 响应中解析所有 `_ati` 记录的 `av` 字段
+1. 从 DNS TXT 响应中解析所有 `_ati` 记录的版本字段（`av`/`version`/`ver`）
 2. 按 semver constraint 过滤满足条件的记录
 3. 在满足条件的记录中选取版本最高的
 4. 无匹配时返回错误
