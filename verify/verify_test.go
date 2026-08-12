@@ -2372,3 +2372,51 @@ func TestAnsVerifier_VerifyClientWithScitt(t *testing.T) {
 		})
 	}
 }
+
+func TestClientVerifier_MultiURISAN_MatchesSecondHost(t *testing.T) {
+	host1 := "first.example.com"
+	host2 := "second.example.com"
+	version := "v1.0.0"
+	identityFP := "SHA256:aebdc9da0c20d6d5e4999a773839095ed050a9d7252bf212056fddc0c38f3496"
+
+	// TL response uses host2 as AgentHost
+	badge := createTestTLResponse(host2, version, "SHA256:server", identityFP)
+	badgeURL := "https://tlog.example.com/v1/agents/test-id"
+
+	dnsRecord := ATIBadgeRecord{
+		FormatVersion: "ati-badge1",
+		Version:       ptr(models.NewVersion(1, 0, 0)),
+		URL:           badgeURL,
+	}
+
+	// DNS resolves using host1 (first SAN, used for badge lookup)
+	dnsResolver := NewMockDNSResolver().
+		WithRecords(host1, []ATIBadgeRecord{dnsRecord})
+
+	tlogClient := NewMockTransparencyLogClient().
+		WithTLResponse(badgeURL, badge)
+
+	verifier := NewClientVerifier(
+		WithDNSResolver(dnsResolver),
+		WithTlogClient(tlogClient),
+		WithoutURLValidation(),
+	)
+
+	// Cert has two URI SANs: ati://v1.0.0.first.example.com and ati://v1.0.0.second.example.com
+	fp, _ := ParseCertFingerprint(identityFP)
+	cert := NewCertIdentity(
+		&host1,
+		[]string{host1},
+		[]string{
+			"ati://" + version + "." + host1,
+			"ati://" + version + "." + host2,
+		},
+		fp,
+	)
+
+	outcome := verifier.Verify(context.Background(), cert)
+
+	if outcome.Type != OutcomeVerified {
+		t.Errorf("Verify() expected Verified with multi-URI SAN (host2 match), got %v (error: %v)", outcome.Type, outcome.Error)
+	}
+}
