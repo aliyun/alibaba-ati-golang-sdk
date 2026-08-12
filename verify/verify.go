@@ -466,17 +466,21 @@ func (v *ClientVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *C
 	}
 	log.Info("[client-verify] fingerprint MATCHED")
 
-	tlHost := tlResp.Payload.AgentHost
-	matchedATIName := cert.ATINameForHost(tlHost)
-	if matchedATIName == nil || !strings.EqualFold(tlHost, matchedATIName.Host) {
-		log.Warn("[client-verify] hostname mismatch", "tlHost", tlHost, "certFqdn", fqdn.String())
-		return NewHostnameMismatchOutcome(tlResp, fqdn.String(), tlHost)
-	}
-
 	tlATIName := tlResp.Payload.AgentName
-	if !strings.EqualFold(tlATIName, matchedATIName.String()) {
-		log.Warn("[client-verify] ATI name mismatch", "tlATIName", tlATIName, "certATIName", matchedATIName.String())
-		return NewATINameMismatchOutcome(tlResp, tlATIName, matchedATIName.String())
+	matched := false
+	for _, name := range cert.ATINames() {
+		if strings.EqualFold(tlATIName, name.String()) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		certATIName := ""
+		if first := cert.ATIName(); first != nil {
+			certATIName = first.String()
+		}
+		log.Warn("[client-verify] ATI name mismatch", "tlATIName", tlATIName, "certATIName", certATIName)
+		return NewATINameMismatchOutcome(tlResp, tlATIName, certATIName)
 	}
 
 	outcome := NewVerifiedOutcome(tlResp, cert.Fingerprint)

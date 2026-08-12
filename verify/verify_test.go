@@ -569,8 +569,10 @@ func TestClientVerifier_HostnameMismatch(t *testing.T) {
 
 	outcome := verifier.Verify(context.Background(), cert)
 
-	if outcome.Type != OutcomeHostnameMismatch {
-		t.Errorf("Verify() expected HostnameMismatch, got %v", outcome.Type)
+	// agentHost no longer participates in identity verification (PRD v2.4);
+	// identity mismatch is now purely agentName vs cert ATIName.
+	if outcome.Type != OutcomeATINameMismatch {
+		t.Errorf("Verify() expected ATINameMismatch, got %v", outcome.Type)
 	}
 }
 
