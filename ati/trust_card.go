@@ -11,7 +11,7 @@ import (
 	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
 )
 
-const defaultTLBaseURL = "https://ati-tl.cnnic.cn:8180"
+const defaultTLBaseURL = "https://ati-tl.cnnic.cn:8180/ati/api/v1"
 
 // GetTrustCard retrieves a Trust Card from the CNNIC Transparency Log.
 // It resolves the agent's _ati TXT record to get the agentId, then queries the TL API.

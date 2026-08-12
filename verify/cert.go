@@ -289,7 +289,8 @@ func (c *CertIdentity) FQDN() *string {
 	return c.CommonName
 }
 
-// ATIName extracts the ANS name from URI SANs.
+// ATIName extracts the first valid ANS name from URI SANs.
+// Use ATINames() to retrieve all ati:// identities (e.g. dual-hostname certs).
 func (c *CertIdentity) ATIName() *ATIName {
 	for _, uri := range c.URISANs {
 		if strings.HasPrefix(uri, "ati://") {
@@ -299,6 +300,41 @@ func (c *CertIdentity) ATIName() *ATIName {
 		}
 	}
 	return nil
+}
+
+// ATINames extracts all valid ATI names from URI SANs.
+// A certificate may carry multiple ati:// URIs (e.g. one per hostname in a
+// dual-hostname model). Returns nil when no valid ati:// URI SAN is present.
+func (c *CertIdentity) ATINames() []*ATIName {
+	var names []*ATIName
+	for _, uri := range c.URISANs {
+		if strings.HasPrefix(uri, "ati://") {
+			if name, err := ParseATIName(uri); err == nil {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
+}
+
+// ATINameForHost returns the ATI name whose host matches the given FQDN,
+// or the first valid ATI name as fallback.
+func (c *CertIdentity) ATINameForHost(host string) *ATIName {
+	host = strings.ToLower(host)
+	var first *ATIName
+	for _, uri := range c.URISANs {
+		if strings.HasPrefix(uri, "ati://") {
+			if name, err := ParseATIName(uri); err == nil {
+				if first == nil {
+					first = name
+				}
+				if name.Host == host {
+					return name
+				}
+			}
+		}
+	}
+	return first
 }
 
 // Version extracts the version from ATI name in URI SAN.

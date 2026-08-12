@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
-	"strings"
 
 	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
@@ -50,33 +49,16 @@ type ATIBadgeRecord struct {
 
 // ParseATIBadgeRecord parses an _ati-badge TXT record.
 // Format: "v=ati-badge1; version=v1.0.0; url=https://..."
-// or:     "v=ati-badge1; url=https://..." (version optional)
+// or:     "v=ati-badge1; av=v1.0.0; u=https://..." (shorthand aliases)
+// Field aliases: av ↔ version, u ↔ url (consistent with _ati record parsing).
 func ParseATIBadgeRecord(txt string) (*ATIBadgeRecord, error) {
 	if txt == "" {
 		return nil, errors.New("empty TXT record")
 	}
 
-	var formatVersion string
-	var version *models.Version
-	var badgeURL string
+	fields := parseSemicolonFields(txt)
 
-	// Split by ";" (semicolon), then trim spaces from each part
-	// This handles both "v=x; url=y" and "v=x;url=y" formats
-	for part := range strings.SplitSeq(txt, ";") {
-		part = strings.TrimSpace(part)
-
-		if v, found := strings.CutPrefix(part, "v="); found {
-			formatVersion = v
-		} else if v, found := strings.CutPrefix(part, "version="); found {
-			if parsed, err := models.ParseVersion(v); err == nil {
-				version = &parsed
-			}
-			// Silently ignore invalid versions
-		} else if u, found := strings.CutPrefix(part, "url="); found {
-			badgeURL = u
-		}
-	}
-
+	formatVersion := fields["v"]
 	if formatVersion == "" {
 		return nil, errors.New("missing format version (v=)")
 	}
@@ -85,13 +67,31 @@ func ParseATIBadgeRecord(txt string) (*ATIBadgeRecord, error) {
 		return nil, fmt.Errorf("unsupported format version: %s", formatVersion)
 	}
 
+	// Version resolution order: av > version (consistent with ati_record.go)
+	var version *models.Version
+	versionStr := fields["av"]
+	if versionStr == "" {
+		versionStr = fields["version"]
+	}
+	if versionStr != "" {
+		if parsed, err := models.ParseVersion(versionStr); err == nil {
+			version = &parsed
+		}
+	}
+
 	// Version is required for ati-badge1 format (PRD 6.5.1)
 	if formatVersion == "ati-badge1" && version == nil {
-		return nil, errors.New("missing required field: version (required for ati-badge1)")
+		return nil, errors.New("missing required field: version (av or version required for ati-badge1)")
+	}
+
+	// URL resolution order: u > url (consistent with ati_record.go)
+	badgeURL := fields["u"]
+	if badgeURL == "" {
+		badgeURL = fields["url"]
 	}
 
 	if badgeURL == "" {
-		return nil, errors.New("missing URL (url=)")
+		return nil, errors.New("missing URL (url= or u=)")
 	}
 
 	// Parse and validate URL strictly

@@ -25,7 +25,7 @@ type clientConfig struct {
 // defaultConfig returns the default client configuration
 func defaultConfig() *clientConfig {
 	return &clientConfig{
-		baseURL: "https://ra.ansagent.cn:8180/ans/api/v1",
+		baseURL: "https://ati-ra.cnnic.cn:8180/ati/api/v1",
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
 		},

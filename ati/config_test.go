@@ -17,7 +17,7 @@ func TestInit_DefaultTrustLevel(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
-	cfg := Config{} // TrustLevel == 0; Init elevates to PolicyEnhanced for backward compat
+	cfg := Config{} // TrustLevel == nil; Init elevates to PolicyEnhanced for backward compat
 	if err := Init(cfg); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -26,8 +26,8 @@ func TestInit_DefaultTrustLevel(t *testing.T) {
 	if got == nil {
 		t.Fatal("GetConfig() = nil after Init")
 	}
-	if got.TrustLevel != PolicyEnhanced {
-		t.Errorf("TrustLevel = %s, want %s (zero-value elevated to PolicyEnhanced)", got.TrustLevel, PolicyEnhanced)
+	if got.TrustLevel == nil || *got.TrustLevel != PolicyEnhanced {
+		t.Errorf("TrustLevel = %v, want %s (nil elevated to PolicyEnhanced)", got.TrustLevel, PolicyEnhanced)
 	}
 }
 
@@ -35,7 +35,8 @@ func TestInit_ExplicitTrustLevel(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
-	cfg := Config{TrustLevel: PolicyAdvanced}
+	level := PolicyAdvanced
+	cfg := Config{TrustLevel: &level}
 	if err := Init(cfg); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -44,17 +45,18 @@ func TestInit_ExplicitTrustLevel(t *testing.T) {
 	if got == nil {
 		t.Fatal("GetConfig() = nil after Init")
 	}
-	if got.TrustLevel != PolicyAdvanced {
-		t.Errorf("TrustLevel = %s, want %s (PolicyAdvanced)", got.TrustLevel, PolicyAdvanced)
+	if got.TrustLevel == nil || *got.TrustLevel != PolicyAdvanced {
+		t.Errorf("TrustLevel = %v, want %s (PolicyAdvanced)", got.TrustLevel, PolicyAdvanced)
 	}
 }
 
-func TestInit_ExplicitPKIOnlyTrustLevel(t *testing.T) {
+func TestInit_ExplicitPolicyBasic(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
-	// PKIOnly == PolicyBasic == 0; Init elevates zero-value to PolicyEnhanced
-	cfg := Config{TrustLevel: PKIOnly}
+	// Explicitly setting PolicyBasic via pointer should be preserved (not elevated)
+	level := PolicyBasic
+	cfg := Config{TrustLevel: &level}
 	if err := Init(cfg); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -63,8 +65,8 @@ func TestInit_ExplicitPKIOnlyTrustLevel(t *testing.T) {
 	if got == nil {
 		t.Fatal("GetConfig() = nil after Init")
 	}
-	if got.TrustLevel != PolicyEnhanced {
-		t.Errorf("TrustLevel = %s, want %s (PKIOnly/zero-value elevated to PolicyEnhanced)", got.TrustLevel, PolicyEnhanced)
+	if got.TrustLevel == nil || *got.TrustLevel != PolicyBasic {
+		t.Errorf("TrustLevel = %v, want %s (explicit PolicyBasic preserved)", got.TrustLevel, PolicyBasic)
 	}
 }
 
@@ -99,12 +101,13 @@ func TestGetConfig_PreservesAllFields(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
+	level := DANEAndBadge
 	cfg := Config{
 		LocalHostname:    "host.example.com",
 		IdentityCertFile: "/path/to/cert.pem",
 		IdentityKeyFile:  "/path/to/key.pem",
-		CARootFile:        "/path/to/ca.pem",
-		TrustLevel:        DANEAndBadge,
+		CARootFile:       "/path/to/ca.pem",
+		TrustLevel:       &level,
 		DNSServer:        "8.8.8.8:53",
 	}
 	if err := Init(cfg); err != nil {
@@ -127,8 +130,8 @@ func TestGetConfig_PreservesAllFields(t *testing.T) {
 	if got.CARootFile != cfg.CARootFile {
 		t.Errorf("CARootFile = %q, want %q", got.CARootFile, cfg.CARootFile)
 	}
-	if got.TrustLevel != cfg.TrustLevel {
-		t.Errorf("TrustLevel = %s, want %s", got.TrustLevel, cfg.TrustLevel)
+	if got.TrustLevel == nil || *got.TrustLevel != *cfg.TrustLevel {
+		t.Errorf("TrustLevel = %v, want %v", got.TrustLevel, cfg.TrustLevel)
 	}
 	if got.DNSServer != cfg.DNSServer {
 		t.Errorf("DNSServer = %q, want %q", got.DNSServer, cfg.DNSServer)
@@ -210,23 +213,23 @@ func TestInit_DoesNotMutateOriginalConfig(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
-	original := Config{TrustLevel: 0} // PolicyBasic (zero-value)
+	original := Config{TrustLevel: nil} // nil → will be elevated to PolicyEnhanced
 	if err := Init(original); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 
 	// The caller's struct should not have been mutated (Init takes by value).
-	if original.TrustLevel != 0 {
-		t.Errorf("Init mutated the caller's Config: TrustLevel = %s, want 0", original.TrustLevel)
+	if original.TrustLevel != nil {
+		t.Errorf("Init mutated the caller's Config: TrustLevel = %v, want nil", original.TrustLevel)
 	}
 
-	// The stored global config has zero-value elevated to PolicyEnhanced.
+	// The stored global config has nil elevated to PolicyEnhanced.
 	got := GetConfig()
 	if got == nil {
 		t.Fatal("GetConfig() = nil after Init")
 	}
-	if got.TrustLevel != PolicyEnhanced {
-		t.Errorf("stored TrustLevel = %s, want %s", got.TrustLevel, PolicyEnhanced)
+	if got.TrustLevel == nil || *got.TrustLevel != PolicyEnhanced {
+		t.Errorf("stored TrustLevel = %v, want %s", got.TrustLevel, PolicyEnhanced)
 	}
 }
 
@@ -234,7 +237,7 @@ func TestInit_OverwritesPreviousConfig(t *testing.T) {
 	resetGlobalConfig()
 	defer resetGlobalConfig()
 
-	first := Config{LocalHostname: "first.example.com", TrustLevel: PKIOnly}
+	first := Config{LocalHostname: "first.example.com"} // TrustLevel nil → PolicyEnhanced
 	if err := Init(first); err != nil {
 		t.Fatalf("Init(first) error = %v", err)
 	}
@@ -242,7 +245,8 @@ func TestInit_OverwritesPreviousConfig(t *testing.T) {
 		t.Fatalf("first Init: LocalHostname = %q, want %q", got.LocalHostname, "first.example.com")
 	}
 
-	second := Config{LocalHostname: "second.example.com", TrustLevel: PolicyAdvanced}
+	level := PolicyAdvanced
+	second := Config{LocalHostname: "second.example.com", TrustLevel: &level}
 	if err := Init(second); err != nil {
 		t.Fatalf("Init(second) error = %v", err)
 	}
@@ -250,7 +254,7 @@ func TestInit_OverwritesPreviousConfig(t *testing.T) {
 	if got.LocalHostname != "second.example.com" {
 		t.Errorf("second Init: LocalHostname = %q, want %q", got.LocalHostname, "second.example.com")
 	}
-	if got.TrustLevel != PolicyAdvanced {
-		t.Errorf("second Init: TrustLevel = %s, want %s", got.TrustLevel, PolicyAdvanced)
+	if got.TrustLevel == nil || *got.TrustLevel != PolicyAdvanced {
+		t.Errorf("second Init: TrustLevel = %v, want %s", got.TrustLevel, PolicyAdvanced)
 	}
 }

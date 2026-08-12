@@ -125,8 +125,8 @@ func jcsWriteNumber(buf *bytes.Buffer, n json.Number) error {
 		return nil
 	}
 
-	// Integer check: if the float64 is an exact integer and within safe range
-	if f == math.Trunc(f) && math.Abs(f) < 1e21 {
+	// Integer check: if the float64 is an exact integer and within int64 range
+	if f == math.Trunc(f) && f >= math.MinInt64 && f <= math.MaxInt64 {
 		buf.WriteString(strconv.FormatInt(int64(f), 10))
 		return nil
 	}

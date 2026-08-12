@@ -26,12 +26,9 @@ func TestJCSCanonicalize_NumberFormats(t *testing.T) {
 		// notation (the implementation uses FormatFloat 'e' format), so
 		// 1.5 -> "1.5e+0", not "1.5".
 		//
-		// NOTE: 1.5e20 is a float whose value equals its truncation and whose
-		// magnitude is < 1e21, so jcsWriteNumber takes the integer branch and
-		// calls FormatInt(int64(1.5e20), 10). int64 conversion overflows,
-		// yielding the wrapped value below. This test documents the existing
-		// implementation behavior (it exercises the integer branch on line 130).
-		{"very large float needing exponent", `{"a":1.5e20}`, `{"a":-9223372036854775808}`},
+		// 1.5e20 exceeds int64 range (~9.2e18), so it takes the ES6
+		// scientific notation path. Per RFC 8785 §3.2.2.3 this is correct.
+		{"very large float needing exponent", `{"a":1.5e20}`, `{"a":1.5e+20}`},
 		{"very small float needing exponent", `{"a":0.000001}`, `{"a":1e-6}`},
 		{"float with trailing zeros", `{"a":1.50}`, `{"a":1.5e+0}`},
 		{"small non-integer float", `{"a":1.5}`, `{"a":1.5e+0}`},
@@ -211,15 +208,14 @@ func TestJcsWriteNumber_Direct(t *testing.T) {
 	})
 
 	t.Run("float whose magnitude triggers integer branch with int64 overflow", func(t *testing.T) {
-		// 1.5e20 == Trunc(1.5e20) and |1.5e20| < 1e21, so the integer branch
-		// is taken. int64(1.5e20) overflows to the wrapped value below; this
-		// documents the existing implementation behavior.
+		// 1.5e20 exceeds int64 range (~9.2e18), so the integer branch is NOT
+		// taken; instead the ES6 scientific notation path applies (RFC 8785).
 		var buf bytes.Buffer
 		if err := jcsWriteNumber(&buf, json.Number("1.5e20")); err != nil {
 			t.Fatalf("jcsWriteNumber() error = %v", err)
 		}
-		if got := buf.String(); got != "-9223372036854775808" {
-			t.Errorf("jcsWriteNumber(1.5e20) = %q, want %q", got, "-9223372036854775808")
+		if got := buf.String(); got != "1.5e+20" {
+			t.Errorf("jcsWriteNumber(1.5e20) = %q, want %q", got, "1.5e+20")
 		}
 	})
 

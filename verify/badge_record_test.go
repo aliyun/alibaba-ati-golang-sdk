@@ -123,6 +123,46 @@ func TestParseATIBadgeRecord(t *testing.T) {
 			txt:     "v=ati-badge1; version=not-a-version; url=https://example.com/badge",
 			wantErr: true,
 		},
+		{
+			name:        "av alias for version",
+			txt:         "v=ati-badge1; av=v2.0.0; url=https://example.com/badge",
+			wantErr:     false,
+			wantFormat:  "ati-badge1",
+			wantVersion: ptr(models.NewVersion(2, 0, 0)),
+			wantURL:     "https://example.com/badge",
+		},
+		{
+			name:        "u alias for url",
+			txt:         "v=ati-badge1; av=v1.0.0; u=https://example.com/badge",
+			wantErr:     false,
+			wantFormat:  "ati-badge1",
+			wantVersion: ptr(models.NewVersion(1, 0, 0)),
+			wantURL:     "https://example.com/badge",
+		},
+		{
+			name:        "av and u aliases together (new format)",
+			txt:         "v=ati-badge1; av=v3.1.0; u=https://ati-tl.cnnic.cn:8180/ati/api/v1/v1/agents/abc123",
+			wantErr:     false,
+			wantFormat:  "ati-badge1",
+			wantVersion: ptr(models.NewVersion(3, 1, 0)),
+			wantURL:     "https://ati-tl.cnnic.cn:8180/ati/api/v1/v1/agents/abc123",
+		},
+		{
+			name:        "av takes priority over version",
+			txt:         "v=ati-badge1; av=v2.0.0; version=v1.0.0; url=https://example.com/badge",
+			wantErr:     false,
+			wantFormat:  "ati-badge1",
+			wantVersion: ptr(models.NewVersion(2, 0, 0)),
+			wantURL:     "https://example.com/badge",
+		},
+		{
+			name:        "u takes priority over url",
+			txt:         "v=ati-badge1; av=v1.0.0; u=https://primary.example.com/badge; url=https://fallback.example.com/badge",
+			wantErr:     false,
+			wantFormat:  "ati-badge1",
+			wantVersion: ptr(models.NewVersion(1, 0, 0)),
+			wantURL:     "https://primary.example.com/badge",
+		},
 	}
 
 	for _, tt := range tests {

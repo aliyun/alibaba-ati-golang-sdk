@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -479,10 +480,17 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 	// --- PKI: agent discovery ---
 	// Runs before the request so that an explicit trust level blocks the
 	// connection (no bytes sent to the server) when the agent is not discoverable.
-	outcome.DNSDiscovered, outcome.AgentID = c.checkDNSDiscovery(ctx, fqdn)
-	slog.Info("[verify] PKI: agent discovery", "fqdn", fqdn.String(), "found", outcome.DNSDiscovered, "agentID", outcome.AgentID)
+	// Use identityHost for DNS discovery (the _ati TXT record lives on the
+	// identity hostname in the dual-hostname model).
+	discoveryHost := c.resolveIdentityHost(host)
+	discoveryFqdn, discoveryFqdnErr := models.NewFqdn(discoveryHost)
+	if discoveryFqdnErr != nil {
+		discoveryFqdn = fqdn
+	}
+	outcome.DNSDiscovered, outcome.AgentID = c.checkDNSDiscovery(ctx, discoveryFqdn)
+	slog.Info("[verify] PKI: agent discovery", "fqdn", discoveryFqdn.String(), "found", outcome.DNSDiscovered, "agentID", outcome.AgentID)
 	if !outcome.DNSDiscovered && explicit {
-		return nil, fmt.Errorf("PKI verification failed: agent not found for %s", host)
+		return nil, fmt.Errorf("PKI verification failed: agent not found for %s", discoveryHost)
 	}
 
 	// --- Execute request (mTLS handshake happens here) ---
@@ -587,9 +595,15 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 		daneHost := c.resolveAccessHost(host)
 		daneFqdn, daneFqdnErr := models.NewFqdn(daneHost)
 		if daneFqdnErr == nil {
-			slog.Info("[verify] DANE: starting TLSA verification", "fqdn", daneFqdn.String(), "port", 443)
+			danePort := uint16(443)
+			if p := parsedURL.Port(); p != "" {
+				if pv, pErr := strconv.ParseUint(p, 10, 16); pErr == nil {
+					danePort = uint16(pv)
+				}
+			}
+			slog.Info("[verify] DANE: starting TLSA verification", "fqdn", daneFqdn.String(), "port", danePort)
 			daneVerifier := verify.NewDANEVerifier(c.daneResolver)
-			daneOutcome := daneVerifier.Verify(ctx, daneFqdn, 443, certIdentity)
+			daneOutcome := daneVerifier.Verify(ctx, daneFqdn, danePort, certIdentity)
 			outcome.DANEDetails = daneOutcome
 			slog.Info("[verify] DANE: result", "type", daneOutcome.Type.String(), "pass", daneOutcome.IsPass(), "error", daneOutcome.Error)
 			if daneOutcome.IsPass() {

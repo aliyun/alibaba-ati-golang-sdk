@@ -106,9 +106,25 @@ func (c *HTTPTransparencyLogClient) FetchTLResponse(ctx context.Context, url str
 		}
 	}
 
-	var tlResp models.TLResponse
 	limitedReader := io.LimitReader(resp.Body, maxTLResponseBodyBytes)
-	if err := json.NewDecoder(limitedReader).Decode(&tlResp); err != nil {
+	body, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, &TlogError{
+			Type:   TlogErrorInvalidResponse,
+			URL:    url,
+			Reason: fmt.Sprintf("failed to read TL response body: %v", err),
+		}
+	}
+	if len(body) == 0 {
+		return nil, &TlogError{
+			Type:   TlogErrorInvalidResponse,
+			URL:    url,
+			Reason: "empty response body",
+		}
+	}
+
+	var tlResp models.TLResponse
+	if err := json.Unmarshal(body, &tlResp); err != nil {
 		return nil, &TlogError{
 			Type:   TlogErrorInvalidResponse,
 			URL:    url,

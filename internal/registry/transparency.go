@@ -24,7 +24,7 @@ type TransparencyClient struct {
 func NewTransparencyClient(opts ...Option) (*TransparencyClient, error) {
 	cfg := defaultConfig()
 	// Override default base URL for transparency log
-	cfg.baseURL = "https://ati-tl.cnnic.cn:8180"
+	cfg.baseURL = "https://ati-tl.cnnic.cn:8180/ati/api/v1"
 
 	// Apply options (which may override the default)
 	for _, opt := range opts {

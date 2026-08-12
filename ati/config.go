@@ -9,12 +9,12 @@ import (
 
 // Config holds the global SDK configuration set via Init().
 type Config struct {
-	LocalHostname    string     // This agent's hostname
-	IdentityCertFile string     // Path to identity certificate PEM
-	IdentityKeyFile  string     // Path to identity private key PEM
-	CARootFile       string     // Path to custom CA root certificate (optional, uses system CA if empty)
-	TrustLevel       TrustLevel // Trust level (zero-value is elevated to PolicyEnhanced by Init for backward compat)
-	DNSServer        string     // DNS server for DANE/TLSA lookups (host or host:port). Empty = system resolver.
+	LocalHostname    string      // This agent's hostname
+	IdentityCertFile string      // Path to identity certificate PEM
+	IdentityKeyFile  string      // Path to identity private key PEM
+	CARootFile       string      // Path to custom CA root certificate (optional, uses system CA if empty)
+	TrustLevel       *TrustLevel // Trust level pointer; nil means "use default (PolicyEnhanced)"
+	DNSServer        string      // DNS server for DANE/TLSA lookups (host or host:port). Empty = system resolver.
 }
 
 var (
@@ -23,11 +23,13 @@ var (
 )
 
 // Init initializes the ATI SDK with global configuration.
-// When TrustLevel is not explicitly set (zero-value), it defaults to PolicyEnhanced
+// When TrustLevel is nil (not explicitly set), it defaults to PolicyEnhanced
 // to preserve backward compatibility with the previous BadgeRequired default.
+// To explicitly use PolicyBasic, pass a non-nil pointer: &PolicyBasic.
 func Init(cfg Config) error {
-	if cfg.TrustLevel == PolicyBasic {
-		cfg.TrustLevel = PolicyEnhanced
+	if cfg.TrustLevel == nil {
+		defaultLevel := PolicyEnhanced
+		cfg.TrustLevel = &defaultLevel
 	}
 	configMu.Lock()
 	globalConfig = &cfg
