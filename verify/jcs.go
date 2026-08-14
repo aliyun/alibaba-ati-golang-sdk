@@ -125,13 +125,22 @@ func jcsWriteNumber(buf *bytes.Buffer, n json.Number) error {
 		return nil
 	}
 
-	// Integer check: if the float64 is an exact integer and within int64 range
-	if f == math.Trunc(f) && f >= math.MinInt64 && f <= math.MaxInt64 {
-		buf.WriteString(strconv.FormatInt(int64(f), 10))
+	// RFC 8785 section 3.2.2.3 defers to ES6 Number.toString(), which picks
+	// positional notation while 1e-6 <= |v| < 1e21 and exponential outside that
+	// band — for integral and fractional values alike.
+	//
+	// FormatFloat with 'f' is used rather than an int64 conversion because int64
+	// tops out at 2^63 (~9.22e18), far below the 1e21 boundary, so values in
+	// [2^63, 1e21) would otherwise fall through to the exponential branch and
+	// diverge from every other JCS implementation.
+	abs := math.Abs(f)
+	if abs >= 1e-6 && abs < 1e21 {
+		buf.WriteString(strconv.FormatFloat(f, 'f', -1, 64))
 		return nil
 	}
 
-	// ES6 Number.toString uses shortest representation with lowercase 'e'
+	// Outside the positional band: shortest exponential form, with the exponent
+	// normalised to ES6 spelling (no zero padding).
 	s := strconv.FormatFloat(f, 'e', -1, 64)
 	buf.WriteString(es6NumberFormat(s))
 	return nil
