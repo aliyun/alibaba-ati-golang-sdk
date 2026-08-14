@@ -18,9 +18,29 @@ const (
 
 // ResolveVersion selects the appropriate version from available ATI records
 // based on the version policy and requested version range.
+//
+// When an agent publishes one record per protocol they all carry the same
+// version, so use ResolveVersionForProtocol to disambiguate.
 func ResolveVersion(records []*verify.ATIRecord, policy VersionPolicy, requested string) (*verify.ATIRecord, error) {
+	return ResolveVersionForProtocol(records, policy, requested, "")
+}
+
+// ResolveVersionForProtocol resolves a record for a specific protocol, then
+// applies the version policy to whatever remains.
+//
+// An agent publishes one _ati TXT record per protocol (a2a, mcp, ...), and every
+// one of them repeats the same av= version. Selecting on version alone therefore
+// leaves the choice to DNS answer ordering, which is not stable. Pass the
+// protocol you intend to speak; an empty protocol keeps every record.
+func ResolveVersionForProtocol(records []*verify.ATIRecord, policy VersionPolicy, requested, protocol string) (*verify.ATIRecord, error) {
 	if len(records) == 0 {
 		return nil, fmt.Errorf("no ATI records available")
+	}
+	if protocol != "" {
+		records = verify.FilterATIRecordsByProtocol(records, protocol)
+		if len(records) == 0 {
+			return nil, fmt.Errorf("no ATI records for protocol %q", protocol)
+		}
 	}
 
 	switch policy {
@@ -63,7 +83,7 @@ func resolveLatest(records []*verify.ATIRecord) (*verify.ATIRecord, error) {
 		if err != nil {
 			continue
 		}
-		if bestVer == nil || v.GreaterThan(bestVer) {
+		if bestVer == nil || v.GreaterThan(bestVer) || (v.Equal(bestVer) && preferRecord(r, best)) {
 			best = r
 			bestVer = v
 		}
@@ -92,7 +112,7 @@ func resolveLatestCompatible(records []*verify.ATIRecord, requested string) (*ve
 			continue
 		}
 		if constraint.Check(v) {
-			if bestVer == nil || v.GreaterThan(bestVer) {
+			if bestVer == nil || v.GreaterThan(bestVer) || (v.Equal(bestVer) && preferRecord(r, best)) {
 				best = r
 				bestVer = v
 			}
@@ -119,4 +139,17 @@ func findExact(records []*verify.ATIRecord, requested string) (*verify.ATIRecord
 		}
 	}
 	return nil, fmt.Errorf("exact version %s not found", requested)
+}
+
+// preferRecord breaks a tie between two records of equal version so the result
+// does not depend on DNS answer ordering, which resolvers are free to rotate.
+// Ordering by protocol then URL is arbitrary but stable.
+func preferRecord(candidate, current *verify.ATIRecord) bool {
+	if current == nil {
+		return true
+	}
+	if candidate.Protocol != current.Protocol {
+		return candidate.Protocol < current.Protocol
+	}
+	return candidate.URL < current.URL
 }
