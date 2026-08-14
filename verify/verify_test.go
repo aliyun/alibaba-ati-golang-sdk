@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 	"github.com/aliyun/alibaba-ati-golang-sdk/verify/scitt"
+	"github.com/fxamacker/cbor/v2"
 )
 
 func createTestTLResponse(host, version, serverFP, identityFP string) *models.TLResponse {
@@ -301,8 +301,12 @@ func TestServerVerifier_HostnameMismatch(t *testing.T) {
 
 	outcome := verifier.Verify(context.Background(), fqdn, cert)
 
-	if outcome.Type != OutcomeHostnameMismatch {
-		t.Errorf("Verify() expected HostnameMismatch, got %v", outcome.Type)
+	// The record's agentName resolves to badgeHost while the lookup was keyed on
+	// certHost, so the identity does not match. Under the dual-hostname model the
+	// identity is carried by agentName rather than agentHost, which makes this an
+	// ATI name mismatch — mirroring what ClientVerifier reports for this case.
+	if outcome.Type != OutcomeATINameMismatch {
+		t.Errorf("Verify() expected ATINameMismatch, got %v", outcome.Type)
 	}
 }
 
@@ -724,9 +728,10 @@ func TestServerVerifier_RefreshOnMismatch(t *testing.T) {
 		cert := createTestCertIdentity(host, newFP)
 		outcome := verifier.Verify(context.Background(), fqdn, cert)
 
-		// Should return hostname mismatch immediately (not try to refresh)
-		if outcome.Type != OutcomeHostnameMismatch {
-			t.Errorf("Verify() expected HostnameMismatch, got %v", outcome.Type)
+		// Should reject immediately (not try to refresh). The mismatch surfaces as
+		// an ATI name mismatch because identity now comes from agentName.
+		if outcome.Type != OutcomeATINameMismatch {
+			t.Errorf("Verify() expected ATINameMismatch, got %v", outcome.Type)
 		}
 	})
 }
@@ -1749,7 +1754,6 @@ func TestVerifyDANE_NoResolver(t *testing.T) {
 		})
 	}
 }
-
 
 func TestConfigLogger(t *testing.T) {
 	tests := []struct {

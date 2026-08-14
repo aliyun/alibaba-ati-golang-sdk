@@ -260,15 +260,26 @@ func (v *ServerVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *C
 		return NewFingerprintMismatchOutcome(tlResp, expectedFP, cert.Fingerprint.String())
 	}
 
+	// The record must belong to the identity that was looked up. agentName holds
+	// the identity hostname (ati://v{version}.{identityHost}); agentHost holds the
+	// access hostname, which under the shared-domain model is a different name and
+	// so must not be compared against the identity host.
 	tlHost := tlResp.Payload.AgentHost
-	certFqdn := cert.FQDN()
-
-	if !strings.EqualFold(tlHost, fqdn.String()) {
+	if tlATIName, err := ParseATIName(tlResp.Payload.AgentName); err == nil {
+		if !strings.EqualFold(tlATIName.Host, fqdn.String()) {
+			return NewATINameMismatchOutcome(tlResp, tlResp.Payload.AgentName, fqdn.String())
+		}
+	} else if !strings.EqualFold(tlHost, fqdn.String()) {
+		// Records with no parsable agentName predate the dual-hostname model, where
+		// agentHost and the identity host are the same value. Keep verifying those.
 		return NewHostnameMismatchOutcome(tlResp, fqdn.String(), tlHost)
 	}
 
-	if certFqdn != nil && !strings.EqualFold(*certFqdn, tlHost) {
-		return NewHostnameMismatchOutcome(tlResp, tlHost, *certFqdn)
+	// The access hostname declared by the record must be covered by the
+	// certificate that was actually presented. The access certificate may be a
+	// shared wildcard, so match against every SAN rather than just the first.
+	if tlHost != "" && len(cert.DNSSANs) > 0 && !cert.CoversHost(tlHost) {
+		return NewHostnameMismatchOutcome(tlResp, tlHost, strings.Join(cert.DNSSANs, ", "))
 	}
 
 	outcome := NewVerifiedOutcome(tlResp, cert.Fingerprint)

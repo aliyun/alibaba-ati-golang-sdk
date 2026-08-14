@@ -289,6 +289,44 @@ func (c *CertIdentity) FQDN() *string {
 	return c.CommonName
 }
 
+// CoversHost reports whether any DNS SAN in the certificate covers host.
+//
+// Wildcard SANs are honoured because the access certificate in the dual-hostname
+// model may be a platform-wide wildcard shared by many agents, so an exact
+// comparison against a single SAN is not sufficient.
+func (c *CertIdentity) CoversHost(host string) bool {
+	for _, san := range c.DNSSANs {
+		if matchesDNSName(san, host) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesDNSName reports whether host matches a certificate DNS SAN pattern.
+//
+// A leading "*." matches exactly one label (RFC 6125 section 6.4.3), so
+// "*.example.com" matches "a.example.com" but neither "example.com" nor
+// "a.b.example.com". The wildcard is only recognised as the entire leftmost
+// label; patterns such as "f*.example.com" are treated literally. Comparison is
+// case-insensitive and a trailing dot on either side is ignored.
+func matchesDNSName(pattern, host string) bool {
+	pattern = strings.ToLower(strings.TrimSuffix(pattern, "."))
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if pattern == "" || host == "" {
+		return false
+	}
+	if !strings.HasPrefix(pattern, "*.") {
+		return pattern == host
+	}
+	suffix := pattern[1:] // ".example.com"
+	if !strings.HasSuffix(host, suffix) {
+		return false
+	}
+	label := host[:len(host)-len(suffix)]
+	return label != "" && !strings.Contains(label, ".")
+}
+
 // ATIName extracts the first valid ANS name from URI SANs.
 // Use ATINames() to retrieve all ati:// identities (e.g. dual-hostname certs).
 func (c *CertIdentity) ATIName() *ATIName {
