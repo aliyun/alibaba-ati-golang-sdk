@@ -415,7 +415,7 @@ client, err := ati.NewAgentClient(
 | `WithAgentDANEResolver(r)` | No | Override the default DANE resolver (auto-created for `PolicyAdvanced`). |
 | `WithTLogClient(t)` | No | Custom Transparency Log client (for testing or private deployments). |
 | `WithDNSResolver(r)` | No | Custom DNS resolver (primarily for testing). |
-| `WithTLPublicKey(key)` | No | Pre-loaded TL public key for Gold-level seal verification. |
+| `WithTLPublicKey(key)` | No | Pre-loaded TL public key for Gold-level seal verification. Accepts either an ECDSA or an RSA-3072 key, since the platform signs seals with either depending on when the agent was registered. |
 
 ### Server Options
 

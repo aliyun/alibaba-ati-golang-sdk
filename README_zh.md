@@ -414,7 +414,7 @@ client, err := ati.NewAgentClient(
 | `WithAgentDANEResolver(r)` | 可选 | 覆盖默认 DANE resolver（`PolicyAdvanced` 下自动创建）。 |
 | `WithTLogClient(t)` | 可选 | 自定义透明日志客户端（测试或私有部署）。 |
 | `WithDNSResolver(r)` | 可选 | 注入自定义 DNS 解析器（主要用于测试）。 |
-| `WithTLPublicKey(key)` | 可选 | 预置 TL 公钥用于 Gold 级封条验证。 |
+| `WithTLPublicKey(key)` | 可选 | 预置 TL 公钥用于 Gold 级封条验证。同时支持 ECDSA 与 RSA-3072 平台密钥（平台按 agent 注册时间使用其中一种签名）。 |
 
 ### 服务端配置项
 

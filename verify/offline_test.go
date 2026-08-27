@@ -2,9 +2,11 @@ package verify
 
 import (
 	"context"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -14,6 +16,56 @@ import (
 
 	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
+
+func buildOfflineTestResponseRSA(t *testing.T, tlKey *rsa.PrivateKey, fingerprint string) *models.TLResponse {
+	t.Helper()
+
+	pubDER, _ := x509.MarshalPKIXPublicKey(&tlKey.PublicKey)
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}))
+
+	leafHash := hexHash([]byte("offline-test-leaf-rsa"))
+
+	resp := &models.TLResponse{
+		Status:        "ACTIVE",
+		SchemaVersion: "1.0",
+		Payload: models.TLPayload{
+			LogID:            "log-offline-002",
+			EventType:        "attestation",
+			AgentID:          "ans-offline-002",
+			AgentName:        "ati://offline-rsa.example.com",
+			AgentDisplayName: "offline-agent-rsa",
+			AgentHost:        "offline-rsa.example.com",
+			AgentStatus:      "ACTIVE",
+			Certificates: models.TLCertificates{
+				IdentityCertFingerprint: fingerprint,
+			},
+		},
+		EvidenceRef: models.EvidenceRef{
+			EvidenceID:   "ev-offline-002",
+			SubmitterID:  "producer-kid",
+			EvidenceType: "agent-attestation",
+		},
+		Seal: models.TLSeal{
+			Canonicalization:   "JCS",
+			DigestAlgorithm:    "SHA-256",
+			SignatureAlgorithm: SealAlgorithmRSA,
+			SignatureEncoding:  "base64",
+			KeyID:              "ati-tl-service",
+			PublicKey:          keyPEM,
+		},
+		MerkleProof: models.MerkleProof{
+			LeafHash:  leafHash,
+			RootHash:  leafHash,
+			LeafIndex: 0,
+			TreeSize:  1,
+			Path:      []string{},
+		},
+	}
+
+	resp.Seal.Signature = signSealRSA(t, resp, tlKey)
+
+	return resp
+}
 
 func buildOfflineTestResponse(t *testing.T, tlKey, producerKey *ecdsa.PrivateKey, fingerprint string) *models.TLResponse {
 	t.Helper()
@@ -183,5 +235,47 @@ func TestOfflineVerifier_VerifyOffline_NoProducerKeys(t *testing.T) {
 	}
 	if !result.IsSuccess() {
 		t.Errorf("VerifyOffline() should succeed without producer keys: %v", result.Error)
+	}
+}
+
+func TestOfflineVerifier_VerifyOffline_KeyStore_DualAlgorithm(t *testing.T) {
+	ecKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate RSA key: %v", err)
+	}
+
+	store := NewTLKeyStore(map[string]crypto.PublicKey{
+		"ati-tl-ecdsa-v1": &ecKey.PublicKey,
+		"ati-tl-service":  &rsaKey.PublicKey,
+	})
+
+	fp := CertFingerprintFromDER([]byte("offline-cert-data-keystore"))
+	cert := &CertIdentity{Fingerprint: fp}
+	verifier := NewOfflineVerifierWithKeyStore(store, nil)
+
+	// Legacy ECDSA-signed response.
+	ecResp := buildOfflineTestResponse(t, ecKey, nil, fp.String())
+	ecResp.Seal.KeyID = "ati-tl-ecdsa-v1"
+	ecRespJSON, _ := json.Marshal(ecResp)
+
+	result, err := verifier.VerifyOffline(context.Background(), ecRespJSON, cert)
+	if err != nil {
+		t.Fatalf("VerifyOffline() ECDSA via TLKeyStore error = %v", err)
+	}
+	if !result.IsSuccess() {
+		t.Fatalf("VerifyOffline() ECDSA via TLKeyStore failed: %v", result.Error)
+	}
+
+	// RSA-3072-signed response through the same key store.
+	rsaResp := buildOfflineTestResponseRSA(t, rsaKey, fp.String())
+	rsaRespJSON, _ := json.Marshal(rsaResp)
+
+	result2, err := verifier.VerifyOffline(context.Background(), rsaRespJSON, cert)
+	if err != nil {
+		t.Fatalf("VerifyOffline() RSA via TLKeyStore error = %v", err)
+	}
+	if !result2.IsSuccess() {
+		t.Fatalf("VerifyOffline() RSA via TLKeyStore failed: %v", result2.Error)
 	}
 }

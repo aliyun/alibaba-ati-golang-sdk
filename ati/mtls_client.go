@@ -3,7 +3,7 @@ package ati
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
+	"crypto"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -36,7 +36,7 @@ type AgentClient struct {
 	dnsResolver    verify.DNSResolver
 	daneResolver   verify.DANEResolver
 	tlogClient     verify.TransparencyLogClient
-	tlPublicKey    *ecdsa.PublicKey
+	tlPublicKey    crypto.PublicKey
 	serverVerifier *verify.ServerVerifier
 	verifyCache    sync.Map // host+fingerprint → *TrustOutcome
 	identityHost   string   // for Badge + identity DANE lookups
@@ -57,7 +57,7 @@ type agentClientConfig struct {
 	dnsResolver      verify.DNSResolver
 	daneResolver     verify.DANEResolver
 	tlogClient       verify.TransparencyLogClient
-	tlPublicKey      *ecdsa.PublicKey
+	tlPublicKey      crypto.PublicKey
 	identityHost     string // for Badge + identity DANE lookups
 	accessHost       string // recorded via WithAccessHost; no longer steers DNS lookups
 }
@@ -129,8 +129,9 @@ func WithTLogClient(t verify.TransparencyLogClient) AgentClientOption {
 	}
 }
 
-// WithTLPublicKey sets a pre-configured CNNIC TL public key for Gold seal verification.
-func WithTLPublicKey(key *ecdsa.PublicKey) AgentClientOption {
+// WithTLPublicKey sets a pre-configured CNNIC TL public key (ECDSA or RSA) for
+// Gold seal verification.
+func WithTLPublicKey(key crypto.PublicKey) AgentClientOption {
 	return func(c *agentClientConfig) error {
 		c.tlPublicKey = key
 		return nil

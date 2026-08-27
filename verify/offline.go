@@ -2,7 +2,7 @@ package verify
 
 import (
 	"context"
-	"crypto/ecdsa"
+	"crypto"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -13,14 +13,27 @@ import (
 // OfflineVerifier performs verification using pre-provisioned keys and embedded
 // signed statements, without requiring TL connectivity per spec.
 type OfflineVerifier struct {
-	tlPublicKey  *ecdsa.PublicKey
+	tlPublicKey  crypto.PublicKey
+	tlKeyStore   *TLKeyStore
 	producerKeys ProducerKeyLookup
 }
 
-// NewOfflineVerifier creates a verifier for offline/self-contained mode.
-func NewOfflineVerifier(tlPublicKey *ecdsa.PublicKey, producerKeys ProducerKeyLookup) *OfflineVerifier {
+// NewOfflineVerifier creates a verifier for offline/self-contained mode,
+// pinned to a single TL seal public key (ECDSA or RSA).
+func NewOfflineVerifier(tlPublicKey crypto.PublicKey, producerKeys ProducerKeyLookup) *OfflineVerifier {
 	return &OfflineVerifier{
 		tlPublicKey:  tlPublicKey,
+		producerKeys: producerKeys,
+	}
+}
+
+// NewOfflineVerifierWithKeyStore creates a verifier that looks up the TL seal
+// key by seal.KeyID in store — use this to trust both the legacy ECDSA key
+// and the newer RSA-3072 key at once, since the platform now signs seals
+// with either depending on when the agent was registered.
+func NewOfflineVerifierWithKeyStore(store *TLKeyStore, producerKeys ProducerKeyLookup) *OfflineVerifier {
+	return &OfflineVerifier{
+		tlKeyStore:   store,
 		producerKeys: producerKeys,
 	}
 }
@@ -40,9 +53,15 @@ func (v *OfflineVerifier) VerifyOffline(_ context.Context, tlResponseJSON []byte
 	ansName := tlResp.Payload.AgentName
 
 	// Step 1: Verify seal signature
-	if err := VerifySealSignature(&tlResp, v.tlPublicKey); err != nil {
+	var sealErr error
+	if v.tlKeyStore != nil {
+		sealErr = VerifySealSignatureWithKeyStore(&tlResp, v.tlKeyStore)
+	} else {
+		sealErr = VerifySealSignature(&tlResp, v.tlPublicKey)
+	}
+	if sealErr != nil {
 		return NewFailureResult(ansName, NewANSError(CodeTLReceiptSigInvalid, SeverityHard, StageTLVerify,
-			"offline: seal signature verification failed", WithCause(err))), nil
+			"offline: seal signature verification failed", WithCause(sealErr))), nil
 	}
 
 	// Step 2: Verify inclusion proof
