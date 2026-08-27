@@ -60,6 +60,10 @@ func WithClientCA(caBundle string) ServerOption {
 // request a client certificate and accepts the connection as a plain TLS
 // connection. (Exception: providing a private root cert via WithClientCA
 // implies PKIOnly verification.)
+//
+// Any level PKIOnly or above requires the client certificate to chain to a
+// trusted CA: the bundle set via WithClientCA, or — when none is set — the
+// SDK-shipped IDCA chain.
 func WithClientVerifier(level TrustLevel) ServerOption {
 	return func(c *serverConfig) error {
 		if !level.ValidForServer() {
@@ -119,11 +123,12 @@ func WithServerDANEResolver(r verify.DANEResolver) ServerOption {
 // The verification behavior depends on WithClientVerifier / WithClientCA:
 //   - Neither set: no client verification. The server does not request a client
 //     certificate and accepts the connection as a plain TLS connection.
-//   - WithClientVerifier(level) set: mutual TLS with a VerifyConnection callback
-//     enforcing the given trust level. Client certificates can be self-signed —
-//     trust is established through TL fingerprint verification.
-//   - WithClientCA set: the CA chain is also validated, and PKIOnly verification
-//     is implied even without WithClientVerifier.
+//   - WithClientVerifier(level) set (level >= PKIOnly), or WithClientCA set:
+//     mutual TLS with the client certificate's CA chain validated against
+//     WithClientCA's bundle, or — if not set — the SDK-shipped IDCA chain.
+//     Providing WithClientCA implies PKIOnly even without WithClientVerifier.
+//     Levels above PKIOnly additionally enforce trust via a VerifyConnection
+//     callback (Badge/TL fingerprint verification).
 func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 	// trustLevel is left nil by default. When WithClientVerifier is not called,
 	// the server performs no client verification at all — behaving like a plain
@@ -161,8 +166,8 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 	// Determine the TLS client-auth mode from the configured trust level:
 	//   - no trust level        → NoClientCert (plain connection, no mTLS)
 	//   - PolicyNone            → NoClientCert (no client auth)
-	//   - CA bundle provided     → RequireAndVerifyClientCert (CA chain validated)
-	//   - trust level, no bundle → RequireAnyClientCert (trust via Badge/TLog)
+	//   - CA bundle provided    → RequireAndVerifyClientCert (custom CA chain validated)
+	//   - trust level, no bundle → RequireAndVerifyClientCert (SDK-shipped IDCA chain validated)
 	var clientCAs *x509.CertPool
 	var clientAuth tls.ClientAuthType
 	switch {
@@ -181,7 +186,12 @@ func NewServerTLSConfig(opts ...ServerOption) (*tls.Config, error) {
 		}
 		clientAuth = tls.RequireAndVerifyClientCert
 	default:
-		clientAuth = tls.RequireAnyClientCert
+		pool, loadErr := loadEmbeddedIdcaChain()
+		if loadErr != nil {
+			return nil, fmt.Errorf("加载内置 IDCA chain 失败: %w", loadErr)
+		}
+		clientCAs = pool
+		clientAuth = tls.RequireAndVerifyClientCert
 	}
 
 	// Auto-create DANE resolver when trust level requires it
@@ -253,12 +263,11 @@ func buildVerifyConnection(cfg *serverConfig) func(tls.ConnectionState) error {
 		peerCert := cs.PeerCertificates[0]
 
 		// PKI (CA chain) validation is handled by Go's TLS library before this callback.
-		// If we reach here, it means:
-		// - With --ca-bundle: CA chain validation PASSED (cert signed by trusted CA)
-		// - Without --ca-bundle: any client cert accepted (trust via Badge/TLog)
-		caMode := "disabled (any cert accepted)"
-		if cfg.caBundleFile != "" {
-			caMode = "enabled (CA chain validated)"
+		// If we reach here at PKIOnly+, the cert chain validated against either the
+		// configured CA bundle or the SDK-shipped IDCA chain.
+		caMode := "enabled (custom CA bundle)"
+		if cfg.caBundleFile == "" {
+			caMode = "enabled (SDK-shipped IDCA chain)"
 		}
 		slog.Info("[server-verify] PKI: client cert received",
 			"subject", peerCert.Subject.CommonName,
@@ -436,6 +445,8 @@ func shouldEnableCRL(cfg *serverConfig) bool {
 	if cfg.crlEnabled != nil {
 		return *cfg.crlEnabled
 	}
-	// Auto-enable when: CA bundle provided and trust level is set and not NONE
-	return cfg.caBundleFile != "" && cfg.trustLevel != nil && *cfg.trustLevel != PolicyNone
+	// Auto-enable whenever a trust level requires client CA-chain verification
+	// (BASIC+): the client cert chain is now always validated, whether against
+	// a user-provided CA bundle or the SDK-shipped IDCA chain.
+	return cfg.trustLevel != nil && *cfg.trustLevel != PolicyNone
 }

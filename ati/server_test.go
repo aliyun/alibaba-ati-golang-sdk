@@ -1,6 +1,7 @@
 package ati
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -241,11 +242,11 @@ func TestNewServerTLSConfig_MissingServerCert(t *testing.T) {
 	}
 }
 
-func TestNewServerTLSConfig_NoCABundle_AcceptsSelfSignedClients(t *testing.T) {
+func TestNewServerTLSConfig_NoCABundle_UsesEmbeddedIdcaChain(t *testing.T) {
 	bundle := setupTestCertBundle(t)
 
-	// With a trust level set but no CA bundle, self-signed client certs are
-	// accepted (RequireAnyClientCert); trust is established via Badge/TLog.
+	// With a trust level set but no CA bundle, the client certificate's CA
+	// chain is validated against the SDK-shipped IDCA chain.
 	tlsConfig, err := NewServerTLSConfig(
 		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
 		WithClientVerifier(PKIOnly),
@@ -253,8 +254,11 @@ func TestNewServerTLSConfig_NoCABundle_AcceptsSelfSignedClients(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error without CA bundle, got: %v", err)
 	}
-	if tlsConfig.ClientAuth != tls.RequireAnyClientCert {
-		t.Errorf("ClientAuth = %v, want RequireAnyClientCert", tlsConfig.ClientAuth)
+	if tlsConfig.ClientAuth != tls.RequireAndVerifyClientCert {
+		t.Errorf("ClientAuth = %v, want RequireAndVerifyClientCert", tlsConfig.ClientAuth)
+	}
+	if tlsConfig.ClientCAs == nil {
+		t.Error("ClientCAs should be set to the embedded IDCA chain")
 	}
 	if tlsConfig.VerifyConnection == nil {
 		t.Error("VerifyConnection should be set when a trust level is configured")
@@ -296,6 +300,34 @@ func TestNewServerTLSConfig_CABundleOnly_ImpliesPKI(t *testing.T) {
 	}
 	if tlsConfig.VerifyConnection == nil {
 		t.Error("VerifyConnection should be set when a CA bundle is provided")
+	}
+}
+
+func TestNewServerTLSConfig_ClientCA_OverridesEmbeddedIdcaChain(t *testing.T) {
+	bundle := setupTestCertBundle(t)
+
+	tlsConfig, err := NewServerTLSConfig(
+		WithServerCert(bundle.ServerCertF, bundle.ServerKeyF),
+		WithClientVerifier(PKIOnly),
+		WithClientCA(bundle.CACertFile),
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if tlsConfig.ClientAuth != tls.RequireAndVerifyClientCert {
+		t.Errorf("ClientAuth = %v, want RequireAndVerifyClientCert", tlsConfig.ClientAuth)
+	}
+
+	block, _ := pem.Decode(bundle.CACertPEM)
+	userCACert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("failed to parse test CA cert: %v", err)
+	}
+	if len(tlsConfig.ClientCAs.Subjects()) != 1 { //nolint:staticcheck // adequate for a test-only identity check.
+		t.Fatalf("ClientCAs should contain exactly the user CA, got %d subjects", len(tlsConfig.ClientCAs.Subjects()))
+	}
+	if !bytes.Equal(tlsConfig.ClientCAs.Subjects()[0], userCACert.RawSubject) { //nolint:staticcheck
+		t.Error("ClientCAs should be the user-provided CA bundle, not the embedded IDCA chain")
 	}
 }
 
@@ -898,9 +930,9 @@ func TestShouldEnableCRL(t *testing.T) {
 			wantEnable: true,
 		},
 		{
-			name:       "no CA bundle",
+			name:       "auto-enable: no CA bundle, trust level uses embedded IDCA chain",
 			cfg:        &serverConfig{trustLevel: &pki},
-			wantEnable: false,
+			wantEnable: true,
 		},
 		{
 			name:       "no trust level",

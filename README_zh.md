@@ -10,7 +10,7 @@
 - **DANE TLSA 验证** — 通过 DNS TLSA 记录配合 DNSSEC 验证服务端/客户端证书
 - **Badge 验证** — 通过 CNNIC 透明日志（Transparency Log）加密验证 Agent 注册信息
 - **IDCA CRL 证书吊销（服务端）** — 在 TLS 层通过 CDP/CRL 校验，采用 fail-closed 策略
-- **mTLS 安全连接** — 支持身份证书的双向 TLS（允许自签证书）
+- **mTLS 安全连接** — 支持身份证书的双向 TLS；服务端 `PolicyBasic` 及以上会对客户端证书做 CA 链校验（默认用 SDK 内置 IDCA chain，或用户配置的 CA）
 - **Dual-hostname 模型** — 分离 Identity Hostname 和 Access Hostname，适配代理/网关部署
 - **零依赖初始化** — 单一 `ati.Init()` 调用完成全局配置
 
@@ -29,7 +29,7 @@
 
 **PolicyBasic — 基础证书校验**
 
-沿用标准 TLS 的证书检查：证书是否在有效期内、证书 SAN 是否与你要访问的主机名一致。CA 链校验是**有条件**的——**只有当你配置了私有根证书（CA bundle）时才会做 CA 链校验**；不配置时不校验 CA 链（接受任意证书），信任交由更高等级（Badge/TLog）建立。身份证书允许自签。
+沿用标准 TLS 的证书检查：证书是否在有效期内、证书 SAN 是否与你要访问的主机名一致。服务端场景下，`PolicyBasic` 及以上等级**始终会**对客户端证书做 CA 链校验：传了 `WithClientCA` 就用你配置的根证书，否则用 SDK 内置的 IDCA chain。因此客户端身份证书必须能链到某个受信任的 CA，自签证书将被拒绝。客户端场景下，`WithMTLSCerts` 配置的 CA bundle（未配置则用系统 CA 池）照常用于校验服务端证书。
 
 **PolicyEnhanced — 身份徽章验证**
 
@@ -333,7 +333,8 @@ func main() {
         log.Fatal(err)
     }
 
-    // 身份证书必须包含 ati:// URI SAN，可自签
+    // 身份证书必须包含 ati:// URI SAN；若对端服务端启用 PolicyBasic 及以上验证，
+    // 还必须能链到 SDK 内置 IDCA chain 或对端配置的 CA
     client, err := ati.NewAgentClient(
         ati.WithIdentityCert("certs/client.crt", "certs/client.key"),
         // 默认：PolicyEnhanced（Badge 验证）
@@ -403,7 +404,7 @@ client, err := ati.NewAgentClient(
 
 | 选项 | 是否必填 | 说明 |
 |------|---------|------|
-| `WithIdentityCert(certFile, keyFile)` | **必填** | 客户端身份证书 + 私钥。必须含 `ati://` URI SAN，可自签。 |
+| `WithIdentityCert(certFile, keyFile)` | **必填** | 客户端身份证书 + 私钥。必须含 `ati://` URI SAN；若对端服务端启用 `PolicyBasic` 及以上验证，还必须能链到 SDK 内置 IDCA chain 或对端配置的 CA。 |
 | `WithMTLSCerts(id, key, serverCert, caBundle)` | 替代上一项 | 需要用私有根证书校验服务端证书时使用。`serverCert` 传空即可。传了 CA bundle 才做 PKI CA 链校验。 |
 | `WithTrustLevel(level)` | 可选 | 目标验证策略。默认 `PolicyEnhanced`。 |
 | `WithClientTimeout(d)` | 可选 | HTTP 请求超时。默认 30s。 |
@@ -429,9 +430,9 @@ tlsConfig, err := ati.NewServerTLSConfig(
 | 选项 | 是否必填 | 说明 |
 |------|---------|------|
 | `WithServerCert(certFile, keyFile)` | **必填** | 服务端证书 + 私钥。建议由公有 CA 签发，DNS SAN 含服务主机名。 |
-| `WithClientCA(caBundle)` | 可选 | 私有根证书，设置后 Go TLS 层对客户端证书做 CA 链校验（`RequireAndVerifyClientCert`）。 |
+| `WithClientCA(caBundle)` | 可选 | 私有根证书，设置后 Go TLS 层对客户端证书做 CA 链校验（`RequireAndVerifyClientCert`），覆盖 SDK 内置 IDCA chain。 |
 | `WithClientVerifier(level)` | 可选 | 服务端对客户端的验证策略。**不传则什么都不验**（不请求客户端证书）。 |
-| `WithCRLCheck()` | 可选 | 显式启用 CRL 吊销检查。有 CA bundle + trustLevel 时自动启用。 |
+| `WithCRLCheck()` | 可选 | 显式启用 CRL 吊销检查。设置了 trustLevel（PolicyBasic 及以上）时自动启用。 |
 | `WithCRLCheckDisabled()` | 可选 | 显式关闭 CRL 检查（即使有 CA bundle 也不检查）。 |
 | `WithCRLHTTPClient(client)` | 可选 | 自定义 CRL 下载使用的 HTTP 客户端。 |
 | `WithServerDANEResolver(r)` | 可选 | 覆盖默认 DANE resolver（`PolicyAdvanced` 下自动创建）。 |
@@ -445,11 +446,11 @@ tlsConfig, err := ati.NewServerTLSConfig(
 |:---:|:---:|---|---|
 | 不传 | 不传 | `NoClientCert` | **什么都不验**——不请求客户端证书，等同普通 TLS 直连 |
 | `PolicyNone` | 不传 | `NoClientCert` | 显式不验证，不请求客户端证书 |
-| 不传 | 传 | `RequireAndVerifyClientCert` | 隐含按 `PolicyBasic` 验证 + CA 链校验 |
-| 传 | 不传 | `RequireAnyClientCert` | 按指定等级验证；自签证书靠 Badge/TLog 建立信任 |
-| 传 | 传 | `RequireAndVerifyClientCert` | 按指定等级验证 + CA 链校验 + CRL 检查（自动启用） |
+| 不传 | 传 | `RequireAndVerifyClientCert` | 隐含按 `PolicyBasic` 验证 + CA 链校验（用户 CA） |
+| 传（PolicyBasic 及以上） | 不传 | `RequireAndVerifyClientCert` | 按指定等级验证 + CA 链校验（SDK 内置 IDCA chain） |
+| 传（PolicyBasic 及以上） | 传 | `RequireAndVerifyClientCert` | 按指定等级验证 + CA 链校验（用户 CA） + CRL 检查（自动启用） |
 
-> 传了私有根证书（`WithClientCA`）即视为"要认证客户端"，因此即便没调用 `WithClientVerifier` 也会隐含按 `PolicyBasic` 走。
+> 传了私有根证书（`WithClientCA`）即视为"要认证客户端"，因此即便没调用 `WithClientVerifier` 也会隐含按 `PolicyBasic` 走。`PolicyBasic` 及以上等级下，客户端证书的 CA 链**始终会被校验**——如果传了 `WithClientCA` 就用用户的根证书，否则用 SDK 内置的 IDCA chain。无法链到两者之一的客户端证书将被拒绝。
 
 ### 验证策略配置示例
 
@@ -663,7 +664,7 @@ if st.IsExpired {
 
 | 证书类型 | `ati://` URI SAN | CA 签发 | 用途 |
 |---------|-----------------|---------|------|
-| 客户端身份证书 | **必须** | 可自签 | 标识 Agent 身份，通过 Badge/TLog 指纹验证建立信任 |
+| 客户端身份证书 | **必须** | 必须能链到 SDK 内置 IDCA chain 或用户配置的 `WithClientCA` 根证书 | 标识 Agent 身份；`PolicyEnhanced` 及以上进一步通过 Badge/TLog 指纹验证确认信任 |
 | 服务端证书 | 建议 | 建议公有 CA | TLS 服务端认证，DNS SAN 需匹配主机名 |
 
 **ATI Name 格式**（嵌入证书 URI SAN，是 Agent 身份的全局唯一标识）：

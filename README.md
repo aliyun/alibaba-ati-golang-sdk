@@ -10,7 +10,7 @@
 - **DANE TLSA verification** — verify server/client certificates via DNS TLSA records with DNSSEC
 - **Badge verification** — cryptographically verify agent registration via the CNNIC Transparency Log
 - **IDCA CRL certificate revocation (server)** — PKIX CRL from CDP at the TLS layer with fail-closed semantics
-- **mTLS secure connections** — mutual TLS with identity certificate support (self-signed allowed)
+- **mTLS secure connections** — mutual TLS with identity certificate support; server-side `PolicyBasic`+ validates the client cert chain against the SDK-shipped IDCA chain (or a configured CA)
 - **Dual-hostname model** — separate Identity Hostname and Access Hostname for proxy/gateway deployments
 - **Zero-dependency init** — single `ati.Init()` call for global configuration
 
@@ -29,7 +29,7 @@ Client agents default to `PolicyEnhanced` when `WithTrustLevel` is not specified
 
 **PolicyBasic — Standard Certificate Validation**
 
-Standard TLS certificate checks: validity period, SAN hostname match. CA chain validation is **conditional** — only performed when a private CA bundle is configured via `WithClientCA` or `WithMTLSCerts`. Without a CA bundle, any certificate is accepted; trust is established by higher levels (Badge/TLog). Identity certificates may be self-signed.
+Standard TLS certificate checks: validity period, SAN hostname match. On the server side, `PolicyBasic` and above always validate the client certificate's CA chain: against the bundle configured via `WithClientCA`, or — when none is configured — the SDK-shipped IDCA chain. Client identity certificates must therefore chain to a trusted CA; self-signed certificates are rejected. On the client side, `WithMTLSCerts`' CA bundle (or the system CA pool, if unset) validates the server's certificate as usual.
 
 **PolicyEnhanced — Transparency Log Badge Verification**
 
@@ -333,7 +333,9 @@ func main() {
         log.Fatal(err)
     }
 
-    // Identity certificate must contain ati:// URI SAN (may be self-signed)
+    // Identity certificate must contain ati:// URI SAN; must chain to the
+    // SDK-shipped IDCA chain (or the peer server's configured CA) to pass
+    // PolicyBasic+ verification
     client, err := ati.NewAgentClient(
         ati.WithIdentityCert("certs/client.crt", "certs/client.key"),
         // Default: PolicyEnhanced (Badge verification)
@@ -403,7 +405,7 @@ client, err := ati.NewAgentClient(
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `WithIdentityCert(certFile, keyFile)` | **Yes** | Client identity certificate + private key. Must contain `ati://` URI SAN; may be self-signed. |
+| `WithIdentityCert(certFile, keyFile)` | **Yes** | Client identity certificate + private key. Must contain `ati://` URI SAN; must chain to the SDK-shipped IDCA chain (or the peer server's configured CA) for `PolicyBasic`+ servers. |
 | `WithMTLSCerts(id, key, serverCert, caBundle)` | Alternative | Use when private CA bundle is needed for server cert validation. Pass empty `serverCert`. CA chain validation only runs when CA bundle is provided. |
 | `WithTrustLevel(level)` | No | Target verification policy. Default: `PolicyEnhanced`. |
 | `WithClientTimeout(d)` | No | HTTP request timeout. Default: 30s. |
@@ -429,9 +431,9 @@ tlsConfig, err := ati.NewServerTLSConfig(
 | Option | Required | Description |
 |--------|----------|-------------|
 | `WithServerCert(certFile, keyFile)` | **Yes** | Server certificate + private key. Recommend public CA-issued with DNS SAN. |
-| `WithClientCA(caBundle)` | No | Private CA bundle for client cert chain validation. When set, Go TLS uses `RequireAndVerifyClientCert`. |
+| `WithClientCA(caBundle)` | No | Private CA bundle for client cert chain validation. Overrides the SDK-shipped IDCA chain. When set, Go TLS uses `RequireAndVerifyClientCert`. |
 | `WithClientVerifier(level)` | No | Server's verification policy for clients. **Not set = no client verification** (no client cert requested). |
-| `WithCRLCheck()` | No | Explicitly enable CRL revocation checking. Auto-enabled when CA bundle + trust level are set. |
+| `WithCRLCheck()` | No | Explicitly enable CRL revocation checking. Auto-enabled whenever a trust level (PolicyBasic+) is set. |
 | `WithCRLCheckDisabled()` | No | Explicitly disable CRL checking (even with CA bundle). |
 | `WithCRLHTTPClient(client)` | No | Custom HTTP client for CRL downloads. |
 | `WithServerDANEResolver(r)` | No | Override default DANE resolver (auto-created for `PolicyAdvanced`). |
@@ -445,11 +447,11 @@ The combination of `WithClientVerifier` and `WithClientCA` determines the server
 |:---:|:---:|---|---|
 | Not set | Not set | `NoClientCert` | **No verification** — no client cert requested |
 | `PolicyNone` | Not set | `NoClientCert` | Explicitly no verification |
-| Not set | Set | `RequireAndVerifyClientCert` | Implicit `PolicyBasic` + CA chain |
-| Set | Not set | `RequireAnyClientCert` | Verify at specified level; self-signed certs trusted via Badge/TLog |
-| Set | Set | `RequireAndVerifyClientCert` | Verify at specified level + CA chain + CRL (auto-enabled) |
+| Not set | Set | `RequireAndVerifyClientCert` | Implicit `PolicyBasic` + CA chain (user's CA) |
+| Set (PolicyBasic+) | Not set | `RequireAndVerifyClientCert` | Verify at specified level + CA chain (SDK-shipped IDCA chain) |
+| Set (PolicyBasic+) | Set | `RequireAndVerifyClientCert` | Verify at specified level + CA chain (user's CA) + CRL (auto-enabled) |
 
-> Setting a CA bundle (`WithClientCA`) implies "authenticate clients" — even without `WithClientVerifier`, it implicitly runs `PolicyBasic`.
+> Setting a CA bundle (`WithClientCA`) implies "authenticate clients" — even without `WithClientVerifier`, it implicitly runs `PolicyBasic`. At `PolicyBasic` and above, the client certificate's CA chain is **always** validated — against `WithClientCA`'s bundle if set, otherwise against the SDK-shipped IDCA chain. Client certificates not chaining to either are rejected.
 
 ### Verification Policy
 
@@ -663,7 +665,7 @@ if st.IsExpired {
 
 | Certificate Type | `ati://` URI SAN | CA-Issued | Purpose |
 |-----------------|------------------|-----------|---------|
-| Client identity certificate | **Required** | May be self-signed | Identifies agent; trust established via Badge/TLog fingerprint |
+| Client identity certificate | **Required** | Must chain to the SDK-shipped IDCA chain or a configured `WithClientCA` bundle | Identifies agent; trust further confirmed via Badge/TLog fingerprint at PolicyEnhanced+ |
 | Server certificate | Recommended | Recommend public CA | TLS server authentication; DNS SAN must match hostname |
 
 **ATI Name format** (embedded in certificate URI SAN, globally unique agent identifier):
