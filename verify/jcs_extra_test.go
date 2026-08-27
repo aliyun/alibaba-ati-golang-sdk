@@ -22,17 +22,14 @@ func TestJCSCanonicalize_NumberFormats(t *testing.T) {
 		{"large integer within safe range", `{"a":1000000}`, `{"a":1000000}`},
 		{"one", `{"a":1}`, `{"a":1}`},
 		{"negative one", `{"a":-1}`, `{"a":-1}`},
-		// Float path: non-integer floats always render via ES6 scientific
-		// notation (the implementation uses FormatFloat 'e' format), so
-		// 1.5 -> "1.5e+0", not "1.5".
-		//
-		// 1.5e20 exceeds int64 range (~9.2e18), so it takes the ES6
-		// scientific notation path. Per RFC 8785 §3.2.2.3 this is correct.
-		{"very large float needing exponent", `{"a":1.5e20}`, `{"a":1.5e+20}`},
-		{"very small float needing exponent", `{"a":0.000001}`, `{"a":1e-6}`},
-		{"float with trailing zeros", `{"a":1.50}`, `{"a":1.5e+0}`},
-		{"small non-integer float", `{"a":1.5}`, `{"a":1.5e+0}`},
-		{"negative float", `{"a":-1.5}`, `{"a":-1.5e+0}`},
+		// ES6 Number.toString() — which RFC 8785 §3.2.2.3 defers to — uses
+		// positional notation while 1e-6 <= |v| < 1e21 and exponential only
+		// outside that band. Expected values were checked against node.
+		{"very large float needing exponent", `{"a":1.5e20}`, `{"a":150000000000000000000}`},
+		{"very small float needing exponent", `{"a":0.000001}`, `{"a":0.000001}`},
+		{"float with trailing zeros", `{"a":1.50}`, `{"a":1.5}`},
+		{"small non-integer float", `{"a":1.5}`, `{"a":1.5}`},
+		{"negative float", `{"a":-1.5}`, `{"a":-1.5}`},
 		{"float near integer boundary", `{"a":2.0}`, `{"a":2}`},
 	}
 
@@ -124,7 +121,7 @@ func TestJCSCanonicalize_NestedStructures(t *testing.T) {
 			t.Fatalf("JCSCanonicalize() error = %v", err)
 		}
 		// keys sorted; non-integer float uses 'e' format
-		want := `{"bool":true,"int":42,"null":null,"num":3.14e+0,"str":"value"}`
+		want := `{"bool":true,"int":42,"null":null,"num":3.14,"str":"value"}`
 		if string(got) != want {
 			t.Errorf("JCSCanonicalize() = %q, want %q", string(got), want)
 		}
@@ -200,10 +197,9 @@ func TestJcsWriteNumber_Direct(t *testing.T) {
 		if err := jcsWriteNumber(&buf, json.Number("1.5")); err != nil {
 			t.Fatalf("jcsWriteNumber() error = %v", err)
 		}
-		// Non-integer floats use FormatFloat 'e' -> "1.5e+00", then
-		// es6NumberFormat strips the leading zero in the exponent -> "1.5e+0".
-		if got := buf.String(); got != "1.5e+0" {
-			t.Errorf("jcsWriteNumber(1.5) = %q, want %q", got, "1.5e+0")
+		// 1.5 falls inside the ES6 positional band, so no exponent.
+		if got := buf.String(); got != "1.5" {
+			t.Errorf("jcsWriteNumber(1.5) = %q, want %q", got, "1.5")
 		}
 	})
 
@@ -214,8 +210,8 @@ func TestJcsWriteNumber_Direct(t *testing.T) {
 		if err := jcsWriteNumber(&buf, json.Number("1.5e20")); err != nil {
 			t.Fatalf("jcsWriteNumber() error = %v", err)
 		}
-		if got := buf.String(); got != "1.5e+20" {
-			t.Errorf("jcsWriteNumber(1.5e20) = %q, want %q", got, "1.5e+20")
+		if got := buf.String(); got != "150000000000000000000" {
+			t.Errorf("jcsWriteNumber(1.5e20) = %q, want %q", got, "150000000000000000000")
 		}
 	})
 
@@ -224,8 +220,8 @@ func TestJcsWriteNumber_Direct(t *testing.T) {
 		if err := jcsWriteNumber(&buf, json.Number("0.000001")); err != nil {
 			t.Fatalf("jcsWriteNumber() error = %v", err)
 		}
-		if got := buf.String(); got != "1e-6" {
-			t.Errorf("jcsWriteNumber(0.000001) = %q, want %q", got, "1e-6")
+		if got := buf.String(); got != "0.000001" {
+			t.Errorf("jcsWriteNumber(0.000001) = %q, want %q", got, "0.000001")
 		}
 	})
 
@@ -284,9 +280,9 @@ func TestJCSCanonicalizeFields_Cases(t *testing.T) {
 
 	t.Run("multiple fields sorted keys", func(t *testing.T) {
 		fields := map[string]json.RawMessage{
-			"zebra":  json.RawMessage(`1`),
-			"apple":  json.RawMessage(`2`),
-			"mango":  json.RawMessage(`"fruit"`),
+			"zebra": json.RawMessage(`1`),
+			"apple": json.RawMessage(`2`),
+			"mango": json.RawMessage(`"fruit"`),
 		}
 		got, err := JCSCanonicalizeFields(fields)
 		if err != nil {

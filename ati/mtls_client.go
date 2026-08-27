@@ -40,7 +40,7 @@ type AgentClient struct {
 	serverVerifier *verify.ServerVerifier
 	verifyCache    sync.Map // host+fingerprint → *TrustOutcome
 	identityHost   string   // for Badge + identity DANE lookups
-	accessHost     string   // for transport DANE (_443._tcp) lookups
+	accessHost     string   // recorded via WithAccessHost; no longer steers DNS lookups
 }
 
 // AgentClientOption configures an AgentClient.
@@ -59,7 +59,7 @@ type agentClientConfig struct {
 	tlogClient       verify.TransparencyLogClient
 	tlPublicKey      *ecdsa.PublicKey
 	identityHost     string // for Badge + identity DANE lookups
-	accessHost       string // for transport DANE (_443._tcp) lookups
+	accessHost       string // recorded via WithAccessHost; no longer steers DNS lookups
 }
 
 // WithIdentityCert sets the client's identity certificate and private key for mTLS.
@@ -146,8 +146,15 @@ func WithIdentityHost(host string) AgentClientOption {
 	}
 }
 
-// WithAccessHost sets the hostname used for transport DANE (_443._tcp) lookups.
-// When not set, the connection URL host is used.
+// WithAccessHost records the hostname TLS connects to.
+//
+// It no longer affects any DNS lookup. The transport TLSA record moved under the
+// identity hostname, joining _ati, _ati-badge and _ati-identity._tls, so
+// WithIdentityHost is the only hostname that steers resolution. The access
+// hostname is already conveyed by the request URL.
+//
+// Deprecated: has no effect on verification; use WithIdentityHost to control DNS
+// lookups.
 func WithAccessHost(host string) AgentClientOption {
 	return func(c *agentClientConfig) error {
 		c.accessHost = host
@@ -536,12 +543,10 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 		peerCert := resp.TLS.PeerCertificates[0]
 		outcome.CAChainValid = true
 
-		for _, dnsName := range peerCert.DNSNames {
-			if strings.EqualFold(dnsName, host) {
-				outcome.SANMatches = true
-				break
-			}
-		}
+		// Wildcard-aware: the access certificate may be a platform-wide wildcard
+		// shared by many agents, so an exact SAN comparison would report a false
+		// mismatch.
+		outcome.SANMatches = verify.CertIdentityFromX509(peerCert).CoversHost(host)
 
 		for _, uri := range peerCert.URIs {
 			if strings.HasPrefix(uri.String(), "ati://") {
@@ -592,7 +597,15 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 	// --- DANE/Full verification ---
 	shouldDANE := !explicit || *c.trustLevel >= DANEAndBadge
 	if shouldDANE && outcome.BadgeVerified && c.daneResolver != nil && certIdentity != nil {
-		daneHost := c.resolveAccessHost(host)
+		// The server-certificate TLSA lives under the identity hostname, alongside
+		// _ati, _ati-badge and _ati-identity._tls, so every record for an agent sits
+		// in the namespace that agent owns.
+		//
+		// This departs from RFC 6698, which names the record after the host the TLS
+		// connection was made to — here that is the access hostname. A generic DANE
+		// validator therefore will not find this record; the binding is only
+		// resolvable by a client that knows the agent's identity hostname.
+		daneHost := c.resolveIdentityHost(host)
 		daneFqdn, daneFqdnErr := models.NewFqdn(daneHost)
 		if daneFqdnErr == nil {
 			danePort := uint16(443)
@@ -669,6 +682,9 @@ func (c *AgentClient) resolveIdentityHost(connectionHost string) string {
 	return connectionHost
 }
 
+// resolveAccessHost is unused: every DNS lookup now keys off the identity
+// hostname. Kept so the accessHost field has a reader and the intent stays
+// documented should transport DANE move back to the access hostname.
 func (c *AgentClient) resolveAccessHost(connectionHost string) string {
 	if c.accessHost != "" {
 		return c.accessHost

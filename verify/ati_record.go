@@ -121,6 +121,33 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 	}, nil
 }
 
+// FilterATIRecordsByProtocol narrows records to those serving protocol.
+//
+// A record with an empty Protocol acts as a wildcard and is always kept, since
+// older records predate the per-protocol layout. Passing an empty protocol
+// disables filtering. Matching is case-insensitive because records in the wild
+// spell the protocol both ways (for example "a2a" and "A2A").
+//
+// This matters because one agent publishes one _ati TXT record per protocol, all
+// carrying the same av= version. Version comparison alone therefore cannot pick
+// between them.
+func FilterATIRecordsByProtocol(records []*ATIRecord, protocol string) []*ATIRecord {
+	if protocol == "" {
+		return records
+	}
+	want := strings.ToLower(protocol)
+	var out []*ATIRecord
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		if r.Protocol == "" || strings.EqualFold(r.Protocol, want) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // extractAgentIDFromURL extracts the agent ID from a URL path containing /agents/{id}/.
 // Returns empty string if the pattern is not found.
 func extractAgentIDFromURL(rawURL string) string {
