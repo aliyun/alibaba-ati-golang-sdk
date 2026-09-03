@@ -454,3 +454,72 @@ func TestTLResponse_UnmarshalJSON_RawFieldsDeepEqual(t *testing.T) {
 		t.Errorf("RawPayload = %s, want %s", resp.RawPayload, wantRawPayload)
 	}
 }
+
+func TestTLPayload_IdentityAndAccessHost(t *testing.T) {
+	tests := []struct {
+		name         string
+		agentHost    string
+		agentSubHost string
+		wantIdentity string
+		wantAccess   string
+		wantShared   bool
+	}{
+		{
+			name:         "独立域名: subHost empty, agentHost is both",
+			agentHost:    "server.www.ats-test.cn",
+			wantIdentity: "server.www.ats-test.cn",
+			wantAccess:   "server.www.ats-test.cn",
+		},
+		{
+			name:         "共享域名: subHost is the identity, agentHost the parent",
+			agentHost:    "www.ats-test.cn",
+			agentSubHost: "server.www.ats-test.cn",
+			wantIdentity: "server.www.ats-test.cn",
+			wantAccess:   "www.ats-test.cn",
+			wantShared:   true,
+		},
+		{
+			// A record from before agentSubHost existed: both accessors must keep
+			// returning what that record always meant.
+			name:         "legacy record with no subHost",
+			agentHost:    "legacy.example.com",
+			wantIdentity: "legacy.example.com",
+			wantAccess:   "legacy.example.com",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &TLPayload{AgentHost: tt.agentHost, AgentSubHost: tt.agentSubHost}
+			if got := p.IdentityHost(); got != tt.wantIdentity {
+				t.Errorf("IdentityHost() = %q, want %q", got, tt.wantIdentity)
+			}
+			if got := p.AccessHost(); got != tt.wantAccess {
+				t.Errorf("AccessHost() = %q, want %q", got, tt.wantAccess)
+			}
+			if got := p.IsSharedDomain(); got != tt.wantShared {
+				t.Errorf("IsSharedDomain() = %v, want %v", got, tt.wantShared)
+			}
+		})
+	}
+}
+
+func TestTLPayload_AgentSubHost_JSON(t *testing.T) {
+	raw := `{"agentHost":"www.ats-test.cn","agentSubHost":"server.www.ats-test.cn"}`
+	var p TLPayload
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if p.AgentSubHost != "server.www.ats-test.cn" {
+		t.Errorf("AgentSubHost = %q, want %q", p.AgentSubHost, "server.www.ats-test.cn")
+	}
+
+	// agentSubHost is omitempty, so a 独立域名 payload must serialize exactly as it
+	// did before the field existed — the seal is computed over these bytes.
+	out, err := json.Marshal(&TLPayload{AgentHost: "solo.example.com"})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if strings.Contains(string(out), "agentSubHost") {
+		t.Errorf("Marshal() emitted agentSubHost for an empty value: %s", out)
+	}
+}

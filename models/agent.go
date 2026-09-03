@@ -24,8 +24,12 @@ type AgentFunction struct {
 
 // AgentRegistrationRequest represents a registration request
 type AgentRegistrationRequest struct {
-	AgentDisplayName          string          `json:"agentDisplayName"`
-	AgentHost                 string          `json:"agentHost"`
+	AgentDisplayName string `json:"agentDisplayName"`
+	AgentHost        string `json:"agentHost"`
+	// AgentSubHost registers this agent under a domain shared with other agents:
+	// AgentHost stays the shared parent and AgentSubHost is the name this agent
+	// owns. Leave empty to register the whole of AgentHost (独立域名).
+	AgentSubHost              string          `json:"agentSubHost,omitempty"`
 	AgentDescription          string          `json:"agentDescription,omitempty"`
 	IdentityCSRPEM            string          `json:"identityCsrPEM"`
 	ServerCertificatePEM      string          `json:"serverCertificatePEM,omitempty"`
@@ -124,6 +128,7 @@ type AgentDetails struct {
 	AgentID               string               `json:"agentId"`
 	AgentDisplayName      string               `json:"agentDisplayName"`
 	AgentHost             string               `json:"agentHost"`
+	AgentSubHost          string               `json:"agentSubHost,omitempty"`
 	AgentDescription      string               `json:"agentDescription,omitempty"`
 	ATIName               string               `json:"ansName"`
 	Version               string               `json:"version"`

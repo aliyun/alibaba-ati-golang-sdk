@@ -260,26 +260,40 @@ func (v *ServerVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *C
 		return NewFingerprintMismatchOutcome(tlResp, expectedFP, cert.Fingerprint.String())
 	}
 
-	// The record must belong to the identity that was looked up. agentName holds
-	// the identity hostname (ati://v{version}.{identityHost}); agentHost holds the
-	// access hostname, which under the shared-domain model is a different name and
-	// so must not be compared against the identity host.
-	tlHost := tlResp.Payload.AgentHost
+	// The record must belong to the identity that was looked up. Which field
+	// carries that identity depends on the registration model, so read it through
+	// IdentityHost() rather than off agentHost: under 共享域名 agentHost is the
+	// shared parent domain, and comparing the looked-up name against it would
+	// reject every agent that shares a domain.
+	identityHost := tlResp.Payload.IdentityHost()
 	if tlATIName, err := ParseATIName(tlResp.Payload.AgentName); err == nil {
 		if !strings.EqualFold(tlATIName.Host, fqdn.String()) {
 			return NewATINameMismatchOutcome(tlResp, tlResp.Payload.AgentName, fqdn.String())
 		}
-	} else if !strings.EqualFold(tlHost, fqdn.String()) {
-		// Records with no parsable agentName predate the dual-hostname model, where
-		// agentHost and the identity host are the same value. Keep verifying those.
-		return NewHostnameMismatchOutcome(tlResp, fqdn.String(), tlHost)
+		// agentName and agentSubHost are two statements of the same fact, so a
+		// record where they disagree is internally inconsistent. The ati:// name is
+		// the one the certificate is bound to, so verification continues on it —
+		// but say so loudly, because it means the registration is malformed.
+		if tlResp.Payload.AgentSubHost != "" && !strings.EqualFold(tlResp.Payload.AgentSubHost, tlATIName.Host) {
+			configLogger(v.config).Warn("[verify] TL record disagrees with itself: agentSubHost is not agentName's host",
+				slog.String("agentSubHost", tlResp.Payload.AgentSubHost),
+				slog.String("agentNameHost", tlATIName.Host),
+				slog.String("agentHost", tlResp.Payload.AgentHost))
+		}
+	} else if !strings.EqualFold(identityHost, fqdn.String()) {
+		// Records with no parsable agentName fall back to the identity host, which
+		// for a pre-agentSubHost record is agentHost — the value those records
+		// always meant. Keep verifying those.
+		return NewHostnameMismatchOutcome(tlResp, fqdn.String(), identityHost)
 	}
 
 	// The access hostname declared by the record must be covered by the
-	// certificate that was actually presented. The access certificate may be a
-	// shared wildcard, so match against every SAN rather than just the first.
-	if tlHost != "" && len(cert.DNSSANs) > 0 && !cert.CoversHost(tlHost) {
-		return NewHostnameMismatchOutcome(tlResp, tlHost, strings.Join(cert.DNSSANs, ", "))
+	// certificate that was actually presented. Under 共享域名 that certificate is
+	// the shared parent's and may be a wildcard, so match against every SAN rather
+	// than just the first.
+	accessHost := tlResp.Payload.AccessHost()
+	if accessHost != "" && len(cert.DNSSANs) > 0 && !cert.CoversHost(accessHost) {
+		return NewHostnameMismatchOutcome(tlResp, accessHost, strings.Join(cert.DNSSANs, ", "))
 	}
 
 	outcome := NewVerifiedOutcome(tlResp, cert.Fingerprint)
@@ -451,6 +465,8 @@ func (v *ClientVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn, 
 
 	log.InfoContext(ctx, "[client-verify] TLog response received",
 		slog.String("agentHost", tlResp.Payload.AgentHost),
+		slog.String("agentSubHost", tlResp.Payload.AgentSubHost),
+		slog.String("identityHost", tlResp.Payload.IdentityHost()),
 		slog.String("agentStatus", tlResp.Payload.AgentStatus),
 		slog.String("agentName", tlResp.Payload.AgentName))
 
