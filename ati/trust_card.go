@@ -65,6 +65,7 @@ func GetTrustCard(ctx context.Context, host string, version string, opts ...Trus
 		AgentDisplayName: tlResp.Payload.AgentDisplayName,
 		Version:          tlResp.Payload.Version,
 		AgentHost:        tlResp.Payload.AgentHost,
+		AgentSubHost:     tlResp.Payload.AgentSubHost,
 	}
 
 	return card, nil
