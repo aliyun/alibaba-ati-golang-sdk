@@ -518,7 +518,7 @@ Agent discovery uses DNS `_ati` TXT records. The SDK automatically performs disc
 ### TXT Record Format
 
 ```
-_ati.<host>  TXT  "v=ati1; id=<agentId>; ra=aliyun; av=1.2.0; p=a2a; u=https://ati-tl.cnnic.cn:8180/api/v1/agents/<agentId>"
+_ati.<host>  TXT  "v=ati1; id=<agentId>; ra=aliyun; av=1.2.0; p=a2a; u=https://ati-tl.cnnic.cn/api/v1/agents/<agentId>"
 ```
 
 | Field | Alias | Required | Description |

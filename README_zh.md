@@ -517,7 +517,7 @@ Agent 服务发现通过 DNS `_ati` TXT 记录完成。SDK 在客户端创建和
 ### TXT 记录格式
 
 ```
-_ati.<host>  TXT  "v=ati1; id=<agentId>; ra=aliyun; av=1.2.0; p=a2a; u=https://ati-tl.cnnic.cn:8180/api/v1/agents/<agentId>"
+_ati.<host>  TXT  "v=ati1; id=<agentId>; ra=aliyun; av=1.2.0; p=a2a; u=https://ati-tl.cnnic.cn/api/v1/agents/<agentId>"
 ```
 
 | 字段 | 别名 | 必填 | 说明 |

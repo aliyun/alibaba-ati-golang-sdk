@@ -39,7 +39,7 @@ const defaultClockSkewTolerance = 120 * time.Second
 // DefaultTrustedTLHost is the trusted Transparency Log hostname used as
 // the trust anchor for badge URL rewriting. Badge TXT records may contain
 // arbitrary hostnames; the SDK replaces them with this value before fetching.
-const DefaultTrustedTLHost = "ati-tl.cnnic.cn:8180"
+const DefaultTrustedTLHost = "ati-tl.cnnic.cn"
 
 // defaultConfig returns the default verifier configuration.
 func defaultConfig() *verifierConfig {
