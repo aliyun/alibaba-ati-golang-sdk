@@ -100,7 +100,7 @@ func Diagnose(ctx context.Context, host string, opts ...DiagnoseOption) (*Diagno
 	cfg := &diagnoseConfig{
 		dnsResolver: verify.NewStandardDNSResolver(),
 		tlogClient:  verify.NewHTTPTransparencyLogClient(),
-		tlBaseURL:   "https://tl.ansagent.cn:8180/ans/api/v1",
+		tlBaseURL:   "https://ati-tl.cnnic.cn/ati/api/v1",
 	}
 	for _, opt := range opts {
 		opt(cfg)

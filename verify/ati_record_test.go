@@ -16,8 +16,61 @@ func TestParseATIRecord(t *testing.T) {
 		wantProtocol string
 		wantURL      string
 	}{
+		// --- New dual-hostname format (av/u fields) ---
 		{
-			name:         "complete card record",
+			name:         "new format: a2a protocol",
+			txt:          "v=ati1; av=v1.0.0; p=a2a; u=https://platform.example.com/agents/ag-39dd66/a2a",
+			wantID:       "ag-39dd66",
+			wantVersion:  "v1.0.0",
+			wantMode:     ATIRecordModeDirect,
+			wantProtocol: "a2a",
+			wantURL:      "https://platform.example.com/agents/ag-39dd66/a2a",
+		},
+		{
+			name:         "new format: mcp protocol",
+			txt:          "v=ati1; av=v2.1.0; p=mcp; u=https://platform.example.com/agents/d6c78fcb-4992-418f-b784-e4a020d90207/mcp",
+			wantID:       "d6c78fcb-4992-418f-b784-e4a020d90207",
+			wantVersion:  "v2.1.0",
+			wantMode:     ATIRecordModeDirect,
+			wantProtocol: "mcp",
+			wantURL:      "https://platform.example.com/agents/d6c78fcb-4992-418f-b784-e4a020d90207/mcp",
+		},
+		{
+			name:         "new format: no spaces",
+			txt:          "v=ati1;av=v1.0.0;p=a2a;u=https://example.com/agents/abc123/a2a",
+			wantID:       "abc123",
+			wantVersion:  "v1.0.0",
+			wantMode:     ATIRecordModeDirect,
+			wantProtocol: "a2a",
+			wantURL:      "https://example.com/agents/abc123/a2a",
+		},
+		{
+			name:         "new format: av without url still works (direct mode)",
+			txt:          "v=ati1; av=v1.0.0; p=a2a",
+			wantVersion:  "v1.0.0",
+			wantMode:     ATIRecordModeDirect,
+			wantProtocol: "a2a",
+		},
+		{
+			name:         "new format: URL without /agents/ pattern (no ID extraction)",
+			txt:          "v=ati1; av=v1.0.0; p=a2a; u=https://example.com/api/v1/endpoint",
+			wantVersion:  "v1.0.0",
+			wantMode:     ATIRecordModeDirect,
+			wantProtocol: "a2a",
+			wantURL:      "https://example.com/api/v1/endpoint",
+		},
+		{
+			name:         "new format: explicit id takes precedence over URL extraction",
+			txt:          "v=ati1; id=explicit-id; av=v1.0.0; p=a2a; u=https://example.com/agents/url-id/a2a",
+			wantID:       "explicit-id",
+			wantVersion:  "v1.0.0",
+			wantMode:     ATIRecordModeDirect,
+			wantProtocol: "a2a",
+			wantURL:      "https://example.com/agents/url-id/a2a",
+		},
+		// --- Legacy format (version/ver, url fields) ---
+		{
+			name:         "legacy: complete card record",
 			txt:          "v=ati1; id=ag-39dd66; ra=aliyun; version=v1.0.0; mode=card; p=mcp; url=https://example.com/.well-known/agent-card.json",
 			wantID:       "ag-39dd66",
 			wantRA:       "aliyun",
@@ -27,7 +80,7 @@ func TestParseATIRecord(t *testing.T) {
 			wantURL:      "https://example.com/.well-known/agent-card.json",
 		},
 		{
-			name:        "direct mode without protocol",
+			name:        "legacy: direct mode without protocol",
 			txt:         "v=ati1; id=ag-abc123; ra=aliyun; version=v2.1.0; mode=direct",
 			wantID:      "ag-abc123",
 			wantRA:      "aliyun",
@@ -35,16 +88,41 @@ func TestParseATIRecord(t *testing.T) {
 			wantMode:    ATIRecordModeDirect,
 		},
 		{
-			name:         "direct mode with protocol",
-			txt:          "v=ati1; id=ag-xyz; ra=aliyun; version=v1.0.0; mode=direct; p=a2a",
-			wantID:       "ag-xyz",
-			wantRA:       "aliyun",
-			wantVersion:  "v1.0.0",
-			wantMode:     ATIRecordModeDirect,
+			name:        "legacy: direct mode with protocol",
+			txt:         "v=ati1; id=ag-xyz; ra=aliyun; version=v1.0.0; mode=direct; p=a2a",
+			wantID:      "ag-xyz",
+			wantRA:      "aliyun",
+			wantVersion: "v1.0.0",
+			wantMode:    ATIRecordModeDirect,
 			wantProtocol: "a2a",
 		},
 		{
-			name:         "real DNS format with ver and proto aliases",
+			name:        "legacy: m alias for mode (Java SDK compat)",
+			txt:         "v=ati1; id=ag-java; ra=aliyun; version=v1.0.0; m=direct; p=a2a",
+			wantID:      "ag-java",
+			wantRA:      "aliyun",
+			wantVersion: "v1.0.0",
+			wantMode:    ATIRecordModeDirect,
+			wantProtocol: "a2a",
+		},
+		{
+			name:         "legacy: m=card explicit",
+			txt:          "v=ati1; av=v1.0.0; m=card; p=a2a; u=https://example.com/agents/ag-1/a2a",
+			wantID:       "ag-1",
+			wantVersion:  "v1.0.0",
+			wantMode:     ATIRecordModeCard,
+			wantProtocol: "a2a",
+			wantURL:      "https://example.com/agents/ag-1/a2a",
+		},
+		{
+			name:         "mode takes precedence over m",
+			txt:          "v=ati1; av=v1.0.0; mode=card; m=direct; p=a2a",
+			wantVersion:  "v1.0.0",
+			wantMode:     ATIRecordModeCard,
+			wantProtocol: "a2a",
+		},
+		{
+			name:         "legacy: ver and proto aliases",
 			txt:          "v=ati1; id=d6c78fcb-4992-418f-b784-e4a020d90207; ra=aliyun; ver=1.0.2; proto=A2A",
 			wantID:       "d6c78fcb-4992-418f-b784-e4a020d90207",
 			wantRA:       "aliyun",
@@ -53,19 +131,20 @@ func TestParseATIRecord(t *testing.T) {
 			wantProtocol: "A2A",
 		},
 		{
-			name:         "minimal record without id/ra/mode",
+			name:         "legacy: minimal record without id/ra/mode",
 			txt:          "v=ati1; version=v1.0.0; p=a2a; url=https://agent.example.com/.well-known/agent-card.json",
 			wantVersion:  "v1.0.0",
-			wantMode:     ATIRecordModeCard,
+			wantMode:     ATIRecordModeDirect,
 			wantProtocol: "a2a",
 			wantURL:      "https://agent.example.com/.well-known/agent-card.json",
 		},
 		{
-			name:        "minimal record without url infers direct mode",
+			name:        "legacy: minimal record without url infers direct mode",
 			txt:         "v=ati1; version=v1.0.0",
 			wantVersion: "v1.0.0",
 			wantMode:    ATIRecordModeDirect,
 		},
+		// --- Error cases ---
 		{
 			name:    "missing version field v",
 			txt:     "id=ag-123; ra=aliyun; version=v1.0.0; mode=direct",
@@ -77,7 +156,7 @@ func TestParseATIRecord(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "missing version and ver",
+			name:    "missing version and ver and av",
 			txt:     "v=ati1; id=ag-123; ra=aliyun",
 			wantErr: true,
 		},
@@ -133,6 +212,28 @@ func TestParseATIRecord(t *testing.T) {
 				t.Errorf("URL = %q, want %q", record.URL, tt.wantURL)
 			}
 		})
+	}
+}
+
+func TestExtractAgentIDFromURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"https://platform.example.com/agents/ag-39dd66/a2a", "ag-39dd66"},
+		{"https://platform.example.com/agents/d6c78fcb-4992-418f-b784-e4a020d90207/mcp", "d6c78fcb-4992-418f-b784-e4a020d90207"},
+		{"https://example.com/agents/abc123/a2a", "abc123"},
+		{"https://example.com/v1/agents/my-agent/endpoint", "my-agent"},
+		{"https://example.com/api/v1/endpoint", ""},
+		{"https://example.com/agents/", ""},
+		{"https://example.com/agents/only-id", "only-id"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := extractAgentIDFromURL(tt.url)
+		if got != tt.want {
+			t.Errorf("extractAgentIDFromURL(%q) = %q, want %q", tt.url, got, tt.want)
+		}
 	}
 }
 

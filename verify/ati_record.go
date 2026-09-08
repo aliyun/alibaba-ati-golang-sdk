@@ -9,15 +9,23 @@ import (
 )
 
 // ATIRecord represents a parsed _ati TXT DNS record.
-// Format: v=ati1; id={agentId}; ra=aliyun; version=v1.0.0; p=a2a; url=https://...
-// Also accepts: ver= (alias for version=), proto= (alias for p=)
+//
+// New format (dual-hostname, one TXT per protocol):
+//
+//	v=ati1; av=v1.0.0; p=a2a; u=https://platform.example.com/agents/{AgentID}/a2a
+//
+// Legacy format:
+//
+//	v=ati1; id={agentId}; ra=aliyun; version=v1.0.0; p=a2a; url=https://...
+//
+// Field aliases: av ↔ version/ver, u ↔ url, proto ↔ p, mode ↔ m.
 type ATIRecord struct {
-	ID       string         // Agent ID (e.g., d6c78fcb-...)
+	ID       string         // Agent ID (explicit id= field, or extracted from URL path)
 	RA       string         // Registration Authority identifier (e.g., aliyun)
 	Version  models.Version // Semver version
-	Mode     ATIRecordMode  // card or direct (inferred from url presence if not set)
+	Mode     ATIRecordMode  // card or direct (default: direct)
 	Protocol string         // Protocol filter (mcp/a2a/openapi), empty means wildcard
-	URL      string         // Metadata endpoint URL
+	URL      string         // Endpoint URL
 }
 
 // ATIRecordMode represents the mode field of an _ati TXT record.
@@ -40,7 +48,7 @@ func (m ATIRecordMode) String() string {
 }
 
 // ParseATIRecord parses an _ati TXT record string.
-// Supports both canonical field names (version, p) and aliases (ver, proto).
+// Supports both new format (av, u) and legacy field names (version/ver, url), plus proto as alias for p.
 func ParseATIRecord(txt string) (*ATIRecord, error) {
 	fields := parseSemicolonFields(txt)
 
@@ -52,12 +60,16 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 	id := fields["id"]
 	ra := fields["ra"]
 
-	versionStr := fields["version"]
+	// Version resolution order: av > version > ver
+	versionStr := fields["av"]
+	if versionStr == "" {
+		versionStr = fields["version"]
+	}
 	if versionStr == "" {
 		versionStr = fields["ver"]
 	}
 	if versionStr == "" {
-		return nil, errors.New("missing required field: version (or ver)")
+		return nil, errors.New("missing required field: av (or version/ver)")
 	}
 	version, err := models.ParseVersion(versionStr)
 	if err != nil {
@@ -69,10 +81,24 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 		protocol = fields["proto"]
 	}
 
-	url := fields["url"]
+	// URL resolution order: u > url
+	recordURL := fields["u"]
+	if recordURL == "" {
+		recordURL = fields["url"]
+	}
 
+	// Extract agent ID from URL path if not explicitly provided
+	if id == "" && recordURL != "" {
+		id = extractAgentIDFromURL(recordURL)
+	}
+
+	// Mode resolution order: mode > m; default is always direct
 	var mode ATIRecordMode
-	if modeStr, ok := fields["mode"]; ok {
+	modeStr := fields["mode"]
+	if modeStr == "" {
+		modeStr = fields["m"]
+	}
+	if modeStr != "" {
 		switch modeStr {
 		case "card":
 			mode = ATIRecordModeCard
@@ -81,8 +107,6 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 		default:
 			return nil, fmt.Errorf("invalid mode %q: must be 'card' or 'direct'", modeStr)
 		}
-	} else if url != "" {
-		mode = ATIRecordModeCard
 	} else {
 		mode = ATIRecordModeDirect
 	}
@@ -93,8 +117,54 @@ func ParseATIRecord(txt string) (*ATIRecord, error) {
 		Version:  version,
 		Mode:     mode,
 		Protocol: protocol,
-		URL:      url,
+		URL:      recordURL,
 	}, nil
+}
+
+// FilterATIRecordsByProtocol narrows records to those serving protocol.
+//
+// A record with an empty Protocol acts as a wildcard and is always kept, since
+// older records predate the per-protocol layout. Passing an empty protocol
+// disables filtering. Matching is case-insensitive because records in the wild
+// spell the protocol both ways (for example "a2a" and "A2A").
+//
+// This matters because one agent publishes one _ati TXT record per protocol, all
+// carrying the same av= version. Version comparison alone therefore cannot pick
+// between them.
+func FilterATIRecordsByProtocol(records []*ATIRecord, protocol string) []*ATIRecord {
+	if protocol == "" {
+		return records
+	}
+	want := strings.ToLower(protocol)
+	var out []*ATIRecord
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		if r.Protocol == "" || strings.EqualFold(r.Protocol, want) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// extractAgentIDFromURL extracts the agent ID from a URL path containing /agents/{id}/.
+// Returns empty string if the pattern is not found.
+func extractAgentIDFromURL(rawURL string) string {
+	const marker = "/agents/"
+	idx := strings.Index(rawURL, marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := rawURL[idx+len(marker):]
+	// Take everything up to the next slash (or end of string)
+	if slashIdx := strings.Index(rest, "/"); slashIdx > 0 {
+		return rest[:slashIdx]
+	}
+	if rest != "" {
+		return rest
+	}
+	return ""
 }
 
 // parseSemicolonFields splits "k1=v1; k2=v2; ..." into a map.

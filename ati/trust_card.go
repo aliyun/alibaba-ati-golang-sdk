@@ -11,7 +11,7 @@ import (
 	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
 )
 
-const defaultTLBaseURL = "https://tl.ansagent.cn:8180/ans/api/v1"
+const defaultTLBaseURL = "https://ati-tl.cnnic.cn/ati/api/v1"
 
 // GetTrustCard retrieves a Trust Card from the CNNIC Transparency Log.
 // It resolves the agent's _ati TXT record to get the agentId, then queries the TL API.
@@ -65,6 +65,7 @@ func GetTrustCard(ctx context.Context, host string, version string, opts ...Trus
 		AgentDisplayName: tlResp.Payload.AgentDisplayName,
 		Version:          tlResp.Payload.Version,
 		AgentHost:        tlResp.Payload.AgentHost,
+		AgentSubHost:     tlResp.Payload.AgentSubHost,
 	}
 
 	return card, nil

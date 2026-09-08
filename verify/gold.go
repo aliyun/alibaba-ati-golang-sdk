@@ -2,7 +2,7 @@ package verify
 
 import (
 	"context"
-	"crypto/ecdsa"
+	"crypto"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -10,12 +10,19 @@ import (
 	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
 
-const defaultCNNICTLBaseURL = "https://tl.ansagent.cn:8180/ans/api/v1"
+const defaultCNNICTLBaseURL = "https://ati-tl.cnnic.cn/ati/api/v1"
 
 // GoldVerifierConfig configures the Gold verification behavior.
 type GoldVerifierConfig struct {
-	TLBaseURL    string
-	TLPublicKey  *ecdsa.PublicKey
+	TLBaseURL string
+	// TLPublicKey is a single pinned TL seal public key (ECDSA or RSA). Used
+	// when TLKeyStore is nil.
+	TLPublicKey crypto.PublicKey
+	// TLKeyStore, when set, is consulted preferentially over TLPublicKey and
+	// looks up the trusted key by seal.KeyID — use it to pin both the legacy
+	// ECDSA key and the newer RSA-3072 key at once, since the platform now
+	// signs seals with either depending on when the agent was registered.
+	TLKeyStore   *TLKeyStore
 	ProducerKeys ProducerKeyLookup
 	DNSResolver  DNSResolver
 	TLogClient   TransparencyLogClient
@@ -67,9 +74,15 @@ func VerifyGold(ctx context.Context, fqdn models.Fqdn, cert *CertIdentity, cfg *
 
 	// Step 3: Verify Seal Signature
 	log.DebugContext(ctx, "gold: verifying seal signature")
-	if err := VerifySealSignature(tlResp, cfg.TLPublicKey); err != nil {
+	var sealErr error
+	if cfg.TLKeyStore != nil {
+		sealErr = VerifySealSignatureWithKeyStore(tlResp, cfg.TLKeyStore)
+	} else {
+		sealErr = VerifySealSignature(tlResp, cfg.TLPublicKey)
+	}
+	if sealErr != nil {
 		return NewFailureResult(ansName, NewANSError(CodeTLReceiptSigInvalid, SeverityHard, StageTLVerify,
-			"seal signature verification failed", WithCause(err)))
+			"seal signature verification failed", WithCause(sealErr)))
 	}
 
 	// Step 4: Verify Inclusion Proof (Merkle)

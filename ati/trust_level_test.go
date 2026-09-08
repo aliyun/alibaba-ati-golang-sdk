@@ -2,74 +2,88 @@ package ati
 
 import "testing"
 
-func TestTrustLevel_String(t *testing.T) {
+func TestVerificationPolicy_String(t *testing.T) {
 	tests := []struct {
-		level TrustLevel
+		level VerificationPolicy
 		want  string
 	}{
-		{PKIOnly, "PKI_ONLY"},
-		{BadgeRequired, "BADGE_REQUIRED"},
-		{DANEAndBadge, "DANE_AND_BADGE"},
-		{TrustLevel(99), "TrustLevel(99)"},
-		{TrustLevel(-1), "TrustLevel(-1)"},
+		{PolicyNone, "NONE"},
+		{PolicyBasic, "BASIC"},
+		{PolicyEnhanced, "ENHANCED"},
+		{PolicyAdvanced, "ADVANCED"},
+		{VerificationPolicy(99), "VerificationPolicy(99)"},
+		{VerificationPolicy(-2), "VerificationPolicy(-2)"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
 			got := tt.level.String()
 			if got != tt.want {
-				t.Errorf("TrustLevel(%d).String() = %q, want %q", tt.level, got, tt.want)
+				t.Errorf("VerificationPolicy(%d).String() = %q, want %q", tt.level, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestTrustLevel_Constants(t *testing.T) {
-	if PKIOnly != 0 {
-		t.Errorf("PKIOnly = %d, want 0", PKIOnly)
+func TestVerificationPolicy_Constants(t *testing.T) {
+	if PolicyNone != -1 {
+		t.Errorf("PolicyNone = %d, want -1", PolicyNone)
 	}
-	if BadgeRequired != 1 {
-		t.Errorf("BadgeRequired = %d, want 1", BadgeRequired)
+	if PolicyBasic != 0 {
+		t.Errorf("PolicyBasic = %d, want 0", PolicyBasic)
 	}
-	if DANEAndBadge != 2 {
-		t.Errorf("DANEAndBadge = %d, want 2", DANEAndBadge)
+	if PolicyEnhanced != 1 {
+		t.Errorf("PolicyEnhanced = %d, want 1", PolicyEnhanced)
 	}
-}
-
-func TestTrustLevel_Aliases(t *testing.T) {
-	if TrustNone != PKIOnly {
-		t.Errorf("TrustNone = %d, want %d (PKIOnly)", TrustNone, PKIOnly)
-	}
-	if TrustPKI != PKIOnly {
-		t.Errorf("TrustPKI = %d, want %d (PKIOnly)", TrustPKI, PKIOnly)
-	}
-	if TrustBadge != BadgeRequired {
-		t.Errorf("TrustBadge = %d, want %d (BadgeRequired)", TrustBadge, BadgeRequired)
-	}
-	if TrustFull != DANEAndBadge {
-		t.Errorf("TrustFull = %d, want %d (DANEAndBadge)", TrustFull, DANEAndBadge)
-	}
-	if Bronze != PKIOnly {
-		t.Errorf("Bronze = %d, want %d (PKIOnly)", Bronze, PKIOnly)
-	}
-	if Silver != BadgeRequired {
-		t.Errorf("Silver = %d, want %d (BadgeRequired)", Silver, BadgeRequired)
-	}
-	if Gold != DANEAndBadge {
-		t.Errorf("Gold = %d, want %d (DANEAndBadge)", Gold, DANEAndBadge)
+	if PolicyAdvanced != 2 {
+		t.Errorf("PolicyAdvanced = %d, want 2", PolicyAdvanced)
 	}
 }
 
-func TestTrustLevel_ValidForClient(t *testing.T) {
+func TestTrustLevel_DeprecatedAliases(t *testing.T) {
+	if PKIOnly != PolicyBasic {
+		t.Errorf("PKIOnly = %d, want %d (PolicyBasic)", PKIOnly, PolicyBasic)
+	}
+	if BadgeRequired != PolicyEnhanced {
+		t.Errorf("BadgeRequired = %d, want %d (PolicyEnhanced)", BadgeRequired, PolicyEnhanced)
+	}
+	if DANEAndBadge != PolicyAdvanced {
+		t.Errorf("DANEAndBadge = %d, want %d (PolicyAdvanced)", DANEAndBadge, PolicyAdvanced)
+	}
+	if TrustNone != PolicyBasic {
+		t.Errorf("TrustNone = %d, want %d (PolicyBasic)", TrustNone, PolicyBasic)
+	}
+	if TrustPKI != PolicyBasic {
+		t.Errorf("TrustPKI = %d, want %d (PolicyBasic)", TrustPKI, PolicyBasic)
+	}
+	if TrustBadge != PolicyEnhanced {
+		t.Errorf("TrustBadge = %d, want %d (PolicyEnhanced)", TrustBadge, PolicyEnhanced)
+	}
+	if TrustFull != PolicyAdvanced {
+		t.Errorf("TrustFull = %d, want %d (PolicyAdvanced)", TrustFull, PolicyAdvanced)
+	}
+	if Bronze != PolicyBasic {
+		t.Errorf("Bronze = %d, want %d (PolicyBasic)", Bronze, PolicyBasic)
+	}
+	if Silver != PolicyEnhanced {
+		t.Errorf("Silver = %d, want %d (PolicyEnhanced)", Silver, PolicyEnhanced)
+	}
+	if Gold != PolicyAdvanced {
+		t.Errorf("Gold = %d, want %d (PolicyAdvanced)", Gold, PolicyAdvanced)
+	}
+}
+
+func TestVerificationPolicy_ValidForClient(t *testing.T) {
 	tests := []struct {
-		level TrustLevel
+		level VerificationPolicy
 		want  bool
 	}{
-		{PKIOnly, true},
-		{BadgeRequired, true},
-		{DANEAndBadge, true},
-		{TrustLevel(-1), false},
-		{TrustLevel(99), false},
+		{PolicyNone, true},
+		{PolicyBasic, true},
+		{PolicyEnhanced, true},
+		{PolicyAdvanced, true},
+		{VerificationPolicy(-2), false},
+		{VerificationPolicy(99), false},
 	}
 	for _, tt := range tests {
 		if got := tt.level.ValidForClient(); got != tt.want {
@@ -78,20 +92,73 @@ func TestTrustLevel_ValidForClient(t *testing.T) {
 	}
 }
 
-func TestTrustLevel_ValidForServer(t *testing.T) {
+func TestVerificationPolicy_ValidForServer(t *testing.T) {
 	tests := []struct {
-		level TrustLevel
+		level VerificationPolicy
 		want  bool
 	}{
-		{PKIOnly, true},
-		{BadgeRequired, true},
-		{DANEAndBadge, true},
-		{TrustLevel(-1), false},
-		{TrustLevel(99), false},
+		{PolicyNone, true},
+		{PolicyBasic, true},
+		{PolicyEnhanced, true},
+		{PolicyAdvanced, true},
+		{VerificationPolicy(-2), false},
+		{VerificationPolicy(99), false},
 	}
 	for _, tt := range tests {
 		if got := tt.level.ValidForServer(); got != tt.want {
 			t.Errorf("%s.ValidForServer() = %v, want %v", tt.level, got, tt.want)
+		}
+	}
+}
+
+func TestVerificationPolicy_DisplayName(t *testing.T) {
+	tests := []struct {
+		level VerificationPolicy
+		want  string
+	}{
+		{PolicyNone, "L0 None"},
+		{PolicyBasic, "L1 Basic"},
+		{PolicyEnhanced, "L2 Enhanced"},
+		{PolicyAdvanced, "L3 Advanced"},
+		{VerificationPolicy(99), "Unknown(99)"},
+	}
+	for _, tt := range tests {
+		if got := tt.level.DisplayName(); got != tt.want {
+			t.Errorf("%s.DisplayName() = %q, want %q", tt.level, got, tt.want)
+		}
+	}
+}
+
+func TestVerificationPolicy_HasBadgeVerification(t *testing.T) {
+	tests := []struct {
+		level VerificationPolicy
+		want  bool
+	}{
+		{PolicyNone, false},
+		{PolicyBasic, false},
+		{PolicyEnhanced, true},
+		{PolicyAdvanced, true},
+	}
+	for _, tt := range tests {
+		if got := tt.level.HasBadgeVerification(); got != tt.want {
+			t.Errorf("%s.HasBadgeVerification() = %v, want %v", tt.level, got, tt.want)
+		}
+	}
+}
+
+func TestVerificationPolicy_HasDANEVerification(t *testing.T) {
+	tests := []struct {
+		level VerificationPolicy
+		want  bool
+	}{
+		{PolicyNone, false},
+		{PolicyBasic, false},
+		{PolicyEnhanced, false},
+		{PolicyAdvanced, true},
+	}
+	for _, tt := range tests {
+		if got := tt.level.HasDANEVerification(); got != tt.want {
+			t.Errorf("%s.HasDANEVerification() = %v, want %v", tt.level, got, tt.want)
 		}
 	}
 }

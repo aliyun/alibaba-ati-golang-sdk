@@ -11,38 +11,59 @@ import (
 	"github.com/aliyun/alibaba-ati-golang-sdk/ati"
 )
 
-func main() {
-	certFile := flag.String("cert", "server.crt", "Server TLS certificate (public CA signed)")
-	keyFile := flag.String("key", "server.key", "Server TLS private key")
-	caBundle := flag.String("ca", "", "Optional CA bundle for client cert verification (empty = accept self-signed)")
-	addr := flag.String("addr", ":8443", "Listen address")
-	trustLevel := flag.String("trust", "pki_only", "Trust level: pki_only, badge, dane")
-	flag.Parse()
+type serverConfig struct {
+	certFile   string
+	keyFile    string
+	caBundle   string
+	addr       string
+	trustLevel string
+}
 
+func parseServerFlags() *serverConfig {
+	return parseServerFlagsFromArgs(flag.CommandLine, nil)
+}
+
+func parseServerFlagsFromArgs(fs *flag.FlagSet, args []string) *serverConfig {
+	cfg := &serverConfig{}
+	fs.StringVar(&cfg.certFile, "cert", "server.crt", "Server TLS certificate (public CA signed)")
+	fs.StringVar(&cfg.keyFile, "key", "server.key", "Server TLS private key")
+	fs.StringVar(&cfg.caBundle, "ca", "", "Optional CA bundle for client cert verification (empty = accept self-signed)")
+	fs.StringVar(&cfg.addr, "addr", ":8443", "Listen address")
+	fs.StringVar(&cfg.trustLevel, "trust", "pki_only", "Trust level: none, pki_only, badge, dane")
+	if args != nil {
+		fs.Parse(args)
+	} else {
+		fs.Parse(nil)
+	}
+	return cfg
+}
+
+func buildServerOptions(cfg *serverConfig) []ati.ServerOption {
 	opts := []ati.ServerOption{
-		ati.WithServerCert(*certFile, *keyFile),
+		ati.WithServerCert(cfg.certFile, cfg.keyFile),
 	}
 
-	if *caBundle != "" {
-		opts = append(opts, ati.WithClientCA(*caBundle))
+	if cfg.caBundle != "" {
+		opts = append(opts, ati.WithClientCA(cfg.caBundle))
 	}
 
-	switch *trustLevel {
-	case "pki_only", "pki", "none":
+	switch cfg.trustLevel {
+	case "none":
+		opts = append(opts, ati.WithClientVerifier(ati.PolicyNone))
+	case "pki_only", "pki":
 		opts = append(opts, ati.WithClientVerifier(ati.PKIOnly))
 	case "badge_required", "badge":
 		opts = append(opts, ati.WithClientVerifier(ati.BadgeRequired))
 	case "dane_and_badge", "dane":
 		opts = append(opts, ati.WithClientVerifier(ati.DANEAndBadge))
 	default:
-		log.Fatalf("unknown trust level: %s (use pki_only/badge/dane)", *trustLevel)
+		log.Fatalf("unknown trust level: %s (use none/pki_only/badge/dane)", cfg.trustLevel)
 	}
 
-	tlsConfig, err := ati.NewServerTLSConfig(opts...)
-	if err != nil {
-		log.Fatalf("Failed to create TLS config: %v", err)
-	}
+	return opts
+}
 
+func buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
@@ -72,19 +93,43 @@ func main() {
 		json.NewEncoder(w).Encode(resp)
 	})
 
+	return mux
+}
+
+func formatServerStartup(cfg *serverConfig) string {
+	return fmt.Sprintf("ATI Agent Server starting on %s\n  Trust level: %s\n  Cert: %s\n  Endpoints: /hello, /echo",
+		cfg.addr, cfg.trustLevel, cfg.certFile)
+}
+
+func runServer(cfg *serverConfig) error {
+	opts := buildServerOptions(cfg)
+
+	tlsConfig, err := ati.NewServerTLSConfig(opts...)
+	if err != nil {
+		return fmt.Errorf("failed to create TLS config: %w", err)
+	}
+
+	mux := buildMux()
+
 	server := &http.Server{
-		Addr:      *addr,
+		Addr:      cfg.addr,
 		TLSConfig: tlsConfig,
 		Handler:   mux,
 	}
 
-	fmt.Printf("ATI Agent Server starting on %s\n", *addr)
-	fmt.Printf("  Trust level: %s\n", *trustLevel)
-	fmt.Printf("  Cert: %s\n", *certFile)
-	fmt.Printf("  Endpoints: /hello, /echo\n")
+	fmt.Println(formatServerStartup(cfg))
 
 	// TLS cert/key already loaded in tlsConfig, pass empty strings to ListenAndServeTLS
 	if err := server.ListenAndServeTLS("", ""); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		return fmt.Errorf("server failed: %w", err)
+	}
+
+	return nil
+}
+
+func main() {
+	cfg := parseServerFlags()
+	if err := runServer(cfg); err != nil {
+		log.Fatal(err)
 	}
 }

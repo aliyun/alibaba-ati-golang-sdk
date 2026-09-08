@@ -1,98 +1,316 @@
-# Alibaba ATI Go SDK
+# ATI Go SDK
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/aliyun/alibaba-ati-golang-sdk.svg)](https://pkg.go.dev/github.com/aliyun/alibaba-ati-golang-sdk)
+> Agent Trust Infrastructure (ATI) Go SDK — secure agent-to-agent communication with DNS TXT discovery, DANE TLSA verification, and transparency log attestation.
 
-Agent Trust Infrastructure (ATI) 的 Go SDK,为 AI Agent 之间提供基于 **mTLS 传输 + 服务发现 + 多级信任验证** 的安全通信能力。
+[English](README.md) | [中文](README_zh.md)
 
-- **Client**(`ati.AgentClient`)—— Agent 作为调用方,发起经过验证的 HTTPS 请求。
-- **Server**(`ati.NewServerTLSConfig`)—— Agent 作为服务方,在 TLS 握手阶段验证对端身份。
+## Features
 
-> 模块路径:`github.com/aliyun/alibaba-ati-golang-sdk`
+- **DNS TXT agent discovery** — resolve agents via `_ati.{identityHost}` TXT records with optional SemVer constraints
+- **DANE TLSA verification** — verify server/client certificates via DNS TLSA records with DNSSEC
+- **Badge verification** — cryptographically verify agent registration via the CNNIC Transparency Log
+- **IDCA CRL certificate revocation (server)** — PKIX CRL from CDP at the TLS layer with fail-closed semantics
+- **mTLS secure connections** — mutual TLS with identity certificate support; server-side `PolicyBasic`+ validates the client cert chain against the SDK-shipped IDCA chain (or a configured CA)
+- **Dual-hostname model** — separate Identity Hostname and Access Hostname for proxy/gateway deployments
+- **Zero-dependency init** — single `ati.Init()` call for global configuration
 
----
+## Verification Policies
 
-## 目录
+| Policy | TLS | DANE | Badge | Scope | Description |
+|--------|-----|------|-------|-------|-------------|
+| `PolicyNone` | - | - | - | Client & server | No verification (dev/test only) |
+| `PolicyBasic` | ✓ | - | - | Client & server | Standard TLS only |
+| `PolicyEnhanced` | ✓ | - | ✓ | Client & server | TLS + Badge verification (default) |
+| `PolicyAdvanced` | ✓ | ✓ | ✓ | Client & server | TLS + DANE + Badge |
 
-- [安装](#安装)
-- [信任等级原理](#信任等级原理)
-- [快速开始](#快速开始)
-- [全局配置(ati.Init)](#全局配置atiinit)
-- [Client 端详解](#client-端详解)
-- [Server 端详解](#server-端详解)
-- [服务发现](#服务发现)
-- [指定 DNS 服务器](#指定-dns-服务器)
-- [完整示例:两个 Agent 互相通信](#完整示例两个-agent-互相通信)
-- [证书要求与 ATI Name](#证书要求与-ati-name)
-- [DNS 记录清单](#dns-记录清单)
-- [验证缓存与失败语义](#验证缓存与失败语义)
-- [示例代码](#示例代码)
+Client agents default to `PolicyEnhanced` when `WithTrustLevel` is not specified. Server agents verify nothing unless `WithClientVerifier` is called.
 
----
+### What Each Level Does
 
-## 安装
+**PolicyBasic — Standard Certificate Validation**
+
+Standard TLS certificate checks: validity period, SAN hostname match. On the server side, `PolicyBasic` and above always validate the client certificate's CA chain: against the bundle configured via `WithClientCA`, or — when none is configured — the SDK-shipped IDCA chain. Client identity certificates must therefore chain to a trusted CA; self-signed certificates are rejected. On the client side, `WithMTLSCerts`' CA bundle (or the system CA pool, if unset) validates the server's certificate as usual.
+
+**PolicyEnhanced — Transparency Log Badge Verification**
+
+After PKI passes, the SDK:
+
+1. Queries DNS `_ati-badge.<host>` TXT to obtain the agent's **Badge URL** (pointing to the Transparency Log)
+2. Fetches the registration record from the Transparency Log (containing the authoritative certificate fingerprint, Merkle proof, etc.)
+3. Compares the **actual peer certificate fingerprint** against the fingerprint registered in the Transparency Log
+
+Only matching fingerprints pass. This step answers: "Is the peer the registered agent it claims to be?" — preventing impersonation with a valid but mismatched certificate.
+
+**PolicyAdvanced — DANE/TLSA Dual Binding**
+
+After Badge passes, the SDK additionally queries DNSSEC-protected TLSA records to bind the certificate fingerprint against the **domain owner's published fingerprint in DNS**:
+
+- Client verifying Server: queries `_443._tcp.<host>` TLSA
+- Server verifying Client: queries `_ati-identity._tls.<host>` TLSA
+
+This extends the trust anchor from the Transparency Log to "domain owner + DNSSEC trust chain" — even if the Transparency Log is compromised, an attacker must also control the target domain's DNSSEC signing to forge identity.
+
+## Verification Sequence Diagrams
+
+The diagrams below use `{serverIdentityHost}`, `{serverAccessHost}`, and `{clientIdentityHost}`. In **single-hostname mode**, `{serverIdentityHost}` equals `{serverAccessHost}` — Discovery, Badge, and transport DANE all target the same FQDN.
+
+**Notes:**
+
+- **Discovery (steps 1–2)** is optional — skip when connecting directly via a known `agentUrl`.
+- **Client and server policies are configured independently** — e.g. client `ENHANCED` does not imply the server runs client verification steps unless the server policy is also `ENHANCED` or `ADVANCED`.
+- **Server-side dual-track revocation** — when CA bundle is configured, **Certificate Revocation** (CRL at TLS) and **Registration Revocation** (Badge) are independent; either failure rejects.
+- **`PolicyNone` skips all verification** — clients skip TLS cert validation; servers don't request client certificates.
+
+### Dual Hostname Model (Shared Platform)
+
+Multiple agents share one **Access Hostname**; each agent's **Identity Hostname** is a first-level subdomain.
+
+| Hostname | Definition | Example |
+|----------|------------|---------|
+| **Server Identity Hostname** `{serverIdentityHost}` | Unique identity of the server agent — used for Discovery, Badge, identity DANE | `abc123.bailian.aliyun.com` |
+| **Server Access Hostname** `{serverAccessHost}` | Shared domain for reaching the server — TLS connects here | `bailian.aliyun.com` |
+| **Client Identity Hostname** `{clientIdentityHost}` | Unique identity of the client agent — extracted from client Identity Certificate URI SAN | `xyz789.caller.example.com` |
+
+DNS lookups:
+
+| Hostname | Records |
+|----------|---------|
+| `{serverIdentityHost}` | `_ati` (Discovery), `_ati-badge` (Badge) |
+| `{serverAccessHost}` | `_443._tcp` (server transport DANE) |
+| `{clientIdentityHost}` | `_ati-badge`, `_ati-identity._tls` (server-side Client Verification) |
+
+### Single Hostname Model
+
+One agent owns a dedicated domain; **Identity Hostname equals Access Hostname**.
+
+| Hostname | Definition | Example |
+|----------|------------|---------|
+| **Server Identity Hostname** `{serverIdentityHost}` | Same as Access Hostname — all lookups on one FQDN | `agent.example.com` |
+| **Server Access Hostname** `{serverAccessHost}` | Equals `{serverIdentityHost}` | `agent.example.com` |
+| **Client Identity Hostname** `{clientIdentityHost}` | Client agent identity (unchanged) | `caller.example.com` |
+
+DNS lookups (server-side records collapse onto one FQDN):
+
+| Hostname | Records |
+|----------|---------|
+| `{serverIdentityHost}` (= `{serverAccessHost}`) | `_ati` (Discovery), `_ati-badge` (Badge), `_443._tcp` (transport DANE) |
+| `{clientIdentityHost}` | `_ati-badge`, `_ati-identity._tls` (server-side Client Verification) |
+
+### NONE (L0): No Verification (dev/test only)
+
+```mermaid
+sequenceDiagram
+    participant C as Client Agent
+    participant DNS as DNS Server
+    participant S as Server Agent
+
+    opt Optional Discovery
+        C->>DNS: 1. Query _ati.{serverIdentityHost} TXT
+        DNS->>C: 2. AgentDetail (av, ep)
+    end
+
+    Note over C,S: TLS Handshake (InsecureSkipVerify)
+    C->>S: 3. ClientHello → endpoint URL
+    S->>C: 4. ServerHello + Server Certificate
+    Note over C: 5. Skip all certificate validation
+    Note over S: 6. No client certificate requested (PolicyNone)
+
+    Note over C,S: 7. Connection Established
+    C->>S: Encrypted Application Data (bidirectional)
+```
+
+### BASIC (L1): Agent Discovery + Standard TLS
+
+```mermaid
+sequenceDiagram
+    participant C as Client Agent
+    participant DNS as DNS Server
+    participant S as Server Agent
+    participant CA as CA / Trust Store
+
+    opt Optional Discovery
+        C->>DNS: 1. Query _ati.{serverIdentityHost} TXT
+        DNS->>C: 2. AgentDetail (av, ep)
+    end
+
+    Note over C,S: TLS Handshake → server Access Host
+    C->>S: 3. ClientHello → endpoint URL
+    S->>C: 4. ServerHello + Server Certificate Chain
+    C->>CA: 5. Validate server cert (SAN, validity, CA chain if configured)
+    CA->>C: 6. Valid ✓
+    S->>C: 7. CertificateRequest (if WithClientVerifier set)
+    C->>S: 8. Client identity certificate
+
+    opt Server has CA bundle configured
+        Note over S: 9. Validate client cert chain (CA bundle)
+    end
+
+    Note over S: 10. Extract {clientIdentityHost} from URI SAN — no Badge/DANE
+    Note over C,S: 11. Connection Established
+    C->>S: Encrypted Application Data (bidirectional)
+```
+
+### ENHANCED (L2): TLS + Transparency Log Verification
+
+```mermaid
+sequenceDiagram
+    participant C as Client Agent
+    participant DNS as DNS Server
+    participant TL as CNNIC TL
+    participant S as Server Agent
+    participant CA as CA / Trust Store
+
+    opt Optional Discovery
+        C->>DNS: 1. Query _ati.{serverIdentityHost} TXT
+        DNS->>C: 2. AgentDetail (av, ep)
+    end
+
+    Note over C,S: TLS Handshake → server Access Host
+    C->>S: 3. ClientHello → endpoint URL
+    S->>C: 4. ServerHello + Server Certificate Chain
+    C->>CA: 5. Validate server cert (SAN, validity, CA chain if configured)
+    CA->>C: 6. Valid ✓
+    S->>C: 7. CertificateRequest (WithClientVerifier ENHANCED)
+    C->>S: 8. Client identity certificate
+
+    Note over C: Client Post-verify (Badge)
+    C->>DNS: 9. Query _ati-badge.{serverIdentityHost} TXT
+    DNS->>C: 10. Badge URL(s)
+    C->>TL: 11. Fetch badge from TL
+    TL->>C: 12. Badge + Seal + Merkle Proof
+    Note over C: 13. Verify seal & cert fingerprint == badge ✓
+
+    opt Server WithClientVerifier(ENHANCED)
+        Note over S: 14. Extract {clientIdentityHost} from client cert URI SAN
+        S->>DNS: 15. Query _ati-badge.{clientIdentityHost} TXT
+        DNS->>S: 16. Client badge URL
+        S->>TL: 17. Fetch client badge from TL
+        TL->>S: 18. Client Badge + Seal + Merkle Proof
+        Note over S: 19. Verify seal & client cert fingerprint == badge ✓
+    end
+
+    Note over C,S: 20. Connection Established
+    C->>S: Encrypted Application Data (bidirectional)
+```
+
+### ADVANCED (L3): Full Verification
+
+```mermaid
+sequenceDiagram
+    participant C as Client Agent
+    participant DNS as DNS Server
+    participant TL as CNNIC TL
+    participant S as Server Agent
+    participant CA as CA / Trust Store
+
+    opt Optional Discovery
+        C->>DNS: 1. Query _ati.{serverIdentityHost} TXT
+        DNS->>C: 2. AgentDetail (av, ep)
+    end
+
+    Note over C,S: TLS Handshake → server Access Host
+    C->>S: 3. ClientHello → endpoint URL
+    S->>C: 4. ServerHello + Server Certificate Chain
+    C->>CA: 5. Validate server cert (SAN, validity, CA chain if configured)
+    CA->>C: 6. Valid ✓
+    S->>C: 7. CertificateRequest (WithClientVerifier ADVANCED)
+    C->>S: 8. Client identity certificate
+
+    Note over C: Client Post-verify (Badge + Transport DANE)
+    C->>DNS: 9. Query _443._tcp.{serverAccessHost} TLSA
+    DNS->>C: 10. TLSA: 3 1 1 <server-cert-hash>
+    C->>DNS: 11. Query _ati-badge.{serverIdentityHost} TXT
+    DNS->>C: 12. Badge URL(s)
+    C->>TL: 13. Fetch badge from TL
+    TL->>C: 14. Badge + Seal + Merkle Proof
+    Note over C: 15. Verify seal & Merkle proof
+    Note over C: 16. Verify server cert fingerprint == badge & TLSA ✓
+
+    opt Server WithClientVerifier(ENHANCED/ADVANCED)
+        Note over S: 17. Extract {clientIdentityHost} from client cert URI SAN
+        S->>DNS: 18. Query _ati-badge.{clientIdentityHost} TXT
+        DNS->>S: 19. Client badge URL
+        S->>TL: 20. Fetch client badge from TL
+        TL->>S: 21. Client Badge + Seal + Merkle Proof
+        Note over S: 22. Verify seal & client cert fingerprint == badge ✓
+    end
+
+    opt Server WithClientVerifier(ADVANCED)
+        S->>DNS: 23. Query _ati-identity._tls.{clientIdentityHost} TLSA
+        DNS->>S: 24. TLSA: 3 1 1 <client-cert-key-hash>
+        Note over S: 25. Verify client cert public key == TLSA hash ✓
+    end
+
+    Note over C,S: 26. Connection Established
+    C->>S: Encrypted Application Data (bidirectional)
+```
+
+## Packages
+
+| Package | Import Path | Description |
+|---------|-------------|-------------|
+| `ati` | `github.com/aliyun/alibaba-ati-golang-sdk/ati` | Client, server, configuration entry point |
+| `verify` | `github.com/aliyun/alibaba-ati-golang-sdk/verify` | DNS resolver, Badge verifier, DANE verifier, CRL checker |
+| `models` | `github.com/aliyun/alibaba-ati-golang-sdk/models` | Shared data models |
+
+## Installation
 
 ```bash
 go get github.com/aliyun/alibaba-ati-golang-sdk
 ```
 
-导入常用的两个包:
+Import the main packages:
 
 ```go
 import (
-    "github.com/aliyun/alibaba-ati-golang-sdk/ati"    // 客户端 / 服务端入口
-    "github.com/aliyun/alibaba-ati-golang-sdk/verify" // resolver / 验证器等
+    "github.com/aliyun/alibaba-ati-golang-sdk/ati"    // Client / Server entry point
+    "github.com/aliyun/alibaba-ati-golang-sdk/verify" // Resolver / verifiers
 )
 ```
 
----
+Requirements: Go 1.25+
 
-## 信任等级原理
+## Quick Start
 
-SDK 提供三级**递增**的信任验证。每一级都在前一级的基础上叠加更强的身份保证,常量定义在 `ati` 包:
+### Agent Registration
 
-| 等级 | 常量 | 验证内容 | 回答的问题 |
-|------|------|---------|-----------|
-| **PKI_ONLY** | `ati.PKIOnly` | 证书有效性:有效期、CA 链(仅当配置了私有根证书时)、SAN 与目标主机匹配 | "这是一张时间与结构都合法的证书吗?" |
-| **BADGE_REQUIRED** | `ati.BadgeRequired` | 在 PKI 之上,再做 Badge 验证 | "这个 Agent 身份被权威登记过、且证书指纹与登记记录一致吗?" |
-| **DANE_AND_BADGE** | `ati.DANEAndBadge` | 在 Badge 之上,再做 DANE/TLSA 验证 | "证书指纹还被域名所有者通过 DNSSEC 保护的 TLSA 记录额外背书了吗?" |
+Agent registration is completed in the [Alibaba Cloud ATI Console](https://dnsnext.console.aliyun.com/ati/agents). The registration flow:
 
-### 每一级具体在做什么
+```
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│   Generate   │───▶│    Submit    │───▶│  ACME + DNS  │───▶│    ACTIVE    │
+│ Identity CSR │    │  to Console  │    │ Verification │    │(Discoverable)│
+└──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
+```
 
-**① PKI_ONLY —— 基础证书校验**
-沿用标准 TLS 的证书检查:证书是否在有效期内、证书 SAN 是否与你要访问的主机名一致。CA 链校验是**有条件**的——**只有当你配置了私有根证书(CA bundle)时才会做 CA 链校验**;不配置时不校验 CA 链(接受任意证书),信任交由更高等级(Badge/TLog)建立。身份证书允许自签。
+1. **Generate identity key pair** — Create RSA/EC key pair for identity certificate (offline)
+2. **Generate identity CSR** — Create Certificate Signing Request with an `ati://` URI SAN (Identity Hostname)
+3. **Submit registration** — Input service certificate + identity CSR in ATI Console with agentHost, version, endpoints
+4. **ACME verification** — Add DNS TXT record for domain ownership proof
+5. **Identity certificate issuance** — CNNIC issues the identity certificate via IDCA
+6. **DNS verification** — Add TLSA and badge DNS records
+7. **Active** — Agent is discoverable via `_ati.{identityHost}` DNS TXT
 
-**② BADGE_REQUIRED —— 身份徽章验证**
-在 PKI 通过后,SDK 会:
+> **Note:** All steps are performed in the ATI Console. No SDK code is needed for registration.
 
-1. 查询 DNS `_ati-badge.<host>` TXT 记录,拿到该 Agent 的 **Badge URL**(指向透明日志 Transparency Log);
-2. 从透明日志取回该 Agent 的登记记录(含权威签发的证书指纹、Merkle 证明等);
-3. 把**对端实际出示的证书指纹**与透明日志中登记的指纹做比对。
+### Global Configuration
 
-只有指纹一致才算通过。这一步回答的是"对端是不是它声称的那个已登记 Agent",防止拿一张合法但身份不符的证书冒充。
+Initialize the SDK with `ati.Init` before creating clients or servers:
 
-**③ DANE_AND_BADGE —— DANE/TLSA 双重绑定**
-在 Badge 通过后,再查询 DNSSEC 保护下的 TLSA 记录,把证书指纹与**域名所有者在 DNS 中发布的指纹**再绑定一次:
+```go
+import "github.com/aliyun/alibaba-ati-golang-sdk/ati"
 
-- Client 验 Server:查 `_443._tcp.<host>` 的 TLSA(`Verify`)。
-- Server 验 Client:查 `_ati-identity._tls.<host>` 的 TLSA(`VerifyIdentity`)。
+err := ati.Init(ati.Config{
+    LocalHostname:    "my-agent.example.com", // Required: this agent's hostname
+    IdentityCertFile: "certs/identity.crt",   // Required: identity certificate
+    IdentityKeyFile:  "certs/identity.key",   // Required: identity private key
+    CARootFile:       "certs/root-ca.pem",    // Optional: CA bundle (enables PKI chain validation)
+    TrustLevel:       ati.PolicyEnhanced,     // Optional: default PolicyEnhanced
+    DNSServer:        "8.8.8.8:53",           // Optional: DANE resolver DNS server
+})
+```
 
-这一步把"信任锚"从透明日志扩展到"域名所有者 + DNSSEC 信任链",即使透明日志被绕过,攻击者仍需同时控制目标域名的 DNSSEC 签名才能伪造。
-
-### 默认等级
-
-- **Client 验 Server**:不调用 `WithTrustLevel` 时,默认使用 **`BadgeRequired`**;调用 `WithTrustLevel(X)` 则使用你指定的等级 `X`。两种情况都是**强制模式**——达不到目标等级时请求返回 error。
-- **Server 验 Client**:**不调用 `WithClientVerifier` 时,什么都不验**——不请求客户端证书,等同于普通 TLS 直连;调用 `WithClientVerifier(X)` 则按等级 `X` 验证,达不到时 TLS 握手失败。
-- **PKI 与私有根证书**:是否做 CA 链校验取决于你有没有配置私有根证书(CA bundle)。**没传私有根证书 → 不验 PKI 的 CA 链**(接受任意证书);**传了私有根证书 → 需要验 PKI 的 CA 链**,且即使没调用 `WithClientVerifier` 也会隐含按 `PKIOnly` 验证。
-
-> **DANE resolver 会自动创建**:当等级为 `DANEAndBadge` 时,若未显式提供 DANE resolver,SDK 会自动构造一个默认的 `StandardDANEResolver`(默认走 DNSSEC 可用的公共解析器 `8.8.8.8:53`,也可通过 [`ati.Init` 的 `DNSServer`](#指定-dns-服务器) 覆盖)。因此 `WithAgentDANEResolver` / `WithServerDANEResolver` 属于**可选覆盖**,而非必填。
-
----
-
-## 快速开始
-
-> **前提**:Agent 服务发现只能走阿里云 API(见[服务发现](#服务发现)),因此在创建 Client / 需要 Badge 验证的 Server 之前,必须先提供阿里云凭证——推荐用 [`ati.Init`](#全局配置atiinit) 集中配置,或设置 `ATI_AK` / `ATI_SK` 环境变量。缺少凭证会直接返回 error。
-
-### Client 最简示例
+### Agent-to-Agent Connection (Client)
 
 ```go
 package main
@@ -102,16 +320,12 @@ import (
     "fmt"
     "io"
     "log"
-    "os"
 
     "github.com/aliyun/alibaba-ati-golang-sdk/ati"
 )
 
 func main() {
-    // 集中配置阿里云凭证 + 身份证书(服务发现所必需)
     if err := ati.Init(ati.Config{
-        AK:               os.Getenv("ATI_AK"),
-        SK:               os.Getenv("ATI_SK"),
         LocalHostname:    "my-agent.example.com",
         IdentityCertFile: "certs/client.crt",
         IdentityKeyFile:  "certs/client.key",
@@ -119,10 +333,12 @@ func main() {
         log.Fatal(err)
     }
 
-    // 身份证书需包含 ati:// URI SAN,可自签
+    // Identity certificate must contain ati:// URI SAN; must chain to the
+    // SDK-shipped IDCA chain (or the peer server's configured CA) to pass
+    // PolicyBasic+ verification
     client, err := ati.NewAgentClient(
         ati.WithIdentityCert("certs/client.crt", "certs/client.key"),
-        // 不传 WithTrustLevel → 默认 BadgeRequired
+        // Default: PolicyEnhanced (Badge verification)
     )
     if err != nil {
         log.Fatal(err)
@@ -130,19 +346,19 @@ func main() {
 
     resp, err := client.Get(context.Background(), "https://target-agent.example.com/api/data")
     if err != nil {
-        log.Fatal(err) // 达不到 BadgeRequired 会返回 error
+        log.Fatal(err) // Returns error if verification policy not met
     }
     defer resp.Body.Close()
 
     o := resp.VerificationOutcome
-    fmt.Printf("达成等级=%s  Badge=%v  DANE=%v\n", o.AchievedLevel, o.BadgeVerified, o.DANEVerified)
+    fmt.Printf("Achieved=%s  Badge=%v  DANE=%v\n", o.AchievedLevel, o.BadgeVerified, o.DANEVerified)
 
     body, _ := io.ReadAll(resp.Body)
     fmt.Println(string(body))
 }
 ```
 
-### Server 最简示例
+### Agent Server
 
 ```go
 package main
@@ -158,7 +374,7 @@ import (
 func main() {
     tlsConfig, err := ati.NewServerTLSConfig(
         ati.WithServerCert("certs/server.crt", "certs/server.key"),
-        ati.WithClientVerifier(ati.BadgeRequired), // 要求调用方通过 Badge 验证
+        ati.WithClientVerifier(ati.PolicyEnhanced), // Require Badge verification
     )
     if err != nil {
         log.Fatal(err)
@@ -171,309 +387,322 @@ func main() {
     })
 
     server := &http.Server{Addr: ":8443", TLSConfig: tlsConfig, Handler: mux}
-    log.Fatal(server.ListenAndServeTLS("", "")) // 证书已在 tlsConfig 中,传空字符串
+    log.Fatal(server.ListenAndServeTLS("", "")) // Certs already in tlsConfig
 }
 ```
 
-> Server 不调用 `WithClientVerifier` 时什么都不验(普通 TLS 直连),自然不需要服务发现凭证;一旦要求 `BadgeRequired` 及以上,才需要阿里云凭证。
+## Configuration
 
----
-
-## 全局配置(ati.Init)
-
-`ati.Init` 用于在启动时集中管理阿里云凭证、默认身份和 DNS 服务器等全局配置:
-
-```go
-err := ati.Init(ati.Config{
-    AK:               os.Getenv("ATI_AK"),    // 必填:阿里云 AccessKey ID(服务发现所需)
-    SK:               os.Getenv("ATI_SK"),    // 必填:阿里云 AccessKey Secret
-    LocalHostname:    "my-agent.example.com", // 必填:本 Agent 主机名
-    IdentityCertFile: "certs/identity.crt",   // 必填:身份证书
-    IdentityKeyFile:  "certs/identity.key",   // 必填:身份私钥
-    CARootFile:       "certs/root-ca.pem",    // 可选:私有根证书,配置后才做 PKI 的 CA 链校验
-    TrustLevel:       ati.BadgeRequired,      // 可选,默认 BadgeRequired
-    DNSServer:        "8.8.8.8:53",           // 可选,仅 DANE/TLSA 用
-})
-```
-
-调用后,未显式传 `WithAliyunDiscovery` 的 Client / Server 会自动使用全局配置(或环境变量 `ATI_AK` / `ATI_SK`)里的阿里云凭证做服务发现。**若既没有全局配置也没有环境变量,创建 Client(或需要发现的 Server)时会直接返回 error。**
-
----
-
-## Client 端详解
-
-### 创建客户端
+### Client Options
 
 ```go
 client, err := ati.NewAgentClient(
-    ati.WithIdentityCert("client.crt", "client.key"), // 必填
-    ati.WithTrustLevel(ati.BadgeRequired),            // 可选,不传默认 BadgeRequired
-    ati.WithClientTimeout(30 * time.Second),          // 可选,默认 30s
+    ati.WithIdentityCert("client.crt", "client.key"),   // Required
+    ati.WithTrustLevel(ati.PolicyEnhanced),             // Optional: default PolicyEnhanced
+    ati.WithClientTimeout(30 * time.Second),            // Optional: default 30s
 )
 ```
 
-### 配置项
+| Option | Required | Description |
+|--------|----------|-------------|
+| `WithIdentityCert(certFile, keyFile)` | **Yes** | Client identity certificate + private key. Must contain `ati://` URI SAN; must chain to the SDK-shipped IDCA chain (or the peer server's configured CA) for `PolicyBasic`+ servers. |
+| `WithMTLSCerts(id, key, serverCert, caBundle)` | Alternative | Use when private CA bundle is needed for server cert validation. Pass empty `serverCert`. CA chain validation only runs when CA bundle is provided. |
+| `WithTrustLevel(level)` | No | Target verification policy. Default: `PolicyEnhanced`. |
+| `WithClientTimeout(d)` | No | HTTP request timeout. Default: 30s. |
+| `WithIdentityHost(host)` | No | Hostname for Badge and identity DANE queries. Default: connection URL host. See [Dual-hostname Model](#dual-hostname-model-shared-platform). |
+| `WithAccessHost(host)` | No | Hostname for transport DANE (`_443._tcp`) queries. Default: connection URL host. |
+| `WithTargetVersion(version)` | No | SemVer constraint for discovery. See [Version Constraints](#version-constraints). |
+| `WithAgentDANEResolver(r)` | No | Override the default DANE resolver (auto-created for `PolicyAdvanced`). |
+| `WithTLogClient(t)` | No | Custom Transparency Log client (for testing or private deployments). |
+| `WithDNSResolver(r)` | No | Custom DNS resolver (primarily for testing). |
+| `WithTLPublicKey(key)` | No | Pre-loaded TL public key for Gold-level seal verification. Accepts either an ECDSA or an RSA-3072 key, since the platform signs seals with either depending on when the agent was registered. |
 
-| Option | 是否必填 | 说明 |
-|--------|---------|------|
-| `WithIdentityCert(certFile, keyFile string)` | **必填** | 客户端身份证书 + 私钥。证书必须含 `ati://` URI SAN,可自签。 |
-| `WithMTLSCerts(id, key, serverCert, caBundle string)` | 替代上一项 | 需要用私有根证书(CA Bundle)校验服务端证书时使用;`serverCert` 传空即可。传了 CA Bundle 才会做 PKI 的 CA 链校验。 |
-| `WithTrustLevel(level TrustLevel)` | 可选 | 目标信任等级。不传默认 `BadgeRequired`。 |
-| `WithClientTimeout(d time.Duration)` | 可选 | HTTP 请求超时,默认 30s。 |
-| `WithAgentDANEResolver(r verify.DANEResolver)` | 可选 | 覆盖默认 DANE resolver(`DANEAndBadge` 下会自动创建)。 |
-| `WithTLogClient(t verify.TransparencyLogClient)` | 可选 | 自定义透明日志客户端(测试或私有部署)。 |
-| `WithAliyunDiscovery(cfg verify.AliyunATIConfig)` | 可选 | 显式提供本客户端专用的阿里云发现凭证(等价于用全局配置里的凭证)。 |
-| `WithTargetVersion(version string)` | 可选 | 发现时指定目标版本,支持 `1.0.0` / `^1.0.0` / `~1.2.3` / `>=1.0.0`。 |
-| `WithDNSResolver(r verify.DNSResolver)` | 可选 | 注入自定义发现 resolver(主要用于测试)。 |
-| `WithTLPublicKey(key *ecdsa.PublicKey)` | 可选 | 预置 TL 公钥用于 Gold 级封条验证。 |
-
-### 发起请求
+### Server Options
 
 ```go
-resp, err := client.Get(ctx, "https://target/api")
-resp, err := client.Post(ctx, "https://target/api", body)   // body 为任意可 JSON 序列化的值
-resp, err := client.Put(ctx, "https://target/api", body)
-resp, err := client.Delete(ctx, "https://target/api")
+tlsConfig, err := ati.NewServerTLSConfig(
+    ati.WithServerCert("server.crt", "server.key"),  // Required
+    ati.WithClientCA("client-ca-bundle.pem"),        // Optional: CA bundle
+    ati.WithClientVerifier(ati.PolicyEnhanced),      // Optional: client verification
+    ati.WithCRLCheck(),                              // Optional: enable CRL
+)
 ```
 
-- URL 必须是 `https`,否则返回 error;
-- `body != nil` 时,SDK 自动 `json.Marshal` 并设置 `Content-Type: application/json`;
-- 达不到目标等级时返回 error(此时响应体已关闭)。
+| Option | Required | Description |
+|--------|----------|-------------|
+| `WithServerCert(certFile, keyFile)` | **Yes** | Server certificate + private key. Recommend public CA-issued with DNS SAN. |
+| `WithClientCA(caBundle)` | No | Private CA bundle for client cert chain validation. Overrides the SDK-shipped IDCA chain. When set, Go TLS uses `RequireAndVerifyClientCert`. |
+| `WithClientVerifier(level)` | No | Server's verification policy for clients. **Not set = no client verification** (no client cert requested). |
+| `WithCRLCheck()` | No | Explicitly enable CRL revocation checking. Auto-enabled whenever a trust level (PolicyBasic+) is set. |
+| `WithCRLCheckDisabled()` | No | Explicitly disable CRL checking (even with CA bundle). |
+| `WithCRLHTTPClient(client)` | No | Custom HTTP client for CRL downloads. |
+| `WithServerDANEResolver(r)` | No | Override default DANE resolver (auto-created for `PolicyAdvanced`). |
+| `WithPeerLevelStore(store)` | No | Inject shared `sync.Map` to record each peer's achieved level. |
 
-### 读取验证结果
+### Server Verification Behavior Matrix
 
-每个 `*ati.Response` 都带有 `VerificationOutcome`:
+The combination of `WithClientVerifier` and `WithClientCA` determines the server's client authentication behavior:
+
+| `WithClientVerifier` | `WithClientCA` | TLS ClientAuth | Behavior |
+|:---:|:---:|---|---|
+| Not set | Not set | `NoClientCert` | **No verification** — no client cert requested |
+| `PolicyNone` | Not set | `NoClientCert` | Explicitly no verification |
+| Not set | Set | `RequireAndVerifyClientCert` | Implicit `PolicyBasic` + CA chain (user's CA) |
+| Set (PolicyBasic+) | Not set | `RequireAndVerifyClientCert` | Verify at specified level + CA chain (SDK-shipped IDCA chain) |
+| Set (PolicyBasic+) | Set | `RequireAndVerifyClientCert` | Verify at specified level + CA chain (user's CA) + CRL (auto-enabled) |
+
+> Setting a CA bundle (`WithClientCA`) implies "authenticate clients" — even without `WithClientVerifier`, it implicitly runs `PolicyBasic`. At `PolicyBasic` and above, the client certificate's CA chain is **always** validated — against `WithClientCA`'s bundle if set, otherwise against the SDK-shipped IDCA chain. Client certificates not chaining to either are rejected.
+
+### Verification Policy
+
+```go
+// BASIC — TLS with system CA only
+client, _ := ati.NewAgentClient(
+    ati.WithIdentityCert("client.crt", "client.key"),
+    ati.WithTrustLevel(ati.PolicyBasic),
+)
+
+// ENHANCED — TLS + Badge (dual-hostname: set identityHost)
+client, _ := ati.NewAgentClient(
+    ati.WithIdentityCert("client.crt", "client.key"),
+    ati.WithTrustLevel(ati.PolicyEnhanced),
+    ati.WithIdentityHost("abc123.bailian.aliyun.com"),
+)
+
+// ADVANCED — ENHANCED + transport DANE (set accessHost for _443._tcp)
+client, _ := ati.NewAgentClient(
+    ati.WithIdentityCert("client.crt", "client.key"),
+    ati.WithTrustLevel(ati.PolicyAdvanced),
+    ati.WithIdentityHost("abc123.bailian.aliyun.com"),
+    ati.WithAccessHost("bailian.aliyun.com"),
+)
+```
+
+### Dual-Hostname Model
+
+When an agent is exposed through a proxy/gateway, the access address differs from the agent's identity:
+
+```go
+client, err := ati.NewAgentClient(
+    ati.WithIdentityCert("client.crt", "client.key"),
+    ati.WithTrustLevel(ati.PolicyAdvanced),
+    ati.WithIdentityHost("my-agent.internal"),   // Badge + _ati-identity DANE queries
+    ati.WithAccessHost("gateway.example.com"),   // _443._tcp transport DANE queries
+)
+
+// Request goes to gateway, but identity verification uses my-agent.internal
+resp, err := client.Get(ctx, "https://gateway.example.com/api")
+```
+
+When not specified, both default to the connection URL host.
+
+### DNS Server
+
+DANE/TLSA relies on DNSSEC-aware resolvers. The system default resolver (`/etc/resolv.conf`) often doesn't support DNSSEC. Configure via `ati.Init`:
+
+```go
+ati.Init(ati.Config{
+    // ... other fields ...
+    DNSServer: "8.8.8.8:53", // Also accepts "8.8.8.8" (port defaults to 53)
+})
+```
+
+- Only affects the **auto-created DANE resolver** (when `PolicyAdvanced` is used without an explicit DANE resolver)
+- Default fallback: `8.8.8.8:53`
+- Has no effect when `WithAgentDANEResolver` / `WithServerDANEResolver` explicitly provides a resolver
+
+## Agent Discovery (DNS TXT)
+
+Agent discovery uses DNS `_ati` TXT records. The SDK automatically performs discovery during client creation and requests.
+
+### TXT Record Format
+
+```
+_ati.<host>  TXT  "v=ati1; id=<agentId>; ra=aliyun; av=1.2.0; p=a2a; u=https://ati-tl.cnnic.cn/api/v1/agents/<agentId>"
+```
+
+| Field | Alias | Required | Description |
+|-------|-------|----------|-------------|
+| `v` | — | Yes | Magic header, must be `ati1` |
+| `version` | `av`, `ver` | Yes | Agent version (SemVer format). Resolution order: `av` > `version` > `ver` |
+| `id` | — | No | Agent ID. Auto-extracted from `url` path (`/agents/{id}`) if omitted |
+| `ra` | — | No | Registration Authority (e.g., `aliyun`) |
+| `p` | `proto` | No | Protocol filter (`mcp`/`a2a`/`openapi`), empty = wildcard |
+| `url` | `u` | No | Metadata endpoint URL. Resolution order: `u` > `url` |
+| `mode` | — | No | `card` (default when url present) or `direct` |
+
+### Usage
+
+Discovery is performed automatically — no separate API call needed. Inject a custom resolver via `WithDNSResolver` for testing.
+
+## Version Constraints
+
+When discovering agents, specify a version constraint to select a specific agent version via `WithTargetVersion`:
+
+| Constraint | Matches |
+|------------|---------|
+| `1.2.3` or `v1.2.3` | Exact version 1.2.3 |
+| `^1.2.0` | Compatible with 1.2.0 (>=1.2.0 <2.0.0) |
+| `~1.2.0` | Approximately 1.2.0 (>=1.2.0 <1.3.0) |
+| `>=1.0.0` | All versions >= 1.0.0 |
+| `>=1.0.0 <2.0.0` | Range expression |
+| Not specified | Latest version from all records |
+
+```go
+client, err := ati.NewAgentClient(
+    ati.WithIdentityCert("client.crt", "client.key"),
+    ati.WithTargetVersion("^1.2.0"), // Match 1.x.y (>=1.2.0, <2.0.0), select newest
+)
+```
+
+Matching logic:
+
+1. Parse all version fields (`av`/`version`/`ver`) from `_ati` DNS TXT records
+2. Filter records matching the SemVer constraint
+3. Select the highest version among matches
+4. Return error if no match found
+
+Uses: `github.com/Masterminds/semver/v3`
+
+## CRL Certificate Revocation
+
+Server-side mTLS CRL checking validates whether client identity certificates have been revoked.
+
+### How It Works
+
+1. **CDP Discovery** — Reads CRL Distribution Point URLs from client leaf cert's `CRLDistributionPoints` extension; falls back to issuing CA cert; skips CRL if no CDP found (debug log)
+2. **CRL Fetch** — HTTP(S) GET from CDP URI, verifies signature with issuing CA public key
+3. **Revocation Check** — Rejects connection if client certificate serial number is in the CRL
+
+### Fail-Closed Semantics
+
+When CDP is present, the SDK uses fail-closed:
+
+| Scenario | Result |
+|----------|--------|
+| CRL fetch failure | Reject mTLS |
+| Invalid CRL signature | Reject mTLS |
+| CRL parse failure | Reject mTLS |
+| CDP present but no valid HTTP(S) URI | Reject mTLS |
+| No CDP in certificate chain | Skip CRL (debug log) |
+
+### Configuration
+
+```go
+tlsConfig, err := ati.NewServerTLSConfig(
+    ati.WithServerCert("server.crt", "server.key"),
+    ati.WithClientCA("ca-bundle.pem"),
+    ati.WithClientVerifier(ati.PolicyEnhanced),
+    ati.WithCRLCheck(),                              // Explicit enable
+    // ati.WithCRLCheckDisabled(),                   // Explicit disable
+    // ati.WithCRLHTTPClient(customHTTPClient),      // Custom HTTP client
+)
+```
+
+### Cache Policy
+
+- CRL cached by CDP URI
+- Refreshed when `nextUpdate` is reached; expired CRLs force immediate re-fetch
+- Maximum cache duration: 12 hours
+
+### Security Protections
+
+- **SSRF protection**: CDP URIs resolving to private/loopback/link-local/metadata addresses are rejected
+- **Memory protection**: CRL response body limited to 10 MiB
+
+## Reading Verification Results
+
+Every `*ati.Response` includes a `VerificationOutcome`:
 
 ```go
 o := resp.VerificationOutcome
 
-o.DNSDiscovered  // bool        服务发现成功(阿里云 API)
-o.CAChainValid   // bool        CA 链有效(未配置私有根证书时视为 true)
-o.SANMatches     // bool        证书 SAN 与目标主机匹配
-o.BadgeVerified  // bool        Badge 验证通过
-o.DANEVerified   // bool        DANE/TLSA 验证通过
-o.AchievedLevel  // TrustLevel  实际达成的最高等级
-o.RequestedLevel // *TrustLevel 请求的等级
-o.PeerATIName    // string      对端 ATI Name,如 "ati://v1.0.0.agent.example.com"
-o.AgentID        // string      对端 Agent ID
-o.BadgeOutcome   // *verify.VerificationOutcome  Badge 详细结果
-o.DANEDetails    // *verify.DANEOutcome          DANE 详细结果
+o.DNSDiscovered  // bool        Discovery succeeded (DNS TXT _ati record)
+o.CAChainValid   // bool        CA chain valid (true when no CA bundle configured)
+o.SANMatches     // bool        Certificate SAN matches target host
+o.BadgeVerified  // bool        Badge verification passed
+o.DANEVerified   // bool        DANE/TLSA verification passed
+o.AchievedLevel  // VerificationPolicy  Highest level actually achieved
+o.RequestedLevel // *VerificationPolicy Requested level
+o.PeerATIName    // string      Peer ATI Name, e.g. "ati://v1.0.0.agent.example.com"
+o.AgentID        // string      Peer Agent ID
+o.BadgeOutcome   // *verify.VerificationOutcome  Badge details
+o.DANEDetails    // *verify.DANEOutcome          DANE details
 ```
 
-### 证书状态检查
-
-```go
-st := client.CertStatus()
-fmt.Printf("到期 %s,剩余 %d 天\n", st.ExpiresAt.Format("2006-01-02"), st.DaysRemaining)
-if st.IsExpired {
-    log.Fatal("身份证书已过期")
-}
-```
-
----
-
-## Server 端详解
-
-### 创建 TLS 配置
-
-```go
-tlsConfig, err := ati.NewServerTLSConfig(
-    ati.WithServerCert("server.crt", "server.key"),  // 必填
-    ati.WithClientCA("client-ca-bundle.pem"),        // 可选:私有根证书
-    ati.WithClientVerifier(ati.BadgeRequired),       // 可选,不传则什么都不验
-)
-```
-
-### 配置项
-
-| Option | 是否必填 | 说明 |
-|--------|---------|------|
-| `WithServerCert(certFile, keyFile string)` | **必填** | 服务端证书 + 私钥。建议由公有 CA 签发,DNS SAN 含服务主机名。 |
-| `WithClientCA(caBundle string)` | 可选 | 设置(私有根证书)后,Go TLS 层对客户端证书做 CA 链校验(`RequireAndVerifyClientCert`);不设则接受任意客户端证书(`RequireAnyClientCert`),信任交由 Badge/TLog 建立。 |
-| `WithClientVerifier(level TrustLevel)` | 可选 | Server 对 Client 的信任等级。**不传则什么都不验**(不请求客户端证书,等同普通 TLS 直连);传了则达不到时握手失败。 |
-| `WithServerDANEResolver(r verify.DANEResolver)` | 可选 | 覆盖默认 DANE resolver(`DANEAndBadge` 下会自动创建)。 |
-| `WithServerAliyunDiscovery(cfg verify.AliyunATIConfig)` | 可选 | 显式提供本服务端专用的阿里云发现凭证(等价于用全局配置里的凭证)。 |
-| `WithPeerLevelStore(store *sync.Map)` | 可选 | 注入共享的 `sync.Map` 记录每个对端达成的等级,配合 `PeerTrustLevel` 在业务层查询。 |
-
-### 验证行为矩阵
-
-`WithClientVerifier` 与 `WithClientCA` 的组合决定了 server 验 client 的最终行为:
-
-| `WithClientVerifier` | `WithClientCA` | TLS ClientAuth | 验证行为 |
-|:---:|:---:|---|---|
-| 不传 | 不传 | `NoClientCert` | **什么都不验**,不请求客户端证书,等同普通 TLS 直连 |
-| 不传 | 传 | `RequireAndVerifyClientCert` | 隐含按 `PKIOnly` 验证 + CA 链校验 |
-| 传 | 不传 | `RequireAnyClientCert` | 按指定等级验证;自签证书靠 Badge/TLog 建立信任 |
-| 传 | 传 | `RequireAndVerifyClientCert` | 按指定等级验证 + CA 链校验 |
-
-> 传了私有根证书(`WithClientCA`)即视为"要认证客户端",因此即便没调用 `WithClientVerifier` 也会隐含按 `PKIOnly` 走,不会静默忽略。
-
-### 读取对端身份
+### Reading Peer Identity (Server-side)
 
 ```go
 func handler(w http.ResponseWriter, r *http.Request) {
     peer, err := ati.PeerATIName(r.TLS)
     if err != nil {
-        http.Error(w, "unknown peer", http.StatusForbidden) // 对端证书无 ati:// URI SAN
+        http.Error(w, "unknown peer", http.StatusForbidden)
         return
     }
-    _ = peer.Host    // "ats-client.asia"
+    _ = peer.Host    // "client-agent.example.com"
     _ = peer.Version // "1.2.0"
-    _ = peer.Raw     // "ati://v1.2.0.ats-client.asia"
+    _ = peer.Raw     // "ati://v1.2.0.client-agent.example.com"
 }
 ```
 
-### 查询对端达成的等级
+### Certificate Status Check
 
 ```go
-var peerLevels sync.Map
-tlsConfig, _ := ati.NewServerTLSConfig(
-    ati.WithServerCert("server.crt", "server.key"),
-    ati.WithPeerLevelStore(&peerLevels),
-)
-
-func handler(w http.ResponseWriter, r *http.Request) {
-    if lvl := ati.PeerTrustLevel(r.TLS, &peerLevels); lvl != nil {
-        fmt.Printf("对端达成等级:%s\n", lvl) // 例如 BADGE_REQUIRED
-    }
+st := client.CertStatus()
+fmt.Printf("Expires %s, %d days remaining\n", st.ExpiresAt.Format("2006-01-02"), st.DaysRemaining)
+if st.IsExpired {
+    log.Fatal("identity certificate expired")
 }
 ```
 
----
+## Verification Cache and Failure Semantics
 
-## 服务发现
+- **Cache**: Client caches verification results per `(host, cert fingerprint)`. Subsequent requests to the same host with the same certificate skip repeated verification.
+- **DANE fail-open**: DANE only rejects on an **explicit negative judgment** — TLSA record exists under DNSSEC but doesn't match the presented certificate (`DANEMismatch`), or DNSSEC validation explicitly fails (`DANEDNSSECFailed`). These benign scenarios **do not reject**: no TLSA record published (`DANENoRecords`), record exists but no DNSSEC chain (`DANESkipped`). Pure DNS query errors are left to the caller's failure policy.
+- **CRL fail-closed**: Unlike DANE, CRL uses fail-closed when CDP is present — fetch failure, invalid signature, or parse error all reject the mTLS connection.
 
-Agent 服务发现**只能**通过阿里云 `DescribeAtiAgentRegisterInfoMarket` API 完成——**不支持** DNS `_ati` TXT 记录方式的发现。
+## Certificate Requirements and ATI Name
 
-凭证(AK/SK)可以通过三种途径提供,任选其一即可:
+| Certificate Type | `ati://` URI SAN | CA-Issued | Purpose |
+|-----------------|------------------|-----------|---------|
+| Client identity certificate | **Required** | Must chain to the SDK-shipped IDCA chain or a configured `WithClientCA` bundle | Identifies agent; trust further confirmed via Badge/TLog fingerprint at PolicyEnhanced+ |
+| Server certificate | Recommended | Recommend public CA | TLS server authentication; DNS SAN must match hostname |
 
-1. **全局配置**([`ati.Init`](#全局配置atiinit) 的 `AK` / `SK`)—— 推荐;
-2. **环境变量** `ATI_AK` / `ATI_SK`;
-3. **每个 Client / Server 单独指定** —— `WithAliyunDiscovery` / `WithServerAliyunDiscovery`:
-
-```go
-client, err := ati.NewAgentClient(
-    ati.WithIdentityCert("client.crt", "client.key"),
-    ati.WithAliyunDiscovery(verify.AliyunATIConfig{
-        AccessKeyID:     os.Getenv("ATI_AK"), // 必填
-        AccessKeySecret: os.Getenv("ATI_SK"), // 必填
-    }),
-)
-```
-
-> **没有任何凭证 → 直接报错,不做兜底。** 创建 Client(或需要发现的 Server)时会返回:
-> `agent discovery requires Aliyun credentials: set them via ati.Init(Config{AK, SK}) or the ATI_AK/ATI_SK environment variables`。
-
-`AliyunATIConfig` **只接受** `AccessKeyID` / `AccessKeySecret` 两个字段;API 端点(`alidns.aliyuncs.com`)与透明日志基址均为固定平台常量,不对外开放配置。
-
-> 服务发现虽走 API,但 `_ati-badge` TXT 与 TLSA 记录**仍通过 DNS 查询**。
-
----
-
-## 指定 DNS 服务器
-
-DANE/TLSA 依赖上游返回 DNSSEC 记录(RRSIG),而系统默认解析器(`/etc/resolv.conf`)常是不做 DNSSEC 的企业解析器。可以通过[全局配置 `ati.Init`](#全局配置atiinit) 的 `DNSServer` 字段,把自动创建的 DANE resolver 指向一个 DNSSEC 可用的解析器:
-
-```go
-ati.Init(ati.Config{
-    // ... 其他必填项 ...
-    DNSServer: "8.8.8.8:53", // 也可只写 "8.8.8.8",端口默认 53
-})
-```
-
-行为说明:
-
-- `DNSServer` 只作用于**自动创建的 DANE resolver**(即等级为 `DANEAndBadge` 且未显式提供 DANE resolver 时);
-- 不配置时,DANE 兜底到公共解析器 `8.8.8.8:53`;
-- 若你通过 `WithAgentDANEResolver` / `WithServerDANEResolver` 显式提供了 DANE resolver,则该字段不生效。
-
----
-
-## 完整示例:两个 Agent 互相通信
-
-### Agent A(Server)
-
-```go
-tlsConfig, _ := ati.NewServerTLSConfig(
-    ati.WithServerCert("server.crt", "server.key"),
-    ati.WithClientVerifier(ati.BadgeRequired),
-)
-
-mux := http.NewServeMux()
-mux.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
-    peer, _ := ati.PeerATIName(r.TLS)
-    json.NewEncoder(w).Encode(map[string]string{
-        "message": "hello from Agent A",
-        "peer":    peer.Raw,
-    })
-})
-
-server := &http.Server{Addr: ":8443", TLSConfig: tlsConfig, Handler: mux}
-log.Fatal(server.ListenAndServeTLS("", ""))
-```
-
-### Agent B(Client)
-
-```go
-client, _ := ati.NewAgentClient(
-    ati.WithIdentityCert("client.crt", "client.key"),
-    ati.WithTrustLevel(ati.BadgeRequired),
-)
-
-resp, err := client.Get(context.Background(), "https://agent-a.example.com:8443/hello")
-if err != nil {
-    log.Fatal(err) // 信任验证不通过
-}
-defer resp.Body.Close()
-
-fmt.Println(resp.VerificationOutcome.AchievedLevel) // "BADGE_REQUIRED"
-```
-
----
-
-## 证书要求与 ATI Name
-
-| 证书类型 | `ati://` URI SAN | CA 签发 | 用途 |
-|---------|-----------------|---------|------|
-| 客户端身份证书 | **必须** | 可自签 | 标识 Agent 身份,通过 Badge/TLog 指纹验证建立信任 |
-| 服务端证书 | 建议 | 建议公有 CA | TLS 服务端认证,DNS SAN 需匹配主机名 |
-
-**ATI Name 格式**(嵌入证书 URI SAN,是 Agent 身份的全局唯一标识):
+**ATI Name format** (embedded in certificate URI SAN, globally unique agent identifier):
 
 ```
 ati://v{major}.{minor}.{patch}.{host}
 ```
 
-示例:`ati://v1.0.0.my-agent.example.com`
+Example: `ati://v1.0.0.my-agent.example.com`
 
----
+## DNS Record Reference
 
-## DNS 记录清单
+| Record | Type | Purpose | Policy Requirement |
+|--------|------|---------|-------------------|
+| `_ati.<host>` | TXT | Agent discovery (endpoint + version) | All levels |
+| `_ati-badge.<host>` | TXT | Badge URL (pointing to Transparency Log) | PolicyEnhanced and above |
+| `_443._tcp.<host>` | TLSA | Server certificate DANE binding | PolicyAdvanced (client verifying server) |
+| `_ati-identity._tls.<host>` | TLSA | Client identity certificate DANE binding | PolicyAdvanced (server verifying client) |
 
-服务发现走阿里云 API,不使用 DNS;以下 DNS 记录用于 Badge 与 DANE 验证:
+## Backward Compatibility
 
-| 记录 | 类型 | 用途 | 等级要求 |
-|------|------|------|---------|
-| `_ati-badge.<host>` | TXT | Badge URL(指向透明日志) | BadgeRequired 及以上 |
-| `_443._tcp.<host>` | TLSA | 服务端证书 DANE 绑定 | DANEAndBadge(Client 验 Server) |
-| `_ati-identity._tls.<host>` | TLSA | 客户端身份证书 DANE 绑定 | DANEAndBadge(Server 验 Client) |
+Legacy constants are still usable but marked as Deprecated:
 
----
+| Legacy Name | New Name |
+|-------------|----------|
+| `TrustLevel` | `VerificationPolicy` |
+| `PKIOnly` | `PolicyBasic` |
+| `BadgeRequired` | `PolicyEnhanced` |
+| `DANEAndBadge` | `PolicyAdvanced` |
 
-## 验证缓存与失败语义
+## Examples
 
-- **缓存**:Client 对同一服务端的验证结果按 `(host, 证书指纹)` 缓存;相同主机 + 相同证书的后续请求跳过重复验证。
-- **DANE 失败开放(fail-open)语义**:DANE 只有在做出**明确的否定判断**时才拒绝连接——即 DNSSEC 保护下存在 TLSA 记录但与出示证书不匹配(`DANEMismatch`),或 DNSSEC 校验显式失败(`DANEDNSSECFailed`)。以下良性情况**不拒绝**:未发布 TLSA 记录(`DANENoRecords`)、有记录但无 DNSSEC 链(`DANESkipped`)。单纯的 DNS 查询错误交由调用方的失败策略处理。
-
----
-
-## 示例代码
-
-SDK 自带两个可运行的示例,位于 [`examples/`](examples/) 目录:
+The SDK includes runnable examples in the [`examples/`](examples/) directory:
 
 ### Agent Server ([examples/agent-server](examples/agent-server))
 
-一个 ATI Agent 服务端,启动 HTTPS 服务并对调用方进行信任验证。
+An ATI agent server that starts HTTPS and verifies callers.
 
 ```bash
 cd examples/agent-server
@@ -481,12 +710,12 @@ go run main.go \
   -cert server.crt \
   -key server.key \
   -addr :8443 \
-  -trust badge
+  -trust enhanced
 ```
 
 ### Agent Client ([examples/agent-client](examples/agent-client))
 
-一个 ATI Agent 客户端,向目标 Agent 发起经过信任验证的 HTTPS 请求。
+An ATI agent client that sends verified HTTPS requests to a target agent.
 
 ```bash
 cd examples/agent-client
@@ -494,5 +723,22 @@ go run main.go \
   -cert client.crt \
   -key client.key \
   -url https://target-agent.example.com:8443/hello \
-  -trust badge
+  -trust enhanced
 ```
+
+## Build
+
+```bash
+go build ./...
+go test ./...
+```
+
+Requirements: Go 1.25+
+
+## License
+
+[MIT](LICENSE)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md)

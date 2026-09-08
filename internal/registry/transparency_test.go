@@ -26,7 +26,7 @@ func TestNewTransparencyClient(t *testing.T) {
 		{
 			name: "with base URL",
 			opts: []Option{
-				WithBaseURL("https://tl.ansagent.cn:8180/ans/api/v1"),
+				WithBaseURL("https://ati-tl.cnnic.cn:8180"),
 			},
 			wantErr: false,
 		},

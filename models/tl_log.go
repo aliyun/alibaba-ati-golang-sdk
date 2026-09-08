@@ -58,16 +58,60 @@ func (r *TLResponse) UnmarshalJSON(data []byte) error {
 
 // TLPayload is the core agent event data sealed in the TL.
 type TLPayload struct {
-	LogID            string         `json:"logId"`
-	EventType        string         `json:"eventType"`
-	Timestamp        string         `json:"timestamp"`
-	AgentName        string         `json:"agentName"`
-	AgentDisplayName string         `json:"agentDisplayName"`
-	AgentHost        string         `json:"agentHost"`
-	Version          string         `json:"version"`
-	AgentID          string         `json:"agentId"`
-	AgentStatus      string         `json:"agentStatus"`
-	Certificates     TLCertificates `json:"certificates"`
+	LogID            string `json:"logId"`
+	EventType        string `json:"eventType"`
+	Timestamp        string `json:"timestamp"`
+	AgentName        string `json:"agentName"`
+	AgentDisplayName string `json:"agentDisplayName"`
+
+	// AgentHost and AgentSubHost together describe where the agent lives, and
+	// which of the two is the agent's own name depends on the registration model:
+	//
+	//	独立域名: AgentSubHost is empty and AgentHost is both the access hostname
+	//	          and the identity — the agent owns the whole name.
+	//	共享域名: AgentHost is the shared parent domain that many agents connect
+	//	          through, and AgentSubHost is this agent's own name under it.
+	//
+	// Never read either field directly to decide who the record belongs to — use
+	// IdentityHost(), which applies that precedence — and use AccessHost() for
+	// where TLS connects. Reading AgentHost alone would, under the shared-domain
+	// model, attribute the record to the parent domain instead of the agent.
+	AgentHost    string `json:"agentHost"`
+	AgentSubHost string `json:"agentSubHost,omitempty"`
+
+	Version      string         `json:"version"`
+	AgentID      string         `json:"agentId"`
+	AgentStatus  string         `json:"agentStatus"`
+	Certificates TLCertificates `json:"certificates"`
+}
+
+// IdentityHost returns the hostname this registration belongs to: the name the
+// agent's DNS records (_ati, _ati-badge, TLSA) are published under, and the host
+// carried inside AgentName's ati:// URI.
+//
+// Empty AgentSubHost means the 独立域名 model, where AgentHost is the identity;
+// otherwise the record is 共享域名 and AgentSubHost is the identity. Records
+// written before AgentSubHost existed have it empty, so they keep resolving to
+// AgentHost — which is exactly what they meant.
+func (p *TLPayload) IdentityHost() string {
+	if p.AgentSubHost != "" {
+		return p.AgentSubHost
+	}
+	return p.AgentHost
+}
+
+// AccessHost returns the hostname TLS actually connects to, which is AgentHost
+// under both registration models. Under 共享域名 this is the shared parent, so a
+// certificate covering it may legitimately be a wildcard shared by many agents —
+// it says where to connect, never who answers.
+func (p *TLPayload) AccessHost() string {
+	return p.AgentHost
+}
+
+// IsSharedDomain reports whether this agent connects through a domain it shares
+// with others, i.e. whether its identity and access hostnames differ.
+func (p *TLPayload) IsSharedDomain() bool {
+	return p.AgentSubHost != ""
 }
 
 // TLCertificates holds certificate fingerprints attested in the TL.

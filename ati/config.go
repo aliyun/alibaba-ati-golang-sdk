@@ -1,9 +1,7 @@
 package ati
 
 import (
-	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 
 	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
@@ -11,14 +9,12 @@ import (
 
 // Config holds the global SDK configuration set via Init().
 type Config struct {
-	AK               string     // Alibaba Cloud AccessKey ID (required for agent discovery)
-	SK               string     // Alibaba Cloud AccessKey Secret (required for agent discovery)
-	LocalHostname    string     // This agent's hostname
-	IdentityCertFile string     // Path to identity certificate PEM
-	IdentityKeyFile  string     // Path to identity private key PEM
-	CARootFile       string     // Path to custom CA root certificate (optional, uses system CA if empty)
-	TrustLevel       TrustLevel // Trust level (default: BadgeRequired)
-	DNSServer        string     // DNS server for DANE/TLSA lookups (host or host:port). Empty = system resolver.
+	LocalHostname    string      // This agent's hostname
+	IdentityCertFile string      // Path to identity certificate PEM
+	IdentityKeyFile  string      // Path to identity private key PEM
+	CARootFile       string      // Path to custom CA root certificate (optional, uses system CA if empty)
+	TrustLevel       *TrustLevel // Trust level pointer; nil means "use default (PolicyEnhanced)"
+	DNSServer        string      // DNS server for DANE/TLSA lookups (host or host:port). Empty = system resolver.
 }
 
 var (
@@ -27,28 +23,14 @@ var (
 )
 
 // Init initializes the ATI SDK with global configuration.
-// Must be called before creating any AgentClient with aliyun discovery.
+// When TrustLevel is nil (not explicitly set), it defaults to PolicyEnhanced
+// to preserve backward compatibility with the previous BadgeRequired default.
+// To explicitly use PolicyBasic, pass a non-nil pointer: &PolicyBasic.
 func Init(cfg Config) error {
-	if cfg.AK == "" {
-		return fmt.Errorf("ati.Init: AK is required")
+	if cfg.TrustLevel == nil {
+		defaultLevel := PolicyEnhanced
+		cfg.TrustLevel = &defaultLevel
 	}
-	if cfg.SK == "" {
-		return fmt.Errorf("ati.Init: SK is required")
-	}
-	if cfg.LocalHostname == "" {
-		return fmt.Errorf("ati.Init: LocalHostname is required")
-	}
-	if cfg.IdentityCertFile == "" {
-		return fmt.Errorf("ati.Init: IdentityCertFile is required")
-	}
-	if cfg.IdentityKeyFile == "" {
-		return fmt.Errorf("ati.Init: IdentityKeyFile is required")
-	}
-
-	if cfg.TrustLevel == 0 {
-		cfg.TrustLevel = BadgeRequired
-	}
-
 	configMu.Lock()
 	globalConfig = &cfg
 	configMu.Unlock()
@@ -62,40 +44,11 @@ func GetConfig() *Config {
 	return globalConfig
 }
 
-// defaultDiscoveryResolver creates the Aliyun-based discovery resolver.
-// Agent discovery is only supported via the Aliyun marketplace API; DNS TXT
-// discovery is not supported. Credentials are read from the global config set
-// via Init(), falling back to the ATI_AK/ATI_SK environment variables. If no
-// credentials are available it returns an error — there is no DNS fallback.
+// defaultDiscoveryResolver creates the DNS-based discovery resolver.
+// Agent discovery uses DNS TXT `_ati` records via StandardDNSResolver.
 func defaultDiscoveryResolver() (verify.DNSResolver, error) {
-	ak, sk := "", ""
-
-	configMu.RLock()
-	if globalConfig != nil {
-		ak = globalConfig.AK
-		sk = globalConfig.SK
-	}
-	configMu.RUnlock()
-
-	if ak == "" {
-		ak = os.Getenv("ATI_AK")
-	}
-	if sk == "" {
-		sk = os.Getenv("ATI_SK")
-	}
-
-	if ak == "" || sk == "" {
-		return nil, fmt.Errorf("agent discovery requires Aliyun credentials: set them via ati.Init(Config{AK, SK}) or the ATI_AK/ATI_SK environment variables")
-	}
-
-	resolver, err := verify.NewAliyunATIDiscovery(verify.AliyunATIConfig{
-		AccessKeyID:     ak,
-		AccessKeySecret: sk,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create aliyun discovery client: %w", err)
-	}
-	slog.Info("[discovery] using aliyun API", "endpoint", "alidns.aliyuncs.com")
+	resolver := verify.NewStandardDNSResolver()
+	slog.Info("[discovery] using DNS TXT records")
 	return resolver, nil
 }
 

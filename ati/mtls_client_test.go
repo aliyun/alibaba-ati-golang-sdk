@@ -830,3 +830,299 @@ func TestAgentClient_Do_PKIOnly(t *testing.T) {
 	}
 }
 
+func TestNewAgentClient_PolicyNone(t *testing.T) {
+	client, err := NewAgentClient(
+		WithTrustLevel(PolicyNone),
+	)
+	if err != nil {
+		t.Fatalf("NewAgentClient(PolicyNone) error = %v", err)
+	}
+	if client == nil {
+		t.Fatal("NewAgentClient(PolicyNone) returned nil")
+	}
+	if client.trustLevel == nil || *client.trustLevel != PolicyNone {
+		t.Errorf("trustLevel = %v, want PolicyNone", client.trustLevel)
+	}
+	if client.tlsConfig == nil || !client.tlsConfig.InsecureSkipVerify {
+		t.Error("PolicyNone should have InsecureSkipVerify=true")
+	}
+}
+
+func TestNewAgentClient_PolicyNone_WithCABundle_Fails(t *testing.T) {
+	certFile, keyFile, caFile := setupClientTestCerts(t, "agent.example.com", "v1.0.0")
+
+	_, err := NewAgentClient(
+		WithMTLSCerts(certFile, keyFile, "", caFile),
+		WithTrustLevel(PolicyNone),
+	)
+	if err == nil {
+		t.Fatal("expected error for PolicyNone with CA bundle, got nil")
+	}
+}
+
+func TestNewAgentClient_PolicyNone_WithIdentityCert(t *testing.T) {
+	certFile, keyFile, _ := setupClientTestCerts(t, "agent.example.com", "v1.0.0")
+
+	client, err := NewAgentClient(
+		WithIdentityCert(certFile, keyFile),
+		WithTrustLevel(PolicyNone),
+	)
+	if err != nil {
+		t.Fatalf("NewAgentClient(PolicyNone+IdentityCert) error = %v", err)
+	}
+	if client.tlsConfig == nil || len(client.tlsConfig.Certificates) == 0 {
+		t.Error("PolicyNone with identity cert should have certificates loaded")
+	}
+}
+
+func TestAgentClient_Do_PolicyNone_SkipsVerification(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := NewAgentClient(
+		WithTrustLevel(PolicyNone),
+		WithClientTimeout(5*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("NewAgentClient() error = %v", err)
+	}
+	client.httpClient = server.Client()
+
+	ctx := context.Background()
+	resp, err := client.Do(ctx, http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("StatusCode = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestAgentClient_Do_PolicyNone_WithBody(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("Content-Type = %q", r.Header.Get("Content-Type"))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := NewAgentClient(
+		WithTrustLevel(PolicyNone),
+	)
+	if err != nil {
+		t.Fatalf("NewAgentClient() error = %v", err)
+	}
+	client.httpClient = server.Client()
+
+	ctx := context.Background()
+	resp, err := client.Do(ctx, http.MethodPost, server.URL, map[string]string{"key": "value"})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+}
+
+func TestAgentClient_Do_PolicyNone_UnmarshalableBody(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := NewAgentClient(
+		WithTrustLevel(PolicyNone),
+	)
+	if err != nil {
+		t.Fatalf("NewAgentClient() error = %v", err)
+	}
+	client.httpClient = server.Client()
+
+	ctx := context.Background()
+	_, err = client.Do(ctx, http.MethodPost, server.URL, make(chan int))
+	if err == nil {
+		t.Fatal("expected error for unmarshalable body, got nil")
+	}
+}
+
+func TestWithIdentityHost_Option(t *testing.T) {
+	cfg := &agentClientConfig{}
+	opt := WithIdentityHost("identity.example.com")
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithIdentityHost() error = %v", err)
+	}
+	if cfg.identityHost != "identity.example.com" {
+		t.Errorf("identityHost = %q, want %q", cfg.identityHost, "identity.example.com")
+	}
+}
+
+func TestWithAccessHost_Option(t *testing.T) {
+	cfg := &agentClientConfig{}
+	opt := WithAccessHost("access.example.com")
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithAccessHost() error = %v", err)
+	}
+	if cfg.accessHost != "access.example.com" {
+		t.Errorf("accessHost = %q, want %q", cfg.accessHost, "access.example.com")
+	}
+}
+
+func TestWithTargetVersion_Option(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    string
+		wantErr bool
+	}{
+		{"exact version", "1.0.0", "1.0.0", false},
+		{"with v prefix", "v1.2.3", "1.2.3", false},
+		{"caret range", "^1.0.0", "^1.0.0", false},
+		{"tilde range", "~1.0.0", "~1.0.0", false},
+		{"gte range", ">= 1.0.0", ">= 1.0.0", false},
+		{"empty string", "", "", false},
+		{"invalid", "not-a-version", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &agentClientConfig{}
+			opt := WithTargetVersion(tt.version)
+			err := opt(cfg)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.targetVersion != tt.want {
+				t.Errorf("targetVersion = %q, want %q", cfg.targetVersion, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeVersionExpr(t *testing.T) {
+	tests := []struct {
+		expr    string
+		want    string
+		wantErr bool
+	}{
+		{"^1.0.0", "^1.0.0", false},
+		{"~1.2.0", "~1.2.0", false},
+		{">= 1.0.0, < 2.0.0", ">= 1.0.0, < 2.0.0", false},
+		{"1.0.0", "1.0.0", false},
+		{"v2.1.0", "2.1.0", false},
+		{"invalid", "", true},
+		{"abc.def.ghi", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expr, func(t *testing.T) {
+			got, err := normalizeVersionExpr(tt.expr)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("normalizeVersionExpr(%q) = %q, want %q", tt.expr, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveIdentityHost(t *testing.T) {
+	client := &AgentClient{identityHost: "identity.custom.com"}
+	if got := client.resolveIdentityHost("connection.example.com"); got != "identity.custom.com" {
+		t.Errorf("resolveIdentityHost() = %q, want %q", got, "identity.custom.com")
+	}
+
+	client2 := &AgentClient{identityHost: ""}
+	if got := client2.resolveIdentityHost("connection.example.com"); got != "connection.example.com" {
+		t.Errorf("resolveIdentityHost() = %q, want %q", got, "connection.example.com")
+	}
+}
+
+func TestResolveAccessHost(t *testing.T) {
+	client := &AgentClient{accessHost: "access.custom.com"}
+	if got := client.resolveAccessHost("connection.example.com"); got != "access.custom.com" {
+		t.Errorf("resolveAccessHost() = %q, want %q", got, "access.custom.com")
+	}
+
+	client2 := &AgentClient{accessHost: ""}
+	if got := client2.resolveAccessHost("connection.example.com"); got != "connection.example.com" {
+		t.Errorf("resolveAccessHost() = %q, want %q", got, "connection.example.com")
+	}
+}
+
+func TestNewAgentClient_WithDualHostnames(t *testing.T) {
+	certFile, keyFile, caFile := setupClientTestCerts(t, "agent.example.com", "v1.0.0")
+
+	client, err := NewAgentClient(
+		WithMTLSCerts(certFile, keyFile, "", caFile),
+		WithDNSResolver(verify.NewMockDNSResolver()),
+		WithIdentityHost("identity.agent.com"),
+		WithAccessHost("access.agent.com"),
+	)
+	if err != nil {
+		t.Fatalf("NewAgentClient() error = %v", err)
+	}
+	if client.identityHost != "identity.agent.com" {
+		t.Errorf("identityHost = %q, want %q", client.identityHost, "identity.agent.com")
+	}
+	if client.accessHost != "access.agent.com" {
+		t.Errorf("accessHost = %q, want %q", client.accessHost, "access.agent.com")
+	}
+}
+
+func TestWithAgentDANEResolver_Option(t *testing.T) {
+	cfg := &agentClientConfig{}
+	mockDANE := verify.NewMockDANEResolver()
+	opt := WithAgentDANEResolver(mockDANE)
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithAgentDANEResolver() error = %v", err)
+	}
+	if cfg.daneResolver == nil {
+		t.Error("daneResolver is nil")
+	}
+}
+
+func TestWithTLogClient_Option(t *testing.T) {
+	cfg := &agentClientConfig{}
+	opt := WithTLogClient(verify.NewHTTPTransparencyLogClient())
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithTLogClient() error = %v", err)
+	}
+	if cfg.tlogClient == nil {
+		t.Error("tlogClient is nil")
+	}
+}
+
+func TestWithTLPublicKey_Option(t *testing.T) {
+	cfg := &agentClientConfig{}
+	opt := WithTLPublicKey(nil)
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithTLPublicKey(nil) error = %v", err)
+	}
+}
+
+func TestWithTrustLevel_InvalidForClient(t *testing.T) {
+	cfg := &agentClientConfig{}
+	// VerificationPolicy values beyond PolicyAdvanced are invalid
+	opt := WithTrustLevel(VerificationPolicy(99))
+	err := opt(cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid trust level, got nil")
+	}
+}
+

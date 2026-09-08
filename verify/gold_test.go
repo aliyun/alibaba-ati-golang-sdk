@@ -2,9 +2,11 @@ package verify
 
 import (
 	"context"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -14,6 +16,57 @@ import (
 
 	"github.com/aliyun/alibaba-ati-golang-sdk/models"
 )
+
+func buildTestTLResponseRSA(t *testing.T, tlKey *rsa.PrivateKey, fingerprint string) *models.TLResponse {
+	t.Helper()
+
+	pubDER, _ := x509.MarshalPKIXPublicKey(&tlKey.PublicKey)
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}))
+
+	leafHash := hexHash([]byte("gold-test-leaf-rsa"))
+
+	resp := &models.TLResponse{
+		Status:        "ACTIVE",
+		SchemaVersion: "1.0",
+		Payload: models.TLPayload{
+			LogID:            "log-gold-002",
+			EventType:        "attestation",
+			AgentID:          "ans-gold-001",
+			AgentName:        "ati://agent.example.com",
+			AgentDisplayName: "test-agent",
+			AgentHost:        "agent.example.com",
+			Version:          "v1.0.0",
+			AgentStatus:      "ACTIVE",
+			Certificates: models.TLCertificates{
+				IdentityCertFingerprint: fingerprint,
+			},
+		},
+		EvidenceRef: models.EvidenceRef{
+			EvidenceID:   "ev-gold-002",
+			SubmitterID:  "producer-kid-1",
+			EvidenceType: "agent-attestation",
+		},
+		Seal: models.TLSeal{
+			Canonicalization:   "JCS",
+			DigestAlgorithm:    "SHA-256",
+			SignatureAlgorithm: SealAlgorithmRSA,
+			SignatureEncoding:  "base64",
+			KeyID:              "ati-tl-service",
+			PublicKey:          keyPEM,
+		},
+		MerkleProof: models.MerkleProof{
+			LeafHash:  leafHash,
+			RootHash:  leafHash,
+			LeafIndex: 0,
+			TreeSize:  1,
+			Path:      []string{},
+		},
+	}
+
+	resp.Seal.Signature = signSealRSA(t, resp, tlKey)
+
+	return resp
+}
 
 func buildTestTLResponse(t *testing.T, tlKey *ecdsa.PrivateKey, producerKey *ecdsa.PrivateKey, fingerprint string) *models.TLResponse {
 	t.Helper()
@@ -273,6 +326,55 @@ func TestVerifyGold_DeprecatedStatus(t *testing.T) {
 	}
 	if len(result.Warnings) == 0 {
 		t.Error("expected DEPRECATED warning")
+	}
+}
+
+func TestVerifyGold_KeyStore_DualAlgorithm(t *testing.T) {
+	ecKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate RSA key: %v", err)
+	}
+
+	store := NewTLKeyStore(map[string]crypto.PublicKey{
+		"ati-tl-ecdsa-v1": &ecKey.PublicKey,
+		"ati-tl-service":  &rsaKey.PublicKey,
+	})
+
+	fp := CertFingerprintFromDER([]byte("test-cert-der-keystore"))
+	cert := &CertIdentity{Fingerprint: fp}
+
+	mockResolver := NewMockDNSResolver().
+		WithDiscoveryRecords("agent.example.com", []*ATIRecord{
+			{ID: "ans-gold-001", RA: "aliyun", Version: models.NewVersion(1, 0, 0), Mode: ATIRecordModeDirect},
+		})
+	tlURL := "https://tl.test.local/ans/api/v1/tl/agents/ans-gold-001/logs/latest"
+	fqdn, _ := models.NewFqdn("agent.example.com")
+	cfg := &GoldVerifierConfig{
+		TLBaseURL:   "https://tl.test.local/ans/api/v1",
+		TLKeyStore:  store,
+		DNSResolver: mockResolver,
+	}
+
+	// A seal signed by the legacy ECDSA key (agents registered before the
+	// platform's 2026-08-17 key rotation) must still verify via the store.
+	ecResp := buildTestTLResponse(t, ecKey, nil, fp.String())
+	ecResp.Seal.KeyID = "ati-tl-ecdsa-v1"
+	cfg.TLogClient = NewMockTransparencyLogClient().WithTLResponse(tlURL, ecResp)
+
+	result := VerifyGold(context.Background(), fqdn, cert, cfg)
+	if !result.IsSuccess() {
+		t.Fatalf("VerifyGold() with ECDSA seal via TLKeyStore failed: %v", result.Error)
+	}
+
+	// A seal signed by the newer RSA-3072 key (agents registered on/after
+	// the rotation) must also verify via the same store.
+	rsaResp := buildTestTLResponseRSA(t, rsaKey, fp.String())
+	cfg.TLogClient = NewMockTransparencyLogClient().WithTLResponse(tlURL, rsaResp)
+
+	result2 := VerifyGold(context.Background(), fqdn, cert, cfg)
+	if !result2.IsSuccess() {
+		t.Fatalf("VerifyGold() with RSA seal via TLKeyStore failed: %v", result2.Error)
 	}
 }
 

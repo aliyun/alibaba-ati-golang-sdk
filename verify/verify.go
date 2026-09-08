@@ -260,15 +260,40 @@ func (v *ServerVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *C
 		return NewFingerprintMismatchOutcome(tlResp, expectedFP, cert.Fingerprint.String())
 	}
 
-	tlHost := tlResp.Payload.AgentHost
-	certFqdn := cert.FQDN()
-
-	if !strings.EqualFold(tlHost, fqdn.String()) {
-		return NewHostnameMismatchOutcome(tlResp, fqdn.String(), tlHost)
+	// The record must belong to the identity that was looked up. Which field
+	// carries that identity depends on the registration model, so read it through
+	// IdentityHost() rather than off agentHost: under 共享域名 agentHost is the
+	// shared parent domain, and comparing the looked-up name against it would
+	// reject every agent that shares a domain.
+	identityHost := tlResp.Payload.IdentityHost()
+	if tlATIName, err := ParseATIName(tlResp.Payload.AgentName); err == nil {
+		if !strings.EqualFold(tlATIName.Host, fqdn.String()) {
+			return NewATINameMismatchOutcome(tlResp, tlResp.Payload.AgentName, fqdn.String())
+		}
+		// agentName and agentSubHost are two statements of the same fact, so a
+		// record where they disagree is internally inconsistent. The ati:// name is
+		// the one the certificate is bound to, so verification continues on it —
+		// but say so loudly, because it means the registration is malformed.
+		if tlResp.Payload.AgentSubHost != "" && !strings.EqualFold(tlResp.Payload.AgentSubHost, tlATIName.Host) {
+			configLogger(v.config).Warn("[verify] TL record disagrees with itself: agentSubHost is not agentName's host",
+				slog.String("agentSubHost", tlResp.Payload.AgentSubHost),
+				slog.String("agentNameHost", tlATIName.Host),
+				slog.String("agentHost", tlResp.Payload.AgentHost))
+		}
+	} else if !strings.EqualFold(identityHost, fqdn.String()) {
+		// Records with no parsable agentName fall back to the identity host, which
+		// for a pre-agentSubHost record is agentHost — the value those records
+		// always meant. Keep verifying those.
+		return NewHostnameMismatchOutcome(tlResp, fqdn.String(), identityHost)
 	}
 
-	if certFqdn != nil && !strings.EqualFold(*certFqdn, tlHost) {
-		return NewHostnameMismatchOutcome(tlResp, tlHost, *certFqdn)
+	// The access hostname declared by the record must be covered by the
+	// certificate that was actually presented. Under 共享域名 that certificate is
+	// the shared parent's and may be a wildcard, so match against every SAN rather
+	// than just the first.
+	accessHost := tlResp.Payload.AccessHost()
+	if accessHost != "" && len(cert.DNSSANs) > 0 && !cert.CoversHost(accessHost) {
+		return NewHostnameMismatchOutcome(tlResp, accessHost, strings.Join(cert.DNSSANs, ", "))
 	}
 
 	outcome := NewVerifiedOutcome(tlResp, cert.Fingerprint)
@@ -440,6 +465,8 @@ func (v *ClientVerifier) fetchTLResponse(ctx context.Context, fqdn models.Fqdn, 
 
 	log.InfoContext(ctx, "[client-verify] TLog response received",
 		slog.String("agentHost", tlResp.Payload.AgentHost),
+		slog.String("agentSubHost", tlResp.Payload.AgentSubHost),
+		slog.String("identityHost", tlResp.Payload.IdentityHost()),
 		slog.String("agentStatus", tlResp.Payload.AgentStatus),
 		slog.String("agentName", tlResp.Payload.AgentName))
 
@@ -466,16 +493,21 @@ func (v *ClientVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *C
 	}
 	log.Info("[client-verify] fingerprint MATCHED")
 
-	tlHost := tlResp.Payload.AgentHost
-	if !strings.EqualFold(tlHost, fqdn.String()) {
-		log.Warn("[client-verify] hostname mismatch", "tlHost", tlHost, "certFqdn", fqdn.String())
-		return NewHostnameMismatchOutcome(tlResp, fqdn.String(), tlHost)
-	}
-
 	tlATIName := tlResp.Payload.AgentName
-	if !strings.EqualFold(tlATIName, atiName.String()) {
-		log.Warn("[client-verify] ATI name mismatch", "tlATIName", tlATIName, "certATIName", atiName.String())
-		return NewATINameMismatchOutcome(tlResp, tlATIName, atiName.String())
+	matched := false
+	for _, name := range cert.ATINames() {
+		if strings.EqualFold(tlATIName, name.String()) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		certATIName := ""
+		if first := cert.ATIName(); first != nil {
+			certATIName = first.String()
+		}
+		log.Warn("[client-verify] ATI name mismatch", "tlATIName", tlATIName, "certATIName", certATIName)
+		return NewATINameMismatchOutcome(tlResp, tlATIName, certATIName)
 	}
 
 	outcome := NewVerifiedOutcome(tlResp, cert.Fingerprint)
