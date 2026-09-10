@@ -266,14 +266,22 @@ func Diagnose(ctx context.Context, host string, opts ...DiagnoseOption) (*Diagno
 	if tlResp != nil {
 		idFP := tlResp.Payload.IdentityCertFingerprint()
 		srvFP := tlResp.Payload.ServerCertFingerprint()
+		prevIDFP := tlResp.Payload.PreviousIdentityCertFingerprint()
+		prevSrvFP := tlResp.Payload.PreviousServerCertFingerprint()
 		if idFP != "" || srvFP != "" {
 			step8.Status = "PASS"
 			var details []string
 			if idFP != "" {
 				details = append(details, fmt.Sprintf("Identity: %s...", sanitize(idFP, 20)))
 			}
+			if prevIDFP != "" {
+				details = append(details, fmt.Sprintf("Previous Identity: %s...", sanitize(prevIDFP, 20)))
+			}
 			if srvFP != "" {
 				details = append(details, fmt.Sprintf("Server: %s...", sanitize(srvFP, 20)))
+			}
+			if prevSrvFP != "" {
+				details = append(details, fmt.Sprintf("Previous Server: %s...", sanitize(prevSrvFP, 20)))
 			}
 			step8.Detail = strings.Join(details, ", ")
 		} else {

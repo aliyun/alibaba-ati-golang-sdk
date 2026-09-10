@@ -414,6 +414,73 @@ func TestMatchFingerprint_IdentityEmpty_ServerMatches(t *testing.T) {
 	}
 }
 
+// TestMatchFingerprint_PreviousIdentityMatch verifies that a peer cert whose
+// fingerprint matches the *previous* identity fingerprint (a cert renewal
+// still in its transition window) is accepted even though the current
+// identity fingerprint has already moved on.
+func TestMatchFingerprint_PreviousIdentityMatch(t *testing.T) {
+	oldFP := CertFingerprintFromDER([]byte("old-identity-cert"))
+	newFP := CertFingerprintFromDER([]byte("new-identity-cert"))
+	cert := &CertIdentity{Fingerprint: oldFP}
+
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			Certificates: models.TLCertificates{
+				IdentityCertFingerprint:         newFP.String(),
+				PreviousIdentityCertFingerprint: oldFP.String(),
+			},
+		},
+	}
+
+	if !matchFingerprint(tlResp, cert) {
+		t.Error("matchFingerprint() = false, want true when peer cert matches the previous identity fingerprint")
+	}
+}
+
+// TestMatchFingerprint_PreviousServerMatch mirrors the identity case for the
+// server fingerprint.
+func TestMatchFingerprint_PreviousServerMatch(t *testing.T) {
+	oldFP := CertFingerprintFromDER([]byte("old-server-cert"))
+	newFP := CertFingerprintFromDER([]byte("new-server-cert"))
+	cert := &CertIdentity{Fingerprint: oldFP}
+
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint:         newFP.String(),
+				PreviousServerCertFingerprint: oldFP.String(),
+			},
+		},
+	}
+
+	if !matchFingerprint(tlResp, cert) {
+		t.Error("matchFingerprint() = false, want true when peer cert matches the previous server fingerprint")
+	}
+}
+
+// TestMatchFingerprint_PreviousFingerprintStale verifies that a cert
+// matching neither the current nor the previous fingerprint is still
+// rejected — the renewal window doesn't turn into an open-ended allowlist.
+func TestMatchFingerprint_PreviousFingerprintStale(t *testing.T) {
+	staleFP := CertFingerprintFromDER([]byte("stale-cert"))
+	oldFP := CertFingerprintFromDER([]byte("old-identity-cert"))
+	newFP := CertFingerprintFromDER([]byte("new-identity-cert"))
+	cert := &CertIdentity{Fingerprint: staleFP}
+
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			Certificates: models.TLCertificates{
+				IdentityCertFingerprint:         newFP.String(),
+				PreviousIdentityCertFingerprint: oldFP.String(),
+			},
+		},
+	}
+
+	if matchFingerprint(tlResp, cert) {
+		t.Error("matchFingerprint() = true, want false for a cert older than the previous fingerprint")
+	}
+}
+
 // TestVerifyGold_DNSDiscoveryNotFound verifies that when DNS discovery
 // returns Found=false, the verification fails (lines 49-52).
 func TestVerifyGold_DNSDiscoveryNotFound(t *testing.T) {

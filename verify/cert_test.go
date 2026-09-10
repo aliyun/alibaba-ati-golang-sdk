@@ -114,6 +114,56 @@ func TestCertFingerprint(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("MatchesAny", func(t *testing.T) {
+		fp, _ := ParseCertFingerprint("SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
+		other := "SHA256:0000000000000000000000000000000000000000000000000000000000000000"
+
+		tests := []struct {
+			name       string
+			candidates []string
+			want       bool
+		}{
+			{
+				name:       "matches current (first candidate)",
+				candidates: []string{fp.String(), other},
+				want:       true,
+			},
+			{
+				name:       "matches previous (second candidate)",
+				candidates: []string{other, fp.String()},
+				want:       true,
+			},
+			{
+				name:       "matches neither",
+				candidates: []string{other, other},
+				want:       false,
+			},
+			{
+				name:       "skips empty candidates",
+				candidates: []string{"", fp.String()},
+				want:       true,
+			},
+			{
+				name:       "all empty",
+				candidates: []string{"", ""},
+				want:       false,
+			},
+			{
+				name:       "no candidates",
+				candidates: nil,
+				want:       false,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if got := fp.MatchesAny(tt.candidates...); got != tt.want {
+					t.Errorf("MatchesAny(%v) = %v, want %v", tt.candidates, got, tt.want)
+				}
+			})
+		}
+	})
 }
 
 // toHexString helper to convert bytes to hex string

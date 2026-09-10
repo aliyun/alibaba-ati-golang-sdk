@@ -125,6 +125,18 @@ func (f CertFingerprint) Matches(other string) bool {
 	return f.bytes == parsed.bytes
 }
 
+// MatchesAny reports whether this fingerprint matches any of the given
+// string representations, skipping empty candidates. Used to accept either
+// a TL record's current or its previous (pre-renewal) fingerprint.
+func (f CertFingerprint) MatchesAny(candidates ...string) bool {
+	for _, c := range candidates {
+		if c != "" && f.Matches(c) {
+			return true
+		}
+	}
+	return false
+}
+
 // Equal returns true if the fingerprints are equal.
 func (f CertFingerprint) Equal(other CertFingerprint) bool {
 	return f.bytes == other.bytes

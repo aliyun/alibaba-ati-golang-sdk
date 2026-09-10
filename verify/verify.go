@@ -256,7 +256,7 @@ func (v *ServerVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *C
 	}
 
 	expectedFP := tlResp.Payload.ServerCertFingerprint()
-	if !cert.Fingerprint.Matches(expectedFP) {
+	if !cert.Fingerprint.MatchesAny(expectedFP, tlResp.Payload.PreviousServerCertFingerprint()) {
 		return NewFingerprintMismatchOutcome(tlResp, expectedFP, cert.Fingerprint.String())
 	}
 
@@ -484,10 +484,12 @@ func (v *ClientVerifier) verifyWithTLResponse(tlResp *models.TLResponse, cert *C
 	}
 
 	expectedFP := tlResp.Payload.IdentityCertFingerprint()
+	previousFP := tlResp.Payload.PreviousIdentityCertFingerprint()
 	log.Info("[client-verify] fingerprint comparison",
 		"certFingerprint", cert.Fingerprint.String(),
-		"tlExpectedFingerprint", expectedFP)
-	if !cert.Fingerprint.Matches(expectedFP) {
+		"tlExpectedFingerprint", expectedFP,
+		"tlPreviousFingerprint", previousFP)
+	if !cert.Fingerprint.MatchesAny(expectedFP, previousFP) {
 		log.Warn("[client-verify] fingerprint MISMATCH")
 		return NewFingerprintMismatchOutcome(tlResp, expectedFP, cert.Fingerprint.String())
 	}
