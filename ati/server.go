@@ -356,14 +356,23 @@ func buildVerifyConnection(cfg *serverConfig) func(tls.ConnectionState) error {
 							"type", daneOutcome.Type.String(),
 							"pass", daneOutcome.IsPass(),
 							"error", daneOutcome.Error)
-						if daneOutcome.IsPass() {
+						danePassed := daneOutcome.IsPass()
+						if explicit {
+							// An explicitly requested DANEAndBadge level is a
+							// REQUIRED policy (Java SDK terms): only an
+							// affirmative TLSA match satisfies it. A missing
+							// record or unvalidated DNSSEC chain must not
+							// silently pass, unlike the opportunistic default.
+							danePassed = daneOutcome.IsVerified()
+						}
+						if danePassed {
 							achieved = DANEAndBadge
 							slog.Info("[server-verify] DANE: PASSED")
+						} else if explicit {
+							slog.Warn("[server-verify] DANE: FAILED", "type", daneOutcome.Type.String(), "error", daneOutcome.Error)
+							return fmt.Errorf("DANE verification failed: %v", daneOutcome.Error)
 						} else if daneOutcome.IsReject() {
 							slog.Warn("[server-verify] DANE: REJECTED", "error", daneOutcome.Error)
-							if explicit {
-								return fmt.Errorf("DANE verification failed: %v", daneOutcome.Error)
-							}
 						}
 					}
 				} else {

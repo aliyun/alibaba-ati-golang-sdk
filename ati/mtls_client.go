@@ -620,10 +620,18 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 			daneOutcome := daneVerifier.Verify(ctx, daneFqdn, danePort, certIdentity)
 			outcome.DANEDetails = daneOutcome
 			slog.Info("[verify] DANE: result", "type", daneOutcome.Type.String(), "pass", daneOutcome.IsPass(), "error", daneOutcome.Error)
-			if daneOutcome.IsPass() {
+			danePassed := daneOutcome.IsPass()
+			if explicit {
+				// An explicitly requested DANEAndBadge level is a REQUIRED
+				// policy (Java SDK terms): only an affirmative TLSA match
+				// satisfies it. A missing record or unvalidated DNSSEC chain
+				// must not silently pass, unlike the opportunistic default.
+				danePassed = daneOutcome.IsVerified()
+			}
+			if danePassed {
 				outcome.DANEVerified = true
 				outcome.AchievedLevel = DANEAndBadge
-			} else if daneOutcome.IsReject() && explicit {
+			} else if explicit {
 				resp.Body.Close()
 				return nil, fmt.Errorf("DANE verification failed for %s: %v", daneHost, daneOutcome.Error)
 			}

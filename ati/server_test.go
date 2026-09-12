@@ -15,9 +15,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aliyun/alibaba-ati-golang-sdk/models"
+	"github.com/aliyun/alibaba-ati-golang-sdk/verify"
 )
 
 // testCertBundle holds PEM-encoded cert material for tests.
@@ -736,6 +740,130 @@ func TestServerTLSConfig_RejectsClientWithoutATIName(t *testing.T) {
 	if serverErr == nil {
 		t.Fatal("expected server handshake to fail for client cert without ATI URI SAN")
 	}
+}
+
+// TestBuildVerifyConnection_ExplicitDANEAndBadge exercises buildVerifyConnection
+// directly (badge + identity DANE, the same code executed during a real TLS
+// handshake) under an explicitly requested DANEAndBadge trust level. It proves
+// DANE is now a REQUIRED policy in explicit server-side mode too: an
+// inconclusive outcome (no identity TLSA records, or records without a
+// validated DNSSEC chain) must fail verification rather than silently pass,
+// while an affirmative TLSA match still succeeds.
+func TestBuildVerifyConnection_ExplicitDANEAndBadge(t *testing.T) {
+	const clientHost = "client.example.com"
+	const badgeURL = "https://ati-tl.cnnic.cn/v1/agents/test-client"
+
+	caCert, caKey, _, _ := generateCA(t)
+	clientCertPEM, _ := generateCertWithATIName(t, caCert, caKey, clientHost, "v1.0.0", []string{clientHost})
+	block, _ := pem.Decode(clientCertPEM)
+	if block == nil {
+		t.Fatal("failed to decode client cert PEM")
+	}
+	clientX509, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse client cert: %v", err)
+	}
+	certFP := verify.CertFingerprintFromDER(block.Bytes).String()
+
+	badgeVersion := models.NewVersion(1, 0, 0)
+	dnsResolver := verify.NewMockDNSResolver().
+		WithRecords(clientHost, []verify.ATIBadgeRecord{{
+			FormatVersion: "ati-badge1",
+			Version:       &badgeVersion,
+			URL:           badgeURL,
+		}})
+
+	tlResp := &models.TLResponse{
+		Status:        string(models.TLStatusActive),
+		SchemaVersion: "V1",
+		Payload: models.TLPayload{
+			LogID:            "test-log-id",
+			AgentID:          "test-ati-id",
+			AgentName:        "ati://v1.0.0." + clientHost,
+			AgentDisplayName: "Test Client",
+			AgentHost:        clientHost,
+			Version:          "v1.0.0",
+			AgentStatus:      string(models.TLStatusActive),
+			Certificates: models.TLCertificates{
+				IdentityCertFingerprint: certFP,
+			},
+		},
+	}
+	tlogClient := verify.NewMockTransparencyLogClient().WithTLResponse(badgeURL, tlResp)
+
+	newCfg := func(daneResolver verify.DANEResolver) *serverConfig {
+		level := DANEAndBadge
+		return &serverConfig{
+			trustLevel:   &level,
+			daneResolver: daneResolver,
+			peerLevels:   &sync.Map{},
+			clientVerifier: verify.NewClientVerifier(
+				verify.WithDNSResolver(dnsResolver),
+				verify.WithTlogClient(tlogClient),
+				verify.WithTrustedTLHost(verify.DefaultTrustedTLHost),
+			),
+		}
+	}
+
+	cs := tls.ConnectionState{PeerCertificates: []*x509.Certificate{clientX509}}
+
+	t.Run("no identity TLSA records fails explicit requirement", func(t *testing.T) {
+		verifyFn := buildVerifyConnection(newCfg(verify.NewMockDANEResolver()))
+		err := verifyFn(cs)
+		if err == nil {
+			t.Fatal("expected explicit DANEAndBadge verification to fail when DANE has no records, got nil error")
+		}
+		if want := "DANE verification failed"; !contains(err.Error(), want) {
+			t.Errorf("error = %q, want to contain %q", err.Error(), want)
+		}
+	})
+
+	t.Run("identity records without DNSSEC fail explicit requirement", func(t *testing.T) {
+		daneResolver := verify.NewMockDANEResolver().WithIdentityTLSA(clientHost, verify.TLSALookupResult{
+			Found:       true,
+			DNSSECValid: false,
+			Records: []verify.TLSARecord{
+				{Usage: 3, Selector: 0, MatchingType: 1, CertHash: strings.Repeat("a", 64)},
+			},
+		})
+		verifyFn := buildVerifyConnection(newCfg(daneResolver))
+		err := verifyFn(cs)
+		if err == nil {
+			t.Fatal("expected explicit DANEAndBadge verification to fail when DANE is skipped (no DNSSEC), got nil error")
+		}
+		if want := "DANE verification failed"; !contains(err.Error(), want) {
+			t.Errorf("error = %q, want to contain %q", err.Error(), want)
+		}
+	})
+
+	t.Run("affirmative identity TLSA match still succeeds", func(t *testing.T) {
+		certHex := verify.CertFingerprintFromDER(block.Bytes).ToHex()
+		daneResolver := verify.NewMockDANEResolver().WithIdentityTLSA(clientHost, verify.TLSALookupResult{
+			Found:       true,
+			DNSSECValid: true,
+			Records: []verify.TLSARecord{
+				{Usage: 3, Selector: 0, MatchingType: 1, CertHash: certHex},
+			},
+		})
+		cfg := newCfg(daneResolver)
+		verifyFn := buildVerifyConnection(cfg)
+		if err := verifyFn(cs); err != nil {
+			t.Fatalf("verifyFn() error = %v", err)
+		}
+		achieved, ok := cfg.peerLevels.Load(clientX509SubjectFingerprint(clientX509))
+		if !ok {
+			t.Fatal("expected achieved trust level to be stored for peer")
+		}
+		if achieved.(TrustLevel) != DANEAndBadge {
+			t.Errorf("achieved level = %v, want DANEAndBadge", achieved)
+		}
+	})
+}
+
+// clientX509SubjectFingerprint mirrors the fingerprint key buildVerifyConnection
+// stores peer trust levels under.
+func clientX509SubjectFingerprint(cert *x509.Certificate) string {
+	return verify.CertIdentityFromX509(cert).Fingerprint.ToHex()
 }
 
 func TestNewServerTLSConfig_HasVerifyConnection(t *testing.T) {

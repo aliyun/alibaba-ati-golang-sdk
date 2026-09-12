@@ -224,6 +224,30 @@ func TestDANEOutcome_IsError(t *testing.T) {
 	}
 }
 
+func TestDANEOutcome_IsVerified(t *testing.T) {
+	tests := []struct {
+		name         string
+		outcome      DANEOutcomeType
+		wantVerified bool
+	}{
+		{"DANEVerified", DANEVerified, true},
+		{"DANESkipped", DANESkipped, false},
+		{"DANENoRecords", DANENoRecords, false},
+		{"DANEMismatch", DANEMismatch, false},
+		{"DANEDNSSECFailed", DANEDNSSECFailed, false},
+		{"DANELookupError", DANELookupError, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &DANEOutcome{Type: tt.outcome}
+			if got := o.IsVerified(); got != tt.wantVerified {
+				t.Errorf("IsVerified() = %v, want %v", got, tt.wantVerified)
+			}
+		})
+	}
+}
+
 func TestDANEOutcomeType_String(t *testing.T) {
 	tests := []struct {
 		outcome DANEOutcomeType
