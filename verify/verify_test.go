@@ -200,6 +200,46 @@ func TestServerVerifier_PreviousFingerprintMatch(t *testing.T) {
 	}
 }
 
+// TestServerVerifier_PreviousFingerprintAlone_Rejected verifies that a TL
+// record with previousServerCertFingerprint set but serverCertFingerprint
+// empty is treated as anomalous data, not an in-progress renewal: previous
+// alone must never satisfy verification.
+func TestServerVerifier_PreviousFingerprintAlone_Rejected(t *testing.T) {
+	host := "test.example.com"
+	oldFP := "SHA256:0102030000000000000000000000000000000000000000000000000000000000"
+
+	// current (serverFP) is empty; only previous is set.
+	badge := createTestTLResponseWithPrevious(host, "v1.0.0", "", "SHA256:aaa", oldFP, "")
+	badgeURL := "https://tlog.example.com/v1/agents/test-id"
+
+	dnsRecord := ATIBadgeRecord{
+		FormatVersion: "ati-badge1",
+		Version:       ptr(models.NewVersion(1, 0, 0)),
+		URL:           badgeURL,
+	}
+
+	dnsResolver := NewMockDNSResolver().
+		WithRecords(host, []ATIBadgeRecord{dnsRecord})
+
+	tlogClient := NewMockTransparencyLogClient().
+		WithTLResponse(badgeURL, badge)
+
+	verifier := NewServerVerifier(
+		WithDNSResolver(dnsResolver),
+		WithTlogClient(tlogClient),
+		WithoutURLValidation(),
+	)
+
+	cert := createTestCertIdentity(host, oldFP)
+	fqdn, _ := models.NewFqdn(host)
+
+	outcome := verifier.Verify(context.Background(), fqdn, cert)
+
+	if outcome.Type != OutcomeFingerprintMismatch {
+		t.Errorf("Verify() expected FingerprintMismatch for previous-alone record, got %v", outcome.Type)
+	}
+}
+
 func TestServerVerifier_InvalidStatus(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
@@ -628,6 +668,46 @@ func TestClientVerifier_PreviousIdentityFingerprintMatch(t *testing.T) {
 
 	if !outcome.IsSuccess() {
 		t.Errorf("Verify() expected success matching previous identity fingerprint, got %v", outcome.Type)
+	}
+}
+
+// TestClientVerifier_PreviousIdentityFingerprintAlone_Rejected mirrors
+// TestServerVerifier_PreviousFingerprintAlone_Rejected for the identity
+// fingerprint checked by ClientVerifier: previousIdentityCertFingerprint
+// alone, with identityCertFingerprint empty, must not satisfy verification.
+func TestClientVerifier_PreviousIdentityFingerprintAlone_Rejected(t *testing.T) {
+	host := "test.example.com"
+	version := "v1.0.0"
+	oldFP := "SHA256:0102030000000000000000000000000000000000000000000000000000000000"
+
+	// current (identityFP) is empty; only previous is set.
+	badge := createTestTLResponseWithPrevious(host, version, "SHA256:server", "", "", oldFP)
+	badgeURL := "https://tlog.example.com/v1/agents/test-id"
+
+	dnsRecord := ATIBadgeRecord{
+		FormatVersion: "ati-badge1",
+		Version:       ptr(models.NewVersion(1, 0, 0)),
+		URL:           badgeURL,
+	}
+
+	dnsResolver := NewMockDNSResolver().
+		WithRecords(host, []ATIBadgeRecord{dnsRecord})
+
+	tlogClient := NewMockTransparencyLogClient().
+		WithTLResponse(badgeURL, badge)
+
+	verifier := NewClientVerifier(
+		WithDNSResolver(dnsResolver),
+		WithTlogClient(tlogClient),
+		WithoutURLValidation(),
+	)
+
+	cert := createMTLSCertIdentity(host, version, oldFP)
+
+	outcome := verifier.Verify(context.Background(), cert)
+
+	if outcome.Type != OutcomeFingerprintMismatch {
+		t.Errorf("Verify() expected FingerprintMismatch for previous-alone record, got %v", outcome.Type)
 	}
 }
 

@@ -481,6 +481,41 @@ func TestMatchFingerprint_PreviousFingerprintStale(t *testing.T) {
 	}
 }
 
+// TestMatchFingerprint_PreviousAloneWithoutCurrent_Rejected verifies that a
+// previous fingerprint with its current counterpart empty is treated as an
+// anomalous record, not an in-progress renewal — previous must never stand
+// in for a missing current, for either the identity or server cert pair.
+func TestMatchFingerprint_PreviousAloneWithoutCurrent_Rejected(t *testing.T) {
+	oldFP := CertFingerprintFromDER([]byte("old-cert"))
+	cert := &CertIdentity{Fingerprint: oldFP}
+
+	t.Run("identity previous alone", func(t *testing.T) {
+		tlResp := &models.TLResponse{
+			Payload: models.TLPayload{
+				Certificates: models.TLCertificates{
+					PreviousIdentityCertFingerprint: oldFP.String(),
+				},
+			},
+		}
+		if matchFingerprint(tlResp, cert) {
+			t.Error("matchFingerprint() = true, want false when identityCertFingerprint is empty and only previous is set")
+		}
+	})
+
+	t.Run("server previous alone", func(t *testing.T) {
+		tlResp := &models.TLResponse{
+			Payload: models.TLPayload{
+				Certificates: models.TLCertificates{
+					PreviousServerCertFingerprint: oldFP.String(),
+				},
+			},
+		}
+		if matchFingerprint(tlResp, cert) {
+			t.Error("matchFingerprint() = true, want false when serverCertFingerprint is empty and only previous is set")
+		}
+	})
+}
+
 // TestVerifyGold_DNSDiscoveryNotFound verifies that when DNS discovery
 // returns Found=false, the verification fails (lines 49-52).
 func TestVerifyGold_DNSDiscoveryNotFound(t *testing.T) {

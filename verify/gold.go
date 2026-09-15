@@ -157,11 +157,14 @@ func VerifyGold(ctx context.Context, fqdn models.Fqdn, cert *CertIdentity, cfg *
 
 // matchFingerprint checks the peer certificate fingerprint against TL payload
 // certificates, accepting either the current or (during a renewal window)
-// the previous fingerprint for identity and server certs.
+// the previous fingerprint for identity and server certs. Each pair is
+// checked independently so a previous fingerprint can never stand in for a
+// missing current one.
 func matchFingerprint(tlResp *models.TLResponse, cert *CertIdentity) bool {
-	return cert.Fingerprint.MatchesAny(
+	return cert.Fingerprint.MatchesWithRenewal(
 		tlResp.Payload.IdentityCertFingerprint(),
 		tlResp.Payload.PreviousIdentityCertFingerprint(),
+	) || cert.Fingerprint.MatchesWithRenewal(
 		tlResp.Payload.ServerCertFingerprint(),
 		tlResp.Payload.PreviousServerCertFingerprint(),
 	)
