@@ -516,6 +516,43 @@ func TestMatchFingerprint_PreviousAloneWithoutCurrent_Rejected(t *testing.T) {
 	})
 }
 
+// TestMatchFingerprint_PreviousAloneWithBlankCurrent_Rejected mirrors
+// TestMatchFingerprint_PreviousAloneWithoutCurrent_Rejected for a current
+// fingerprint that is whitespace-only rather than truly empty: it must be
+// treated the same as missing, for either the identity or server cert pair.
+func TestMatchFingerprint_PreviousAloneWithBlankCurrent_Rejected(t *testing.T) {
+	oldFP := CertFingerprintFromDER([]byte("old-cert"))
+	cert := &CertIdentity{Fingerprint: oldFP}
+
+	t.Run("identity previous alone, blank current", func(t *testing.T) {
+		tlResp := &models.TLResponse{
+			Payload: models.TLPayload{
+				Certificates: models.TLCertificates{
+					IdentityCertFingerprint:         " \t\r\n",
+					PreviousIdentityCertFingerprint: oldFP.String(),
+				},
+			},
+		}
+		if matchFingerprint(tlResp, cert) {
+			t.Error("matchFingerprint() = true, want false when identityCertFingerprint is blank and only previous is set")
+		}
+	})
+
+	t.Run("server previous alone, blank current", func(t *testing.T) {
+		tlResp := &models.TLResponse{
+			Payload: models.TLPayload{
+				Certificates: models.TLCertificates{
+					ServerCertFingerprint:         " \t\r\n",
+					PreviousServerCertFingerprint: oldFP.String(),
+				},
+			},
+		}
+		if matchFingerprint(tlResp, cert) {
+			t.Error("matchFingerprint() = true, want false when serverCertFingerprint is blank and only previous is set")
+		}
+	})
+}
+
 // TestVerifyGold_DNSDiscoveryNotFound verifies that when DNS discovery
 // returns Found=false, the verification fails (lines 49-52).
 func TestVerifyGold_DNSDiscoveryNotFound(t *testing.T) {

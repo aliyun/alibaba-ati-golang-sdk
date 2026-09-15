@@ -141,10 +141,11 @@ func (f CertFingerprint) MatchesAny(candidates ...string) bool {
 // matches previous while current is also present (a renewal-window
 // fallback). A missing current makes previous alone ineligible: current
 // is the authoritative fingerprint, and previous only ever supplements it
-// during a renewal window — a record with previous set but current empty is
-// anomalous, not evidence of an in-progress renewal, so it must not match.
+// during a renewal window — a record with previous set but current empty or
+// blank (whitespace-only) is anomalous, not evidence of an in-progress
+// renewal, so it must not match.
 func (f CertFingerprint) MatchesWithRenewal(current, previous string) bool {
-	if current == "" {
+	if strings.TrimSpace(current) == "" {
 		return false
 	}
 	return f.MatchesAny(current, previous)

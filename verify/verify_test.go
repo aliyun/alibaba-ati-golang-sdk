@@ -240,6 +240,47 @@ func TestServerVerifier_PreviousFingerprintAlone_Rejected(t *testing.T) {
 	}
 }
 
+// TestServerVerifier_PreviousFingerprintAlone_BlankCurrent_Rejected mirrors
+// TestServerVerifier_PreviousFingerprintAlone_Rejected for a current
+// fingerprint that is present but blank (whitespace-only) rather than
+// truly empty: it must be treated the same as missing, not as a valid
+// (non-matching) current that simply falls through to previous.
+func TestServerVerifier_PreviousFingerprintAlone_BlankCurrent_Rejected(t *testing.T) {
+	host := "test.example.com"
+	oldFP := "SHA256:0102030000000000000000000000000000000000000000000000000000000000"
+
+	// current (serverFP) is whitespace-only; only previous is set.
+	badge := createTestTLResponseWithPrevious(host, "v1.0.0", " \t\r\n", "SHA256:aaa", oldFP, "")
+	badgeURL := "https://tlog.example.com/v1/agents/test-id"
+
+	dnsRecord := ATIBadgeRecord{
+		FormatVersion: "ati-badge1",
+		Version:       ptr(models.NewVersion(1, 0, 0)),
+		URL:           badgeURL,
+	}
+
+	dnsResolver := NewMockDNSResolver().
+		WithRecords(host, []ATIBadgeRecord{dnsRecord})
+
+	tlogClient := NewMockTransparencyLogClient().
+		WithTLResponse(badgeURL, badge)
+
+	verifier := NewServerVerifier(
+		WithDNSResolver(dnsResolver),
+		WithTlogClient(tlogClient),
+		WithoutURLValidation(),
+	)
+
+	cert := createTestCertIdentity(host, oldFP)
+	fqdn, _ := models.NewFqdn(host)
+
+	outcome := verifier.Verify(context.Background(), fqdn, cert)
+
+	if outcome.Type != OutcomeFingerprintMismatch {
+		t.Errorf("Verify() expected FingerprintMismatch for blank-current previous-alone record, got %v", outcome.Type)
+	}
+}
+
 func TestServerVerifier_InvalidStatus(t *testing.T) {
 	host := "test.example.com"
 	fingerprint := "SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904"
@@ -708,6 +749,47 @@ func TestClientVerifier_PreviousIdentityFingerprintAlone_Rejected(t *testing.T) 
 
 	if outcome.Type != OutcomeFingerprintMismatch {
 		t.Errorf("Verify() expected FingerprintMismatch for previous-alone record, got %v", outcome.Type)
+	}
+}
+
+// TestClientVerifier_PreviousIdentityFingerprintAlone_BlankCurrent_Rejected
+// mirrors TestServerVerifier_PreviousFingerprintAlone_BlankCurrent_Rejected
+// for the identity fingerprint checked by ClientVerifier: a whitespace-only
+// identityCertFingerprint must be treated as missing, not as a present (but
+// non-matching) current that falls through to previous.
+func TestClientVerifier_PreviousIdentityFingerprintAlone_BlankCurrent_Rejected(t *testing.T) {
+	host := "test.example.com"
+	version := "v1.0.0"
+	oldFP := "SHA256:0102030000000000000000000000000000000000000000000000000000000000"
+
+	// current (identityFP) is whitespace-only; only previous is set.
+	badge := createTestTLResponseWithPrevious(host, version, "SHA256:server", " \t\r\n", "", oldFP)
+	badgeURL := "https://tlog.example.com/v1/agents/test-id"
+
+	dnsRecord := ATIBadgeRecord{
+		FormatVersion: "ati-badge1",
+		Version:       ptr(models.NewVersion(1, 0, 0)),
+		URL:           badgeURL,
+	}
+
+	dnsResolver := NewMockDNSResolver().
+		WithRecords(host, []ATIBadgeRecord{dnsRecord})
+
+	tlogClient := NewMockTransparencyLogClient().
+		WithTLResponse(badgeURL, badge)
+
+	verifier := NewClientVerifier(
+		WithDNSResolver(dnsResolver),
+		WithTlogClient(tlogClient),
+		WithoutURLValidation(),
+	)
+
+	cert := createMTLSCertIdentity(host, version, oldFP)
+
+	outcome := verifier.Verify(context.Background(), cert)
+
+	if outcome.Type != OutcomeFingerprintMismatch {
+		t.Errorf("Verify() expected FingerprintMismatch for blank-current previous-alone record, got %v", outcome.Type)
 	}
 }
 
