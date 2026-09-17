@@ -115,9 +115,20 @@ func (p *TLPayload) IsSharedDomain() bool {
 }
 
 // TLCertificates holds certificate fingerprints attested in the TL.
+//
+// PreviousServerCertFingerprint and PreviousIdentityCertFingerprint are only
+// present during a certificate renewal window: once an agent rotates its
+// cert, the TL record carries both the new fingerprint (in
+// ServerCertFingerprint/IdentityCertFingerprint) and the just-superseded one,
+// so peers that haven't yet observed the rotation (e.g. a client still
+// holding the old badge/DNS TTL, or mid-flight requests presented with the
+// old cert before it's fully retired everywhere) don't get spuriously
+// rejected. A match against either fingerprint is accepted.
 type TLCertificates struct {
-	ServerCertFingerprint   string `json:"serverCertFingerprint"`
-	IdentityCertFingerprint string `json:"identityCertFingerprint"`
+	ServerCertFingerprint           string `json:"serverCertFingerprint"`
+	IdentityCertFingerprint         string `json:"identityCertFingerprint"`
+	PreviousServerCertFingerprint   string `json:"previousServerCertFingerprint,omitempty"`
+	PreviousIdentityCertFingerprint string `json:"previousIdentityCertFingerprint,omitempty"`
 }
 
 // EvidenceRef is the evidence reference metadata from the RA submission.
@@ -154,6 +165,20 @@ func (p *TLPayload) IdentityCertFingerprint() string {
 // ServerCertFingerprint returns the server certificate fingerprint.
 func (p *TLPayload) ServerCertFingerprint() string {
 	return p.Certificates.ServerCertFingerprint
+}
+
+// PreviousIdentityCertFingerprint returns the superseded identity certificate
+// fingerprint, if the agent is within a certificate renewal window. Empty
+// when no renewal is in progress.
+func (p *TLPayload) PreviousIdentityCertFingerprint() string {
+	return p.Certificates.PreviousIdentityCertFingerprint
+}
+
+// PreviousServerCertFingerprint returns the superseded server certificate
+// fingerprint, if the agent is within a certificate renewal window. Empty
+// when no renewal is in progress.
+func (p *TLPayload) PreviousServerCertFingerprint() string {
+	return p.Certificates.PreviousServerCertFingerprint
 }
 
 // TLAgentStatus represents the status of an agent in the transparency log.

@@ -107,9 +107,11 @@ func VerifyGold(ctx context.Context, fqdn models.Fqdn, cert *CertIdentity, cfg *
 		return NewFailureResult(ansName, NewANSError(CodeTLFingerprintMismatch, SeverityHard, StageTLVerify,
 			"certificate fingerprint does not match TL attestation",
 			WithEvidence(map[string]string{
-				"expected_identity": tlResp.Payload.IdentityCertFingerprint(),
-				"expected_server":   tlResp.Payload.ServerCertFingerprint(),
-				"actual":            cert.Fingerprint.String(),
+				"expected_identity":          tlResp.Payload.IdentityCertFingerprint(),
+				"expected_previous_identity": tlResp.Payload.PreviousIdentityCertFingerprint(),
+				"expected_server":            tlResp.Payload.ServerCertFingerprint(),
+				"expected_previous_server":   tlResp.Payload.PreviousServerCertFingerprint(),
+				"actual":                     cert.Fingerprint.String(),
 			})))
 	}
 
@@ -153,15 +155,17 @@ func VerifyGold(ctx context.Context, fqdn models.Fqdn, cert *CertIdentity, cfg *
 	return vr
 }
 
-// matchFingerprint checks the peer certificate fingerprint against TL payload certificates.
+// matchFingerprint checks the peer certificate fingerprint against TL payload
+// certificates, accepting either the current or (during a renewal window)
+// the previous fingerprint for identity and server certs. Each pair is
+// checked independently so a previous fingerprint can never stand in for a
+// missing current one.
 func matchFingerprint(tlResp *models.TLResponse, cert *CertIdentity) bool {
-	idFP := tlResp.Payload.IdentityCertFingerprint()
-	if idFP != "" && cert.Fingerprint.Matches(idFP) {
-		return true
-	}
-	srvFP := tlResp.Payload.ServerCertFingerprint()
-	if srvFP != "" && cert.Fingerprint.Matches(srvFP) {
-		return true
-	}
-	return false
+	return cert.Fingerprint.MatchesWithRenewal(
+		tlResp.Payload.IdentityCertFingerprint(),
+		tlResp.Payload.PreviousIdentityCertFingerprint(),
+	) || cert.Fingerprint.MatchesWithRenewal(
+		tlResp.Payload.ServerCertFingerprint(),
+		tlResp.Payload.PreviousServerCertFingerprint(),
+	)
 }

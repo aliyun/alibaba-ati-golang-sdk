@@ -598,15 +598,13 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 	// --- DANE/Full verification ---
 	shouldDANE := !explicit || *c.trustLevel >= DANEAndBadge
 	if shouldDANE && outcome.BadgeVerified && c.daneResolver != nil && certIdentity != nil {
-		// The server-certificate TLSA lives under the identity hostname, alongside
-		// _ati, _ati-badge and _ati-identity._tls, so every record for an agent sits
-		// in the namespace that agent owns.
-		//
-		// This departs from RFC 6698, which names the record after the host the TLS
-		// connection was made to — here that is the access hostname. A generic DANE
-		// validator therefore will not find this record; the binding is only
-		// resolvable by a client that knows the agent's identity hostname.
-		daneHost := c.resolveIdentityHost(host)
+		// Per RFC 6698, the server-certificate TLSA record is named after the
+		// host the TLS connection was actually made to — the access hostname,
+		// not the identity hostname. This matches the Java SDK's behavior and
+		// is where a real deployment's TLSA record lives; querying the
+		// identity hostname here (as a prior version of this code did) finds
+		// nothing and spuriously fails DANE.
+		daneHost := host
 		daneFqdn, daneFqdnErr := models.NewFqdn(daneHost)
 		if daneFqdnErr == nil {
 			danePort := uint16(443)
@@ -620,10 +618,18 @@ func (c *AgentClient) Do(ctx context.Context, method, urlStr string, body any) (
 			daneOutcome := daneVerifier.Verify(ctx, daneFqdn, danePort, certIdentity)
 			outcome.DANEDetails = daneOutcome
 			slog.Info("[verify] DANE: result", "type", daneOutcome.Type.String(), "pass", daneOutcome.IsPass(), "error", daneOutcome.Error)
-			if daneOutcome.IsPass() {
+			danePassed := daneOutcome.IsPass()
+			if explicit {
+				// An explicitly requested DANEAndBadge level is a REQUIRED
+				// policy (Java SDK terms): only an affirmative TLSA match
+				// satisfies it. A missing record or unvalidated DNSSEC chain
+				// must not silently pass, unlike the opportunistic default.
+				danePassed = daneOutcome.IsVerified()
+			}
+			if danePassed {
 				outcome.DANEVerified = true
 				outcome.AchievedLevel = DANEAndBadge
-			} else if daneOutcome.IsReject() && explicit {
+			} else if explicit {
 				resp.Body.Close()
 				return nil, fmt.Errorf("DANE verification failed for %s: %v", daneHost, daneOutcome.Error)
 			}

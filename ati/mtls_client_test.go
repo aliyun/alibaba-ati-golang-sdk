@@ -5,14 +5,17 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -830,6 +833,148 @@ func TestAgentClient_Do_PKIOnly(t *testing.T) {
 	}
 }
 
+// TestAgentClient_Do_ExplicitDANEAndBadge exercises the full Do() round-trip
+// (DNS discovery + badge + DANE) under an explicitly requested DANEAndBadge
+// trust level, proving DANE is now a REQUIRED policy in explicit mode: an
+// inconclusive DANE outcome (no TLSA records, or records without a validated
+// DNSSEC chain) must fail the request rather than silently pass, while an
+// affirmative TLSA match still succeeds.
+func TestAgentClient_Do_ExplicitDANEAndBadge(t *testing.T) {
+	const host = "agent.example.com"
+	const version = "v1.0.0"
+	const badgeURL = "https://ati-tl.cnnic.cn/v1/agents/test-id"
+
+	caCert, caKey, caCertPEM, _ := generateCA(t)
+	dir := t.TempDir()
+
+	serverCertPEM, serverKeyPEM := generateCertWithATIName(t, caCert, caKey, host, version, []string{host})
+	block, _ := pem.Decode(serverCertPEM)
+	if block == nil {
+		t.Fatal("failed to decode server cert PEM")
+	}
+	serverFP := verify.CertFingerprintFromDER(block.Bytes).String()
+
+	serverTLSCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+	if err != nil {
+		t.Fatalf("load server cert: %v", err)
+	}
+
+	clientCertPEM, clientKeyPEM := generateCertWithATIName(t, caCert, caKey, "client.example.com", version, []string{"client.example.com"})
+	clientCertFile := writeTempFile(t, dir, "client-cert-*.pem", clientCertPEM)
+	clientKeyFile := writeTempFile(t, dir, "client-key-*.pem", clientKeyPEM)
+	caBundleFile := writeTempFile(t, dir, "ca-bundle-*.pem", caCertPEM)
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{serverTLSCert}}
+	server.StartTLS()
+	defer server.Close()
+
+	badgeVersion := models.NewVersion(1, 0, 0)
+	dnsResolver := discoveryMockForHost(host).
+		WithRecords(host, []verify.ATIBadgeRecord{{
+			FormatVersion: "ati-badge1",
+			Version:       &badgeVersion,
+			URL:           badgeURL,
+		}})
+
+	tlResp := &models.TLResponse{
+		Status:        string(models.TLStatusActive),
+		SchemaVersion: "V1",
+		Payload: models.TLPayload{
+			LogID:            "test-log-id",
+			AgentID:          "test-ati-id",
+			AgentName:        "ati://" + version + "." + host,
+			AgentDisplayName: "Test Agent",
+			AgentHost:        host,
+			Version:          version,
+			AgentStatus:      string(models.TLStatusActive),
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint:   serverFP,
+				IdentityCertFingerprint: "SHA256:" + strings.Repeat("0", 64),
+			},
+		},
+	}
+	tlogClient := verify.NewMockTransparencyLogClient().WithTLResponse(badgeURL, tlResp)
+
+	newClient := func(t *testing.T, daneResolver verify.DANEResolver) *AgentClient {
+		t.Helper()
+		client, err := NewAgentClient(
+			WithMTLSCerts(clientCertFile, clientKeyFile, "", caBundleFile),
+			WithDNSResolver(dnsResolver),
+			WithTLogClient(tlogClient),
+			WithAgentDANEResolver(daneResolver),
+			WithTrustLevel(DANEAndBadge),
+		)
+		if err != nil {
+			t.Fatalf("NewAgentClient() error = %v", err)
+		}
+		transport := client.httpClient.Transport.(*http.Transport).Clone()
+		transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return net.Dial(network, server.Listener.Addr().String())
+		}
+		client.httpClient.Transport = transport
+		return client
+	}
+
+	t.Run("no TLSA records fails explicit requirement", func(t *testing.T) {
+		client := newClient(t, verify.NewMockDANEResolver())
+
+		_, err := client.Get(context.Background(), "https://"+host+"/")
+		if err == nil {
+			t.Fatal("expected explicit DANEAndBadge request to fail when DANE has no records, got nil error")
+		}
+		if want := "DANE verification failed"; !contains(err.Error(), want) {
+			t.Errorf("error = %q, want to contain %q", err.Error(), want)
+		}
+	})
+
+	t.Run("records without DNSSEC fail explicit requirement", func(t *testing.T) {
+		daneResolver := verify.NewMockDANEResolver().WithTLSA(host, 443, verify.TLSALookupResult{
+			Found:       true,
+			DNSSECValid: false,
+			Records: []verify.TLSARecord{
+				{Usage: 3, Selector: 0, MatchingType: 1, CertHash: strings.Repeat("a", 64)},
+			},
+		})
+		client := newClient(t, daneResolver)
+
+		_, err := client.Get(context.Background(), "https://"+host+"/")
+		if err == nil {
+			t.Fatal("expected explicit DANEAndBadge request to fail when DANE is skipped (no DNSSEC), got nil error")
+		}
+		if want := "DANE verification failed"; !contains(err.Error(), want) {
+			t.Errorf("error = %q, want to contain %q", err.Error(), want)
+		}
+	})
+
+	t.Run("affirmative TLSA match still succeeds", func(t *testing.T) {
+		certHex := verify.CertFingerprintFromDER(block.Bytes).ToHex()
+		daneResolver := verify.NewMockDANEResolver().WithTLSA(host, 443, verify.TLSALookupResult{
+			Found:       true,
+			DNSSECValid: true,
+			Records: []verify.TLSARecord{
+				{Usage: 3, Selector: 0, MatchingType: 1, CertHash: certHex},
+			},
+		})
+		client := newClient(t, daneResolver)
+
+		resp, err := client.Get(context.Background(), "https://"+host+"/")
+		if err != nil {
+			t.Fatalf("Get() error = %v", err)
+		}
+		defer resp.Body.Close()
+
+		if !resp.VerificationOutcome.DANEVerified {
+			t.Error("DANEVerified should be true")
+		}
+		if resp.VerificationOutcome.AchievedLevel != DANEAndBadge {
+			t.Errorf("AchievedLevel = %v, want DANEAndBadge", resp.VerificationOutcome.AchievedLevel)
+		}
+	})
+}
+
 func TestNewAgentClient_PolicyNone(t *testing.T) {
 	client, err := NewAgentClient(
 		WithTrustLevel(PolicyNone),
@@ -1125,4 +1270,3 @@ func TestWithTrustLevel_InvalidForClient(t *testing.T) {
 		t.Fatal("expected error for invalid trust level, got nil")
 	}
 }
-

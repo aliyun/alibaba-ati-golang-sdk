@@ -114,6 +114,106 @@ func TestCertFingerprint(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("MatchesAny", func(t *testing.T) {
+		fp, _ := ParseCertFingerprint("SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
+		other := "SHA256:0000000000000000000000000000000000000000000000000000000000000000"
+
+		tests := []struct {
+			name       string
+			candidates []string
+			want       bool
+		}{
+			{
+				name:       "matches current (first candidate)",
+				candidates: []string{fp.String(), other},
+				want:       true,
+			},
+			{
+				name:       "matches previous (second candidate)",
+				candidates: []string{other, fp.String()},
+				want:       true,
+			},
+			{
+				name:       "matches neither",
+				candidates: []string{other, other},
+				want:       false,
+			},
+			{
+				name:       "skips empty candidates",
+				candidates: []string{"", fp.String()},
+				want:       true,
+			},
+			{
+				name:       "all empty",
+				candidates: []string{"", ""},
+				want:       false,
+			},
+			{
+				name:       "no candidates",
+				candidates: nil,
+				want:       false,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if got := fp.MatchesAny(tt.candidates...); got != tt.want {
+					t.Errorf("MatchesAny(%v) = %v, want %v", tt.candidates, got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("MatchesWithRenewal", func(t *testing.T) {
+		fp, _ := ParseCertFingerprint("SHA256:e7b64d16f42055d6faf382a43dc35b98be76aba0db145a904b590a034b33b904")
+
+		tests := []struct {
+			name     string
+			current  string
+			previous string
+			want     bool
+		}{
+			{
+				name:     "matches current",
+				current:  fp.String(),
+				previous: "",
+				want:     true,
+			},
+			{
+				name:     "current present, matches previous (renewal window)",
+				current:  "SHA256:0000000000000000000000000000000000000000000000000000000000000000",
+				previous: fp.String(),
+				want:     true,
+			},
+			{
+				name:     "current empty, previous matches: rejected",
+				current:  "",
+				previous: fp.String(),
+				want:     false,
+			},
+			{
+				name:     "current blank (whitespace-only), previous matches: rejected",
+				current:  " \t\r\n",
+				previous: fp.String(),
+				want:     false,
+			},
+			{
+				name:     "current and previous both empty",
+				current:  "",
+				previous: "",
+				want:     false,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if got := fp.MatchesWithRenewal(tt.current, tt.previous); got != tt.want {
+					t.Errorf("MatchesWithRenewal(%q, %q) = %v, want %v", tt.current, tt.previous, got, tt.want)
+				}
+			})
+		}
+	})
 }
 
 // toHexString helper to convert bytes to hex string

@@ -363,7 +363,7 @@ func TestMatchFingerprint_NoMatch(t *testing.T) {
 		Payload: models.TLPayload{
 			Certificates: models.TLCertificates{
 				IdentityCertFingerprint: fpExpected.String(),
-				ServerCertFingerprint:    fpExpected.String(),
+				ServerCertFingerprint:   fpExpected.String(),
 			},
 		},
 	}
@@ -383,7 +383,7 @@ func TestMatchFingerprint_EmptyFingerprints(t *testing.T) {
 		Payload: models.TLPayload{
 			Certificates: models.TLCertificates{
 				IdentityCertFingerprint: "",
-				ServerCertFingerprint:    "",
+				ServerCertFingerprint:   "",
 			},
 		},
 	}
@@ -404,7 +404,7 @@ func TestMatchFingerprint_IdentityEmpty_ServerMatches(t *testing.T) {
 		Payload: models.TLPayload{
 			Certificates: models.TLCertificates{
 				IdentityCertFingerprint: "",
-				ServerCertFingerprint:    fp.String(),
+				ServerCertFingerprint:   fp.String(),
 			},
 		},
 	}
@@ -412,6 +412,145 @@ func TestMatchFingerprint_IdentityEmpty_ServerMatches(t *testing.T) {
 	if !matchFingerprint(tlResp, cert) {
 		t.Error("matchFingerprint() = false, want true when server matches and identity is empty")
 	}
+}
+
+// TestMatchFingerprint_PreviousIdentityMatch verifies that a peer cert whose
+// fingerprint matches the *previous* identity fingerprint (a cert renewal
+// still in its transition window) is accepted even though the current
+// identity fingerprint has already moved on.
+func TestMatchFingerprint_PreviousIdentityMatch(t *testing.T) {
+	oldFP := CertFingerprintFromDER([]byte("old-identity-cert"))
+	newFP := CertFingerprintFromDER([]byte("new-identity-cert"))
+	cert := &CertIdentity{Fingerprint: oldFP}
+
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			Certificates: models.TLCertificates{
+				IdentityCertFingerprint:         newFP.String(),
+				PreviousIdentityCertFingerprint: oldFP.String(),
+			},
+		},
+	}
+
+	if !matchFingerprint(tlResp, cert) {
+		t.Error("matchFingerprint() = false, want true when peer cert matches the previous identity fingerprint")
+	}
+}
+
+// TestMatchFingerprint_PreviousServerMatch mirrors the identity case for the
+// server fingerprint.
+func TestMatchFingerprint_PreviousServerMatch(t *testing.T) {
+	oldFP := CertFingerprintFromDER([]byte("old-server-cert"))
+	newFP := CertFingerprintFromDER([]byte("new-server-cert"))
+	cert := &CertIdentity{Fingerprint: oldFP}
+
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			Certificates: models.TLCertificates{
+				ServerCertFingerprint:         newFP.String(),
+				PreviousServerCertFingerprint: oldFP.String(),
+			},
+		},
+	}
+
+	if !matchFingerprint(tlResp, cert) {
+		t.Error("matchFingerprint() = false, want true when peer cert matches the previous server fingerprint")
+	}
+}
+
+// TestMatchFingerprint_PreviousFingerprintStale verifies that a cert
+// matching neither the current nor the previous fingerprint is still
+// rejected — the renewal window doesn't turn into an open-ended allowlist.
+func TestMatchFingerprint_PreviousFingerprintStale(t *testing.T) {
+	staleFP := CertFingerprintFromDER([]byte("stale-cert"))
+	oldFP := CertFingerprintFromDER([]byte("old-identity-cert"))
+	newFP := CertFingerprintFromDER([]byte("new-identity-cert"))
+	cert := &CertIdentity{Fingerprint: staleFP}
+
+	tlResp := &models.TLResponse{
+		Payload: models.TLPayload{
+			Certificates: models.TLCertificates{
+				IdentityCertFingerprint:         newFP.String(),
+				PreviousIdentityCertFingerprint: oldFP.String(),
+			},
+		},
+	}
+
+	if matchFingerprint(tlResp, cert) {
+		t.Error("matchFingerprint() = true, want false for a cert older than the previous fingerprint")
+	}
+}
+
+// TestMatchFingerprint_PreviousAloneWithoutCurrent_Rejected verifies that a
+// previous fingerprint with its current counterpart empty is treated as an
+// anomalous record, not an in-progress renewal — previous must never stand
+// in for a missing current, for either the identity or server cert pair.
+func TestMatchFingerprint_PreviousAloneWithoutCurrent_Rejected(t *testing.T) {
+	oldFP := CertFingerprintFromDER([]byte("old-cert"))
+	cert := &CertIdentity{Fingerprint: oldFP}
+
+	t.Run("identity previous alone", func(t *testing.T) {
+		tlResp := &models.TLResponse{
+			Payload: models.TLPayload{
+				Certificates: models.TLCertificates{
+					PreviousIdentityCertFingerprint: oldFP.String(),
+				},
+			},
+		}
+		if matchFingerprint(tlResp, cert) {
+			t.Error("matchFingerprint() = true, want false when identityCertFingerprint is empty and only previous is set")
+		}
+	})
+
+	t.Run("server previous alone", func(t *testing.T) {
+		tlResp := &models.TLResponse{
+			Payload: models.TLPayload{
+				Certificates: models.TLCertificates{
+					PreviousServerCertFingerprint: oldFP.String(),
+				},
+			},
+		}
+		if matchFingerprint(tlResp, cert) {
+			t.Error("matchFingerprint() = true, want false when serverCertFingerprint is empty and only previous is set")
+		}
+	})
+}
+
+// TestMatchFingerprint_PreviousAloneWithBlankCurrent_Rejected mirrors
+// TestMatchFingerprint_PreviousAloneWithoutCurrent_Rejected for a current
+// fingerprint that is whitespace-only rather than truly empty: it must be
+// treated the same as missing, for either the identity or server cert pair.
+func TestMatchFingerprint_PreviousAloneWithBlankCurrent_Rejected(t *testing.T) {
+	oldFP := CertFingerprintFromDER([]byte("old-cert"))
+	cert := &CertIdentity{Fingerprint: oldFP}
+
+	t.Run("identity previous alone, blank current", func(t *testing.T) {
+		tlResp := &models.TLResponse{
+			Payload: models.TLPayload{
+				Certificates: models.TLCertificates{
+					IdentityCertFingerprint:         " \t\r\n",
+					PreviousIdentityCertFingerprint: oldFP.String(),
+				},
+			},
+		}
+		if matchFingerprint(tlResp, cert) {
+			t.Error("matchFingerprint() = true, want false when identityCertFingerprint is blank and only previous is set")
+		}
+	})
+
+	t.Run("server previous alone, blank current", func(t *testing.T) {
+		tlResp := &models.TLResponse{
+			Payload: models.TLPayload{
+				Certificates: models.TLCertificates{
+					ServerCertFingerprint:         " \t\r\n",
+					PreviousServerCertFingerprint: oldFP.String(),
+				},
+			},
+		}
+		if matchFingerprint(tlResp, cert) {
+			t.Error("matchFingerprint() = true, want false when serverCertFingerprint is blank and only previous is set")
+		}
+	})
 }
 
 // TestVerifyGold_DNSDiscoveryNotFound verifies that when DNS discovery

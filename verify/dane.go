@@ -119,6 +119,18 @@ func (o *DANEOutcome) IsError() bool {
 	return o.Type == DANELookupError
 }
 
+// IsVerified reports whether DANE affirmatively succeeded: TLSA records were
+// found under a valid DNSSEC chain and one matched the presented certificate.
+// Unlike IsPass, this returns false for the inconclusive cases (DANESkipped,
+// DANENoRecords, DANELookupError) as well as the rejecting ones. Callers that
+// gate an explicitly requested trust level (a REQUIRED policy, in Java SDK
+// terms) must use IsVerified rather than IsPass — only an affirmative match
+// should satisfy a required DANE level; a missing or unvalidated record must
+// not silently pass.
+func (o *DANEOutcome) IsVerified() bool {
+	return o.Type == DANEVerified
+}
+
 // DANEResolver is the interface for DANE/TLSA DNS resolution.
 type DANEResolver interface {
 	// LookupTLSA queries TLSA records for the given FQDN and port (_<port>._tcp.<fqdn>).

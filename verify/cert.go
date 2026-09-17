@@ -125,6 +125,32 @@ func (f CertFingerprint) Matches(other string) bool {
 	return f.bytes == parsed.bytes
 }
 
+// MatchesAny reports whether this fingerprint matches any of the given
+// string representations, skipping empty candidates. Used to accept either
+// a TL record's current or its previous (pre-renewal) fingerprint.
+func (f CertFingerprint) MatchesAny(candidates ...string) bool {
+	for _, c := range candidates {
+		if c != "" && f.Matches(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// MatchesWithRenewal reports whether this fingerprint matches current, or
+// matches previous while current is also present (a renewal-window
+// fallback). A missing current makes previous alone ineligible: current
+// is the authoritative fingerprint, and previous only ever supplements it
+// during a renewal window — a record with previous set but current empty or
+// blank (whitespace-only) is anomalous, not evidence of an in-progress
+// renewal, so it must not match.
+func (f CertFingerprint) MatchesWithRenewal(current, previous string) bool {
+	if strings.TrimSpace(current) == "" {
+		return false
+	}
+	return f.MatchesAny(current, previous)
+}
+
 // Equal returns true if the fingerprints are equal.
 func (f CertFingerprint) Equal(other CertFingerprint) bool {
 	return f.bytes == other.bytes

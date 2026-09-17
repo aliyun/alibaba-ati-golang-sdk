@@ -260,12 +260,12 @@ func TestBuildVerifyConnection_CRL_Reject(t *testing.T) {
 	defer crlServer.Close()
 
 	leafTemplate := &x509.Certificate{
-		SerialNumber: leafSerial,
-		Subject:      pkix.Name{CommonName: "client.example.com"},
-		NotBefore:    time.Now().Add(-1 * time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-		DNSNames:     []string{"client.example.com"},
-		URIs:         []*url.URL{{Scheme: "ati", Host: "client.example.com", Path: "/v1.0.0"}},
+		SerialNumber:          leafSerial,
+		Subject:               pkix.Name{CommonName: "client.example.com"},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		DNSNames:              []string{"client.example.com"},
+		URIs:                  []*url.URL{{Scheme: "ati", Host: "client.example.com", Path: "/v1.0.0"}},
 		CRLDistributionPoints: []string{crlServer.URL},
 	}
 	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
@@ -385,8 +385,10 @@ func generateRevokedCRL(t *testing.T, issuer *x509.Certificate, issuerKey *ecdsa
 }
 
 // TestBuildVerifyConnection_TrustLevelNotAchieved_WithDANE tests that when badge
-// passes but DANE fails (no records + explicit DANEAndBadge), the "not achieved" path fires.
-// This covers server.go line 376.
+// passes but DANE fails (lookup error + explicit DANEAndBadge), verification is
+// rejected. Explicit DANEAndBadge is a REQUIRED policy: any inconclusive or
+// errored DANE outcome (not just an affirmative mismatch) must fail fast rather
+// than silently falling through to a generic "not achieved" check.
 func TestBuildVerifyConnection_TrustLevelNotAchieved_WithDANE(t *testing.T) {
 	caCert, caKey, _, _ := generateCA(t)
 	certPEM, _ := generateCertWithATIName(t, caCert, caKey, "client.example.com", "v1.0.0", []string{"client.example.com"})
@@ -441,10 +443,9 @@ func TestBuildVerifyConnection_TrustLevelNotAchieved_WithDANE(t *testing.T) {
 
 	err := verifyFn(cs)
 	if err == nil {
-		t.Fatal("expected 'trust level not achieved' error")
+		t.Fatal("expected DANE verification failure error")
 	}
-	if !strings.Contains(err.Error(), "not achieved") {
+	if !strings.Contains(err.Error(), "DANE verification failed") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
-
